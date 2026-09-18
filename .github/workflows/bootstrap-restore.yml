@@ -5,6 +5,7 @@ on:
     branches: [ main ]
     paths:
       - 'AMPER-main*.zip'
+      - '.bootstrap/restore-trigger'
 
 permissions:
   contents: write
@@ -40,8 +41,17 @@ jobs:
         run: |
           set -euo pipefail
           git switch -C canonical-bootstrap
-          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
-          cp -a "$AMPER_RESTORE_ROOT"/. .
+
+          # Keep the already-authorized bootstrap workflow unchanged while the
+          # Actions token publishes the recovered source tree. The GitHub
+          # connector replaces it with android-ci.yml after this push succeeds.
+          find . -mindepth 1 -maxdepth 1 ! -name .git ! -name .github -exec rm -rf {} +
+          mkdir -p .github/workflows
+          find .github -mindepth 1 -maxdepth 1 ! -name workflows -exec rm -rf {} +
+          find .github/workflows -mindepth 1 -maxdepth 1 ! -name bootstrap-restore.yml -exec rm -rf {} +
+
+          rsync -a --exclude='.github/workflows/' "$AMPER_RESTORE_ROOT"/. .
+
           cat > RECOVERY_PROVENANCE.md <<'EOF'
           # AMPER recovery provenance
 
@@ -59,6 +69,7 @@ jobs:
           The first fully passing canonical 4-gate CI commit in this repository becomes
           the new canonical lineage root.
           EOF
+
           git config user.name "AMPER Recovery"
           git config user.email "actions@users.noreply.github.com"
           git add -A
