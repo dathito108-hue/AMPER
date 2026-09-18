@@ -54,6 +54,15 @@ reconciled epistemic packet to the independent plan critic.
 Structured entities/state, temporal transitions, causal relations, predictions and counterfactual
 updates.
 
+### Implemented checkpoint — Phase191-195
+Phase191 adds durable structured entity/attribute world state sourced from reconciled semantic
+knowledge. Phase192 records immutable temporal transitions. Phase193 derives bounded causal
+hypotheses with support/contradiction evidence and does not treat correlation as authority.
+Phase194 produces horizon-bound predictions from temporal transitions, causal hypotheses, or an
+explicit persistence prior. Phase195 evaluates later observations as confirmed/disconfirmed/expired,
+calibrates future prediction confidence, isolates raw predictive journal records from generic memory,
+and exposes bounded world evidence to planning and the independent critic.
+
 ### Mega-Phase 196-200 — Skill Genesis
 Turn successful governed episodes into reusable skills with explicit preconditions, effects,
 confidence and composition contracts.

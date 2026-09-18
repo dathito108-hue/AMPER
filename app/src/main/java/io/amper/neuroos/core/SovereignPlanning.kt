@@ -485,7 +485,10 @@ class SovereignPlanCoordinator(
             descriptors = descriptors,
             charBudget = profile.maxPromptChars,
             semanticKnowledge = epistemicContext.semanticKnowledge,
-            epistemicBeliefs = epistemicContext.epistemicBeliefs
+            epistemicBeliefs = epistemicContext.epistemicBeliefs,
+            structuredWorldStates = epistemicContext.structuredWorldStates,
+            worldPredictions = epistemicContext.worldPredictions,
+            causalHypotheses = epistemicContext.causalHypotheses
         )
         val response = critic.infer(
             InferenceRequest(
