@@ -154,6 +154,7 @@ interface PredictiveWorldModel {
 
     fun current(key: WorldStateKey): StructuredWorldState?
     fun queryStates(query: String, limit: Int = 8): List<StructuredWorldState>
+    fun recentStates(limit: Int = 16): List<StructuredWorldState>
     fun transitions(key: WorldStateKey, limit: Int = 32): List<TemporalWorldTransition>
     fun causalHypotheses(effectKey: WorldStateKey, limit: Int = 8): List<CausalWorldHypothesis>
 
@@ -248,6 +249,25 @@ class MemoryBackedPredictiveWorldModel(
         require(limit >= 0)
         if (limit == 0) return emptyList()
         return memory.recall(query, (limit * 12).coerceAtLeast(64))
+            .asSequence()
+            .filter { it.kind == STATE_KIND }
+            .mapNotNull(PredictiveWorldCodec::decodeState)
+            .groupBy { it.key.canonical }
+            .values
+            .mapNotNull { it.maxWithOrNull(STATE_ORDER) }
+            .sortedWith(
+                compareByDescending<StructuredWorldState> { it.observedAtEpochMs }
+                    .thenByDescending { it.confidence }
+                    .thenBy { it.key.canonical }
+            )
+            .take(limit)
+            .toList()
+    }
+
+    override fun recentStates(limit: Int): List<StructuredWorldState> {
+        require(limit >= 0)
+        if (limit == 0) return emptyList()
+        return memory.recall("", MAX_RECORD_SCAN)
             .asSequence()
             .filter { it.kind == STATE_KIND }
             .mapNotNull(PredictiveWorldCodec::decodeState)
