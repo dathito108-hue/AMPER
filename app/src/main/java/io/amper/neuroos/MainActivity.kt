@@ -249,7 +249,8 @@ class MainActivity : ComponentActivity() {
                         inference = inferencePort,
                         actions = actionLoop,
                         advertisedCapabilities = assistantCapabilities,
-                        maxOutputTokens = 256
+                        maxOutputTokens = 256,
+                        criticInference = inferencePort
                     ),
                     store = runtime.plans
                 )
