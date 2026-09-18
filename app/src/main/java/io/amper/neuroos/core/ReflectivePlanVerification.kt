@@ -212,7 +212,10 @@ object ReflectivePlanCriticPrompt {
         descriptors: Collection<ToolDescriptor>,
         charBudget: Int,
         semanticKnowledge: List<SemanticKnowledgeEntry> = emptyList(),
-        epistemicBeliefs: List<EpistemicAssessment> = emptyList()
+        epistemicBeliefs: List<EpistemicAssessment> = emptyList(),
+        structuredWorldStates: List<StructuredWorldState> = emptyList(),
+        worldPredictions: List<WorldPrediction> = emptyList(),
+        causalHypotheses: List<CausalWorldHypothesis> = emptyList()
     ): String {
         require(userGoal.isNotBlank())
         require(charBudget >= ConversationInferenceProfile.MIN_PROMPT_CHARS)
@@ -322,6 +325,39 @@ object ReflectivePlanCriticPrompt {
                         sanitizeData(value, 96) +
                         " status=" + belief.status.name +
                         " planning_eligible=" + belief.planningEligible +
+                        " authority=false"
+                )
+            }
+            structuredWorldStates.take(4).forEach { state ->
+                add(
+                    "WORLD_STATE " +
+                        sanitizeData(state.key.canonical, 128) + "=" +
+                        sanitizeData(state.value ?: "unknown", 96) +
+                        " status=" + state.status.name +
+                        " confidence=" + "%.3f".format(java.util.Locale.US, state.confidence) +
+                        " authority=false"
+                )
+            }
+            worldPredictions.take(4).forEach { prediction ->
+                add(
+                    "WORLD_PREDICTION " +
+                        sanitizeData(prediction.targetKey.canonical, 128) + "=" +
+                        sanitizeData(prediction.predictedValue, 96) +
+                        " basis=" + prediction.basis.name +
+                        " confidence=" + "%.3f".format(java.util.Locale.US, prediction.confidence) +
+                        " authority=false"
+                )
+            }
+            causalHypotheses.take(4).forEach { hypothesis ->
+                add(
+                    "CAUSAL_HYPOTHESIS " +
+                        sanitizeData(hypothesis.causeKey.canonical, 96) + "=" +
+                        sanitizeData(hypothesis.causeValue, 64) + " -> " +
+                        sanitizeData(hypothesis.effectKey.canonical, 96) + "=" +
+                        sanitizeData(hypothesis.effectValue, 64) +
+                        " support=" + hypothesis.support +
+                        " contradictions=" + hypothesis.contradictions +
+                        " confidence=" + "%.3f".format(java.util.Locale.US, hypothesis.confidence) +
                         " authority=false"
                 )
             }
