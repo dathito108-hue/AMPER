@@ -143,7 +143,11 @@ class MemoryBackedEpistemicState(
             ?.value
         val totalWeight = scored.values.sum().coerceAtLeast(0.000001)
         val preferredWeight = preferredKey?.let(scored::get) ?: 0.0
-        val resolvedConfidence = (preferredWeight / totalWeight).coerceIn(0.0, 1.0)
+        val dominance = (preferredWeight / totalWeight).coerceIn(0.0, 1.0)
+        val preferredEvidenceConfidence = preferredEntries
+            .map { (claim, _) -> claim.confidence }
+            .average()
+        val resolvedConfidence = (preferredEvidenceConfidence * dominance).coerceIn(0.0, 1.0)
         val status = when {
             clock() - newest > staleAfterMs -> EpistemicStatus.STALE
             byValue.size > 1 -> EpistemicStatus.CONTESTED
