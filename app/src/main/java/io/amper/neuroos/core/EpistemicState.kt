@@ -100,7 +100,8 @@ interface EpistemicState {
 class MemoryBackedEpistemicState(
     private val memory: MemoryOs,
     private val clock: () -> Long = System::currentTimeMillis,
-    private val staleAfterMs: Long = DEFAULT_STALE_AFTER_MS
+    private val staleAfterMs: Long = DEFAULT_STALE_AFTER_MS,
+    private val semantic: SemanticKnowledgeStore? = null
 ) : EpistemicState {
     init {
         require(staleAfterMs > 0L)
@@ -114,6 +115,13 @@ class MemoryBackedEpistemicState(
             provenance = claim.provenance
         )
         memory.remember(record)
+        // Semantic memory is a derived projection. Failure to refresh it must not destroy the
+        // immutable primary epistemic observation that was already persisted above.
+        semantic?.let { sink ->
+            runCatching {
+                assess(claim.subject, claim.predicate)?.let(sink::promote)
+            }
+        }
         return record.id
     }
 
