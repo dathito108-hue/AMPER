@@ -144,6 +144,8 @@ class ReflectivePlanVerificationTest {
         assertTrue(criticRequest.prompt.contains("<EPISTEMIC_CONTEXT>"))
         assertTrue(criticRequest.prompt.contains("SEMANTIC governed value=one"))
         assertTrue(criticRequest.prompt.contains("BELIEF governed value=one status=SUPPORTED"))
+        assertTrue(criticRequest.prompt.contains("WORLD_STATE governed::value=one status=KNOWN"))
+        assertTrue(criticRequest.prompt.contains("WORLD_PREDICTION governed::value=one"))
         assertFalse(criticRequest.prompt.contains("payload="))
         assertEquals("one", plan.steps.single().input)
         assertEquals(ToolId("phase185-provider"), plan.steps.single().boundToolId)
