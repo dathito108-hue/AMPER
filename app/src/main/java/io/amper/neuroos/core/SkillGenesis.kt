@@ -389,16 +389,25 @@ class MemoryBackedSkillGenesisModel(
     ): List<SkillComposition> {
         require(limit in 0..MAX_COMPOSITIONS)
         if (limit == 0) return emptyList()
-        val skills = guidance(
-            goal = goal,
-            allowedCapabilities = allowedCapabilities,
-            descriptors = descriptors,
-            worldStates = worldStates,
-            limit = MAX_GUIDANCE
-        ).map { it.contract }
+        val liveCapabilities = descriptors.map { it.capability }.toSet()
+        val current = currentConditions(worldStates)
+        val active = recent(SKILL_LOOKBACK)
+            .filter { it.maturity == SkillMaturity.ACTIVE }
+            .filter { skill ->
+                skill.signature.capabilities.all {
+                    it in allowedCapabilities && it in liveCapabilities
+                }
+            }
+        val firstSkills = active.filter { skill ->
+            skill.preconditions.all { condition ->
+                current[condition.key.canonical]
+                    ?.let { normalize(it) == normalize(condition.value) }
+                    ?: false
+            }
+        }
 
-        return skills.flatMap { first ->
-            skills.mapNotNull { second ->
+        return firstSkills.flatMap { first ->
+            active.mapNotNull { second ->
                 if (first.id == second.id || second.preconditions.isEmpty()) return@mapNotNull null
                 val firstEffects = first.effects.associate { it.key.canonical to normalize(it.value) }
                 if (!second.preconditions.all { condition ->
@@ -408,13 +417,22 @@ class MemoryBackedSkillGenesisModel(
 
                 val capabilities = first.signature.capabilities + second.signature.capabilities
                 if (capabilities.size > TitanPlanProtocol.MAX_STEPS) return@mapNotNull null
+                val relevance = maxOf(
+                    relevance(first, terms(goal), descriptors.associate { it.capability to terms(
+                        it.capability.value + " " + it.name + " " + it.inputContract.description
+                    ) }),
+                    relevance(second, terms(goal), descriptors.associate { it.capability to terms(
+                        it.capability.value + " " + it.name + " " + it.inputContract.description
+                    ) })
+                )
                 SkillComposition(
                     first = first,
                     second = second,
                     capabilities = capabilities,
                     preconditions = first.preconditions,
                     effects = second.effects,
-                    confidence = minOf(first.confidence, second.confidence)
+                    confidence = (minOf(first.confidence, second.confidence) * (0.85 + relevance * 0.15))
+                        .coerceIn(0.0, 1.0)
                 )
             }
         }
