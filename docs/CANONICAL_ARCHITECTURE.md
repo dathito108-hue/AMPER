@@ -28,7 +28,8 @@ AMPER is one sovereign identity with one cognitive kernel. Models are replaceabl
 - Kernel tick and workspace event plane.
 - Stable self identity/invariants.
 - Root + intent-aligned goal system.
-- World observation model plus provenance-backed epistemic state for supported, uncertain, contested and stale beliefs.
+- World observation model plus provenance-backed epistemic state for supported, uncertain, contested, reconciled and stale beliefs.
+- Durable semantic knowledge with evidence lineage, immutable supersession/retraction, and planning-context isolation from raw epistemic journal records.
 - Persistent append-only memory journal with provenance replay and deletion tombstones.
 - Dynamic Agent Fabric with capability routing, resource gating and explicit ephemeral leases.
 - Generic Capability Registry plus model routing contract and Titan Cortex placeholder.
