@@ -316,8 +316,8 @@ class MemoryBackedPredictiveWorldModel(
             }
             if (occurrences.isEmpty()) return@mapNotNull null
 
-            val matchedLags = occurrences.mapNotNull { cause ->
-                effects.asSequence()
+            val evidenceByOccurrence = occurrences.map { cause ->
+                val lag = effects.asSequence()
                     .filter {
                         normalize(it.toValue.orEmpty()) == normalize(pattern.effectValue) &&
                             it.observedAtEpochMs > cause.observedAtEpochMs
@@ -325,9 +325,14 @@ class MemoryBackedPredictiveWorldModel(
                     .map { it.observedAtEpochMs - cause.observedAtEpochMs }
                     .filter { it <= MAX_CAUSAL_LAG_MS }
                     .minOrNull()
+                cause to lag
             }
+            val matchedLags = evidenceByOccurrence.mapNotNull { it.second }
             val support = matchedLags.size
-            val contradictions = occurrences.size - support
+            val now = clock()
+            val contradictions = evidenceByOccurrence.count { (cause, lag) ->
+                lag == null && now - cause.observedAtEpochMs >= MAX_CAUSAL_LAG_MS
+            }
             if (support < MIN_CAUSAL_SUPPORT) return@mapNotNull null
             val confidence = (support + 1.0) / (support + contradictions + 2.0)
             CausalWorldHypothesis(
