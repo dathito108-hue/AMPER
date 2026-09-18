@@ -766,3 +766,6 @@ class SovereignPlanCoordinator(
         SovereignPromptData.bounded(value, limit)
 
     companion object {
+        private const val MIN_GROUNDED_CONTEXT_CHARS = 1024
+    }
+}
