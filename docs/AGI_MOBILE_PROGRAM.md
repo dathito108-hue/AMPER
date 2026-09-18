@@ -94,6 +94,17 @@ approval remain authoritative.
 ### Mega-Phase 206-210 — Autonomous Learning
 Competence maps, weakness detection, active curriculum generation and evidence-driven practice.
 
+### Implemented checkpoint — Phase206-210
+Phase206 derives bounded weakness signals from real governed execution competence plus skill/transfer
+evidence, while excluding authority denial and environment/protocol states from execution-skill
+failure. Phase207 generates a bounded synthetic curriculum over the current live capability surface
+without persisting raw user goals, tool inputs or outputs. Phase208 performs zero-tool plan-contract
+practice: model output is parsed through TitanPlanProtocol against the live ToolDescriptor and never
+sent to ToolFabric. Phase209 stores practice competence separately from real execution competence, so
+practice PASS cannot manufacture execution success, skill credit, approval or authority. Phase210
+adds a one-cycle autonomous practice API with exactly one inference at most and no unbounded
+self-learning loop.
+
 ### Mega-Phase 211-230 — AMPER Native Model
 Dataset/curriculum pipeline, model contracts, AMPER-owned student checkpoints, distillation,
 multimodal adapters and on-device inference integration.
