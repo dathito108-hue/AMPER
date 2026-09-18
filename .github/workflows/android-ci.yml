@@ -2,19 +2,58 @@ name: Android CI
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main, canonical-bootstrap ]
+    inputs:
+      mode:
+        description: Verification depth
+        required: true
+        default: full
+        type: choice
+        options:
+          - fast
+          - full
   pull_request:
     branches: [ main ]
 
 permissions:
   contents: read
 
+concurrency:
+  group: android-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
     runs-on: ubuntu-latest
+    outputs:
+      native_changed: ${{ steps.changes.outputs.native_changed }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Detect native/build impact
+        id: changes
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MODE: ${{ inputs.mode }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" && "$MODE" == "full" ]]; then
+            echo "native_changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            echo "native_changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git fetch --no-tags origin "$BASE_SHA" --depth=1
+          CHANGED="$(git diff --name-only "$BASE_SHA" "$GITHUB_SHA")"
+          printf "%s\n" "$CHANGED"
+          if printf "%s\n" "$CHANGED" | grep -Eq '^(app/src/main/cpp/|app/src/main/jni/|.*CMakeLists\.txt$|app/build\.gradle|build\.gradle|settings\.gradle|gradle/|\.github/workflows/)'; then
+            echo "native_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "native_changed=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -27,11 +66,14 @@ jobs:
       - name: Build canonical debug APK
         run: gradle :app:assembleDebug --stacktrace
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'full'
         with:
           name: AMPER-canonical-debug
           path: app/build/outputs/apk/debug/app-debug.apk
 
   optional-llama-aar:
+    needs: verify
+    if: needs.verify.outputs.native_changed == 'true'
     continue-on-error: true
     runs-on: ubuntu-latest
     steps:
@@ -53,12 +95,14 @@ jobs:
           grep -q 'lib/arm64-v8a/libllama.so' /tmp/amper-apk-files.txt
           grep -Eq 'lib/arm64-v8a/libggml(-base|-cpu)?\.so' /tmp/amper-apk-files.txt
       - uses: actions/upload-artifact@v4
-        if: success()
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'full'
         with:
           name: AMPER-llama-aar-debug
           path: app/build/outputs/apk/debug/app-debug.apk
 
   native-mtmd-arm64:
+    needs: verify
+    if: needs.verify.outputs.native_changed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -87,11 +131,14 @@ jobs:
           grep -q 'lib/arm64-v8a/libllama.so' /tmp/amper-mtmd-apk-files.txt
           grep -Eq 'lib/arm64-v8a/libggml(-base|-cpu)?\.so' /tmp/amper-mtmd-apk-files.txt
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'full'
         with:
           name: AMPER-mtmd-native-arm64-debug
           path: app/build/outputs/apk/debug/app-debug.apk
 
   native-mtmd-vulkan-arm64:
+    needs: verify
+    if: needs.verify.outputs.native_changed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 55
     steps:
@@ -134,6 +181,7 @@ jobs:
           grep -Eq 'lib/arm64-v8a/libggml(-base|-cpu)?\.so' /tmp/amper-mtmd-vulkan-apk-files.txt
           grep -q 'lib/arm64-v8a/libggml-vulkan.so' /tmp/amper-mtmd-vulkan-apk-files.txt
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'full'
         with:
           name: AMPER-mtmd-vulkan-arm64-debug
           path: app/build/outputs/apk/debug/app-debug.apk
