@@ -2,12 +2,22 @@ package io.amper.neuroos.core
 
 import java.nio.charset.StandardCharsets
 import java.util.Base64
+import kotlin.math.max
 
 enum class EpistemicStatus {
     SUPPORTED,
     UNCERTAIN,
     CONTESTED,
+    RECONCILED,
     STALE
+}
+
+enum class EpistemicResolutionReason {
+    CONSISTENT_EVIDENCE,
+    LOW_CONFIDENCE,
+    UNRESOLVED_CONFLICT,
+    INDEPENDENT_CORROBORATION,
+    EXPIRED_EVIDENCE
 }
 
 data class EpistemicClaim(
@@ -35,6 +45,10 @@ data class EpistemicAssessment(
     val competingValues: Set<String>,
     val evidenceIds: List<MemoryId>,
     val newestObservedAtEpochMs: Long,
+    val resolutionReason: EpistemicResolutionReason = EpistemicResolutionReason.CONSISTENT_EVIDENCE,
+    val independentProducerCount: Int = 1,
+    val winningSupport: Double = 1.0,
+    val competingSupport: Double = 0.0,
     /**
      * Epistemic evidence is descriptive data only. It can never grant tool authority,
      * approve a side effect, or widen the execution boundary.
@@ -48,7 +62,13 @@ data class EpistemicAssessment(
         require(evidenceCount > 0)
         require(competingValues.isNotEmpty())
         require(evidenceIds.isNotEmpty())
+        require(independentProducerCount > 0)
+        require(winningSupport >= 0.0)
+        require(competingSupport >= 0.0)
         require(!authorityBearing) { "epistemic evidence must never become execution authority" }
+        require(status != EpistemicStatus.RECONCILED || competingValues.size > 1) {
+            "reconciled status requires retained competing evidence"
+        }
     }
 }
 
@@ -59,13 +79,18 @@ interface EpistemicState {
 }
 
 /**
- * Phase186 epistemic foundation.
+ * Phase186-187 epistemic state and contradiction reconciliation.
  *
- * Claims remain immutable provenance-bearing evidence in Memory OS. Resolution is deterministic:
- * identical subject/predicate claims support one belief value, conflicting values become CONTESTED,
- * low-confidence evidence remains UNCERTAIN and sufficiently old evidence becomes STALE.
+ * Claims remain immutable provenance-bearing evidence in Memory OS. Phase187 adds bounded,
+ * deterministic reconciliation:
+ * - evidence decays with freshness instead of remaining equally current forever;
+ * - repeated claims from one producer are capped to that producer's strongest claim per value;
+ * - contradictory beliefs are RECONCILED only with a strong weighted margin and corroboration from
+ *   multiple independent producers;
+ * - unresolved conflicts remain CONTESTED and all competing evidence is retained.
  *
- * This state is deliberately non-authoritative: no assessment can grant permission or execute tools.
+ * Reconciliation is descriptive only. It cannot grant permission, approve side effects, execute
+ * tools, or expand the external authority boundary.
  */
 class MemoryBackedEpistemicState(
     private val memory: MemoryOs,
@@ -128,33 +153,90 @@ class MemoryBackedEpistemicState(
 
     private fun resolve(evidence: List<Pair<EpistemicClaim, MemoryRecord>>): EpistemicAssessment? {
         if (evidence.isEmpty()) return null
-        val newest = evidence.maxOf { (claim, _) -> claim.provenance.observedAtEpochMs }
-        val byValue = evidence.groupBy { (claim, _) -> normalize(claim.value) }
-        val scored = byValue.mapValues { (_, entries) ->
-            entries.sumOf { (claim, _) -> claim.confidence }
+
+        val now = clock()
+        val weighted = evidence.map { (claim, record) ->
+            WeightedEvidence(
+                claim = claim,
+                record = record,
+                freshness = freshness(now, claim.provenance.observedAtEpochMs),
+                weight = evidenceWeight(claim, now)
+            )
         }
-        val preferredKey = scored.maxWithOrNull(
-            compareBy<Map.Entry<String, Double>> { it.value }.thenBy { it.key }
-        )?.key
-        val preferredEntries = preferredKey?.let(byValue::get).orEmpty()
+        val newest = weighted.maxOf { it.claim.provenance.observedAtEpochMs }
+        val allStale = weighted.all {
+            ageMs(now, it.claim.provenance.observedAtEpochMs) > staleAfterMs
+        }
+
+        // One producer cannot dominate reconciliation merely by repeating the same value.
+        val producerCapped = weighted
+            .groupBy { normalize(it.claim.value) to normalizeProducer(it.claim.provenance.producer) }
+            .values
+            .map { sameProducerValue ->
+                sameProducerValue.maxWithOrNull(
+                    compareBy<WeightedEvidence> { it.weight }
+                        .thenBy { it.claim.provenance.observedAtEpochMs }
+                )!!
+            }
+
+        val byValue = producerCapped.groupBy { normalize(it.claim.value) }
+        val support = byValue.mapValues { (_, entries) -> entries.sumOf { it.weight } }
+        val ranked = support.entries.sortedWith(
+            compareByDescending<Map.Entry<String, Double>> { it.value }
+                .thenBy { it.key }
+        )
+        val preferredKey = ranked.first().key
+        val preferredEntries = byValue.getValue(preferredKey)
         val preferredValue = preferredEntries
-            .maxByOrNull { (claim, _) -> claim.provenance.observedAtEpochMs }
-            ?.first
+            .maxByOrNull { it.claim.provenance.observedAtEpochMs }
+            ?.claim
             ?.value
-        val totalWeight = scored.values.sum().coerceAtLeast(0.000001)
-        val preferredWeight = preferredKey?.let(scored::get) ?: 0.0
-        val dominance = (preferredWeight / totalWeight).coerceIn(0.0, 1.0)
+        val winningSupport = ranked.first().value
+        val competingSupport = ranked.drop(1).sumOf { it.value }
+        val totalSupport = max(winningSupport + competingSupport, MIN_WEIGHT)
+        val dominance = (winningSupport / totalSupport).coerceIn(0.0, 1.0)
+        val runnerUpSupport = ranked.getOrNull(1)?.value ?: 0.0
+        val margin = ((winningSupport - runnerUpSupport) / totalSupport).coerceIn(0.0, 1.0)
+        val winningProducerCount = preferredEntries
+            .map { normalizeProducer(it.claim.provenance.producer) }
+            .distinct()
+            .size
         val preferredEvidenceConfidence = preferredEntries
-            .map { (claim, _) -> claim.confidence }
+            .map { evidenceConfidence(it.claim) }
             .average()
         val resolvedConfidence = (preferredEvidenceConfidence * dominance).coerceIn(0.0, 1.0)
-        val status = when {
-            clock() - newest > staleAfterMs -> EpistemicStatus.STALE
-            byValue.size > 1 -> EpistemicStatus.CONTESTED
-            preferredEntries.maxOf { (claim, _) -> claim.confidence } < MIN_SUPPORTED_CONFIDENCE ->
-                EpistemicStatus.UNCERTAIN
-            else -> EpistemicStatus.SUPPORTED
+        val hasFreshWinner = preferredEntries.any {
+            ageMs(now, it.claim.provenance.observedAtEpochMs) <= staleAfterMs
         }
+
+        val status: EpistemicStatus
+        val reason: EpistemicResolutionReason
+        when {
+            allStale -> {
+                status = EpistemicStatus.STALE
+                reason = EpistemicResolutionReason.EXPIRED_EVIDENCE
+            }
+            byValue.size == 1 && preferredEvidenceConfidence < MIN_SUPPORTED_CONFIDENCE -> {
+                status = EpistemicStatus.UNCERTAIN
+                reason = EpistemicResolutionReason.LOW_CONFIDENCE
+            }
+            byValue.size == 1 -> {
+                status = EpistemicStatus.SUPPORTED
+                reason = EpistemicResolutionReason.CONSISTENT_EVIDENCE
+            }
+            winningProducerCount >= MIN_RECONCILIATION_PRODUCERS &&
+                dominance >= MIN_RECONCILIATION_DOMINANCE &&
+                margin >= MIN_RECONCILIATION_MARGIN &&
+                hasFreshWinner -> {
+                status = EpistemicStatus.RECONCILED
+                reason = EpistemicResolutionReason.INDEPENDENT_CORROBORATION
+            }
+            else -> {
+                status = EpistemicStatus.CONTESTED
+                reason = EpistemicResolutionReason.UNRESOLVED_CONFLICT
+            }
+        }
+
         val exemplar = evidence.first().first
         return EpistemicAssessment(
             subject = exemplar.subject,
@@ -163,27 +245,61 @@ class MemoryBackedEpistemicState(
             status = status,
             confidence = resolvedConfidence,
             evidenceCount = evidence.size,
-            competingValues = byValue.values
+            competingValues = weighted
+                .groupBy { normalize(it.claim.value) }
+                .values
                 .mapNotNull { entries ->
-                    entries.maxByOrNull { (claim, _) -> claim.provenance.observedAtEpochMs }?.first?.value
+                    entries.maxByOrNull { it.claim.provenance.observedAtEpochMs }?.claim?.value
                 }
                 .toSortedSet(),
-            evidenceIds = evidence.map { it.second.id }
-                .sortedBy { it.value },
+            evidenceIds = evidence.map { it.second.id }.sortedBy { it.value },
             newestObservedAtEpochMs = newest,
+            resolutionReason = reason,
+            independentProducerCount = winningProducerCount,
+            winningSupport = winningSupport,
+            competingSupport = competingSupport,
             authorityBearing = false
         )
     }
+
+    private fun freshness(now: Long, observedAt: Long): Double {
+        val age = ageMs(now, observedAt)
+        if (age <= 0L) return 1.0
+        return (1.0 - age.toDouble() / staleAfterMs.toDouble())
+            .coerceIn(MIN_FRESHNESS_WEIGHT, 1.0)
+    }
+
+    private fun evidenceWeight(claim: EpistemicClaim, now: Long): Double =
+        evidenceConfidence(claim) * freshness(now, claim.provenance.observedAtEpochMs)
+
+    private fun evidenceConfidence(claim: EpistemicClaim): Double =
+        ((claim.confidence + claim.provenance.confidence) / 2.0).coerceIn(0.0, 1.0)
+
+    private fun ageMs(now: Long, observedAt: Long): Long =
+        (now - observedAt).coerceAtLeast(0L)
 
     private fun decode(record: MemoryRecord): Pair<EpistemicClaim, MemoryRecord>? =
         EpistemicClaimCodec.decode(record)?.let { it to record }
 
     private fun normalize(value: String): String = value.trim().lowercase()
+    private fun normalizeProducer(value: String): String = value.trim().lowercase()
+
+    private data class WeightedEvidence(
+        val claim: EpistemicClaim,
+        val record: MemoryRecord,
+        val freshness: Double,
+        val weight: Double
+    )
 
     companion object {
         const val CLAIM_KIND = "epistemic-claim"
         const val DEFAULT_STALE_AFTER_MS = 7L * 24L * 60L * 60L * 1000L
         private const val MIN_SUPPORTED_CONFIDENCE = 0.60
+        private const val MIN_RECONCILIATION_PRODUCERS = 2
+        private const val MIN_RECONCILIATION_DOMINANCE = 0.72
+        private const val MIN_RECONCILIATION_MARGIN = 0.35
+        private const val MIN_FRESHNESS_WEIGHT = 0.10
+        private const val MIN_WEIGHT = 0.000001
         private const val MAX_EVIDENCE = 128
     }
 }
