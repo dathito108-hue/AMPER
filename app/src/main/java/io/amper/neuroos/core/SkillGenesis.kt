@@ -472,14 +472,27 @@ class MemoryBackedSkillGenesisModel(
     }
 
     private fun classify(plan: SovereignPlan): SkillObservationOutcome? {
-        val statuses = plan.steps.map { it.status }
-        if (statuses.all { it == PlanStepStatus.EXECUTED }) {
-            return SkillObservationOutcome.SUCCESS
+        val exactExecuted = plan.steps.all { step ->
+            val outcome = step.outcome
+            step.status == PlanStepStatus.EXECUTED &&
+                outcome?.status == ActionStatus.EXECUTED &&
+                outcome.toolId == step.boundToolId &&
+                outcome.sideEffect == step.boundSideEffect &&
+                outcome.proposal?.requestId == step.requestId &&
+                outcome.proposal.capability == step.capability
         }
-        if (PlanStepStatus.FAILED in statuses) {
-            return SkillObservationOutcome.EXECUTION_FAILURE
+        if (exactExecuted) return SkillObservationOutcome.SUCCESS
+
+        val executionFailure = plan.steps.any { step ->
+            val outcome = step.outcome
+            step.status == PlanStepStatus.FAILED &&
+                outcome?.status == ActionStatus.FAILED &&
+                outcome.toolId == step.boundToolId &&
+                outcome.sideEffect == step.boundSideEffect &&
+                outcome.proposal?.requestId == step.requestId &&
+                outcome.proposal.capability == step.capability
         }
-        return null
+        return if (executionFailure) SkillObservationOutcome.EXECUTION_FAILURE else null
     }
 
     private fun conditions(states: List<StructuredWorldState>): List<SkillStateCondition> =
