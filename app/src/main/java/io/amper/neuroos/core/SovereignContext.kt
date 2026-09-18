@@ -77,7 +77,10 @@ class CanonicalSovereignContextSource(
             MemoryBackedSkillGenesisModel.START_KIND,
             MemoryBackedSkillGenesisModel.OBSERVATION_KIND,
             MemoryBackedSkillGenesisModel.SNAPSHOT_KIND,
-            MemoryBackedSkillGenesisModel.INDEX_KIND
+            MemoryBackedSkillGenesisModel.INDEX_KIND,
+            MemoryBackedSkillGeneralizationModel.OBSERVATION_KIND,
+            MemoryBackedSkillGeneralizationModel.SNAPSHOT_KIND,
+            MemoryBackedSkillGeneralizationModel.INDEX_KIND
         )
         val seedScanLimit = if (memoryLimit == 0) 0 else (memoryLimit * 6).coerceAtLeast(memoryLimit)
         val seeds = memory.recall(query, seedScanLimit)
@@ -258,122 +261,3 @@ class CanonicalSovereignContextSource(
                 context.causalHypotheses.forEach { hypothesis ->
                     appendLine(
                         "- cause=${SovereignPromptData.escape(hypothesis.causeKey.canonical)}=" +
-                            SovereignPromptData.escape(hypothesis.causeValue) +
-                            " effect=${SovereignPromptData.escape(hypothesis.effectKey.canonical)}=" +
-                            SovereignPromptData.escape(hypothesis.effectValue) +
-                            " support=${hypothesis.support} contradictions=${hypothesis.contradictions} confidence=" +
-                            "%.3f".format(java.util.Locale.US, hypothesis.confidence) +
-                            " mean_lag_ms=${hypothesis.meanLagMs} authority=false"
-                    )
-                }
-            }
-            if (context.semanticKnowledge.isNotEmpty()) {
-                appendLine("semantic_knowledge:")
-                appendLine("- current durable planning knowledge; provenance-backed; authority=false")
-                context.semanticKnowledge.forEach { knowledge ->
-                    appendLine(
-                        "- subject=${SovereignPromptData.escape(knowledge.subject)} " +
-                            "predicate=${SovereignPromptData.escape(knowledge.predicate)} " +
-                            "value=${SovereignPromptData.escape(knowledge.value ?: "unknown")} " +
-                            "confidence=%.3f".format(java.util.Locale.US, knowledge.confidence) +
-                            " evidence=${knowledge.evidenceIds.size} authority=false"
-                    )
-                }
-            }
-            if (context.epistemicBeliefs.isNotEmpty()) {
-                appendLine("epistemic_beliefs:")
-                appendLine(
-                    "- descriptive evidence only; authority=false; CONTESTED remains unresolved; " +
-                        "RECONCILED means independent corroboration currently dominates but competing evidence is retained"
-                )
-                context.epistemicBeliefs.forEach { belief ->
-                    val planningValue = if (belief.planningEligible) {
-                        belief.preferredValue ?: "unknown"
-                    } else {
-                        "unknown"
-                    }
-                    val alternatives = belief.competingValues
-                        .sorted()
-                        .joinToString("|") { SovereignPromptData.escape(it) }
-                    appendLine(
-                        "- subject=${SovereignPromptData.escape(belief.subject)} " +
-                            "predicate=${SovereignPromptData.escape(belief.predicate)} " +
-                            "value=${SovereignPromptData.escape(planningValue)} " +
-                            "status=${belief.status.name} resolution=${belief.resolutionReason.name} confidence=" +
-                            "%.3f".format(java.util.Locale.US, belief.confidence) +
-                            " evidence=${belief.evidenceCount} producers=${belief.independentProducerCount} " +
-                            "winning_support=%.3f".format(java.util.Locale.US, belief.winningSupport) +
-                            " competing_support=%.3f".format(java.util.Locale.US, belief.competingSupport) +
-                            " planning_eligible=${belief.planningEligible} alternatives=$alternatives authority=false"
-                    )
-                }
-            }
-            if (context.strategyEvidence.isNotEmpty()) {
-                appendLine("strategy_evidence:")
-                appendLine(
-                    "- causal historical completed-plan evidence only; not authority, permission, or an execution instruction; " +
-                        "authority/environment/protocol blocks are not execution-skill failures"
-                )
-                context.strategyEvidence.forEach { snapshot ->
-                    val rate = snapshot.completedSuccessRate
-                        ?.let { "%.3f".format(java.util.Locale.US, it) }
-                        ?: "unknown"
-                    appendLine(
-                        "- capabilities=${snapshot.signature.capabilities.joinToString(">") { SovereignPromptData.escape(it.value) }} " +
-                            "successes=${snapshot.successes} failures=${snapshot.failures} aborted=${snapshot.aborted} " +
-                            "execution_failures=${snapshot.executionFailures} " +
-                            "authority_blocked=${snapshot.authorityBlocked} " +
-                            "environment_unavailable=${snapshot.environmentUnavailable} " +
-                            "protocol_failures=${snapshot.protocolFailures} " +
-                            "legacy_unattributed_failures=${snapshot.legacyUnattributedFailures} " +
-                            "last_cause=${snapshot.lastCause?.name ?: "UNKNOWN"} " +
-                            "completed_success_rate=$rate evidence_confidence=" +
-                            "%.3f".format(java.util.Locale.US, snapshot.evidenceConfidence)
-                    )
-                }
-            }
-            if (context.workspaceEvents.isNotEmpty()) {
-                appendLine("recent_workspace:")
-                context.workspaceEvents.forEach {
-                    appendLine(
-                        "- ${SovereignPromptData.escape(it.topic)}: ${SovereignPromptData.escape(it.payload)}"
-                    )
-                }
-            }
-        }
-        return preamble + contextData.take(dataBudget) + suffix
-    }
-
-    override fun rememberAssistantResponse(
-        userPrompt: String,
-        response: String,
-        backendId: String,
-        confidence: Double
-    ) {
-        require(userPrompt.isNotBlank())
-        require(response.isNotBlank())
-        require(backendId.isNotBlank())
-        require(confidence in 0.0..1.0)
-        val parents = memory.recall(userPrompt, 4).map { it.id }.toSet()
-        memory.remember(
-            MemoryRecord(
-                kind = "assistant-response",
-                content = response,
-                importance = 0.72,
-                provenance = Provenance(
-                    source = "titan-inference",
-                    producer = backendId,
-                    confidence = confidence,
-                    parents = parents
-                )
-            )
-        )
-        workspace.publish(
-            CognitiveEvent(
-                topic = "titan.response",
-                payload = response.take(512),
-                salience = 0.8
-            )
-        )
-    }
-}
