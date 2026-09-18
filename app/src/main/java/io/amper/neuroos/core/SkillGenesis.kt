@@ -475,24 +475,28 @@ class MemoryBackedSkillGenesisModel(
         val exactExecuted = plan.steps.all { step ->
             val outcome = step.outcome
             val proposal = outcome?.proposal
-            step.status == PlanStepStatus.EXECUTED &&
-                outcome?.status == ActionStatus.EXECUTED &&
+            outcome != null &&
+                proposal != null &&
+                step.status == PlanStepStatus.EXECUTED &&
+                outcome.status == ActionStatus.EXECUTED &&
                 outcome.toolId == step.boundToolId &&
                 outcome.sideEffect == step.boundSideEffect &&
-                proposal?.requestId == step.requestId &&
-                proposal?.capability == step.capability
+                proposal.requestId == step.requestId &&
+                proposal.capability == step.capability
         }
         if (exactExecuted) return SkillObservationOutcome.SUCCESS
 
         val executionFailure = plan.steps.any { step ->
             val outcome = step.outcome
             val proposal = outcome?.proposal
-            step.status == PlanStepStatus.FAILED &&
-                outcome?.status == ActionStatus.FAILED &&
+            outcome != null &&
+                proposal != null &&
+                step.status == PlanStepStatus.FAILED &&
+                outcome.status == ActionStatus.FAILED &&
                 outcome.toolId == step.boundToolId &&
                 outcome.sideEffect == step.boundSideEffect &&
-                proposal?.requestId == step.requestId &&
-                proposal?.capability == step.capability
+                proposal.requestId == step.requestId &&
+                proposal.capability == step.capability
         }
         return if (executionFailure) SkillObservationOutcome.EXECUTION_FAILURE else null
     }
