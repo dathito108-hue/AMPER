@@ -157,16 +157,24 @@ class CanonicalSovereignContextSource(
                         "RECONCILED means independent corroboration currently dominates but competing evidence is retained"
                 )
                 context.epistemicBeliefs.forEach { belief ->
+                    val planningValue = if (belief.planningEligible) {
+                        belief.preferredValue ?: "unknown"
+                    } else {
+                        "unknown"
+                    }
+                    val alternatives = belief.competingValues
+                        .sorted()
+                        .joinToString("|") { SovereignPromptData.escape(it) }
                     appendLine(
                         "- subject=${SovereignPromptData.escape(belief.subject)} " +
                             "predicate=${SovereignPromptData.escape(belief.predicate)} " +
-                            "value=${SovereignPromptData.escape(belief.preferredValue ?: "unknown")} " +
+                            "value=${SovereignPromptData.escape(planningValue)} " +
                             "status=${belief.status.name} resolution=${belief.resolutionReason.name} confidence=" +
                             "%.3f".format(java.util.Locale.US, belief.confidence) +
                             " evidence=${belief.evidenceCount} producers=${belief.independentProducerCount} " +
                             "winning_support=%.3f".format(java.util.Locale.US, belief.winningSupport) +
                             " competing_support=%.3f".format(java.util.Locale.US, belief.competingSupport) +
-                            " authority=false"
+                            " planning_eligible=${belief.planningEligible} alternatives=$alternatives authority=false"
                     )
                 }
             }
