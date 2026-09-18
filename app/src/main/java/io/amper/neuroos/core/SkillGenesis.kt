@@ -660,7 +660,7 @@ object SkillGuidanceRenderer {
             skills.take(MemoryBackedSkillGenesisModel.MAX_GUIDANCE).forEachIndexed { index, item ->
                 val skill = item.contract
                 append("skill.${index + 1}.capabilities=")
-                append(skill.signature.capabilities.joinToString(">") { it.value })
+                append(skill.signature.capabilities.joinToString(">") { SovereignPromptData.escape(it.value) })
                 append(" confidence=")
                 append(fmt(skill.confidence))
                 append(" successes=")
@@ -679,7 +679,7 @@ object SkillGuidanceRenderer {
             }
             compositions.take(MemoryBackedSkillGenesisModel.MAX_COMPOSITIONS).forEachIndexed { index, item ->
                 append("composition.${index + 1}.capabilities=")
-                append(item.capabilities.joinToString(">") { it.value })
+                append(item.capabilities.joinToString(">") { SovereignPromptData.escape(it.value) })
                 append(" confidence=")
                 append(fmt(item.confidence))
                 append(" preconditions=")
@@ -695,7 +695,11 @@ object SkillGuidanceRenderer {
     private fun conditions(values: List<SkillStateCondition>): String =
         if (values.isEmpty()) "none"
         else values.joinToString(",") {
-            "${it.key.canonical}=${it.value.replace('\n', ' ').replace('\r', ' ').take(96)}"
+            SovereignPromptData.escape(it.key.canonical) + "=" +
+                SovereignPromptData.bounded(
+                    it.value.replace('\n', ' ').replace('\r', ' '),
+                    96
+                )
         }
 
     private fun fmt(value: Double): String =
