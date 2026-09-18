@@ -147,12 +147,17 @@ class MemoryBackedSkillGenesisModel(
         memory.transaction {
             val existing = get(id)
             if (existing != null) {
-                val decoded = SkillGenesisCodec.decodeStart(existing.content)
-                require(decoded == marker.copy(capturedAtEpochMs = decoded?.capturedAtEpochMs ?: marker.capturedAtEpochMs)) {
-                    "skill start snapshot changed for existing plan"
+                val decoded = requireNotNull(SkillGenesisCodec.decodeStart(existing.content)) {
+                    "skill start snapshot is malformed"
                 }
-                require(decoded?.signature == signature) {
+                require(decoded.planId == plan.id) {
+                    "skill start snapshot plan identity mismatch"
+                }
+                require(decoded.signature == signature) {
                     "skill start snapshot signature mismatch"
+                }
+                require(decoded.preconditions == marker.preconditions) {
+                    "skill start snapshot world preconditions changed"
                 }
                 return@transaction
             }
@@ -506,7 +511,7 @@ class MemoryBackedSkillGenesisModel(
         descriptors: Map<CapabilityId, Set<String>>
     ): Double {
         if (goalTerms.isEmpty()) return 0.0
-        val terms = buildSet {
+        val skillTerms = buildSet {
             skill.signature.capabilities.forEach { addAll(descriptors[it].orEmpty()) }
             skill.preconditions.forEach {
                 addAll(terms(it.key.entity + " " + it.key.attribute + " " + it.value))
@@ -515,9 +520,9 @@ class MemoryBackedSkillGenesisModel(
                 addAll(terms(it.key.entity + " " + it.key.attribute + " " + it.value))
             }
         }
-        if (terms.isEmpty()) return 0.0
-        val overlap = goalTerms.intersect(terms).size
-        return (overlap.toDouble() / minOf(goalTerms.size, terms.size).coerceAtLeast(1).toDouble())
+        if (skillTerms.isEmpty()) return 0.0
+        val overlap = goalTerms.intersect(skillTerms).size
+        return (overlap.toDouble() / minOf(goalTerms.size, skillTerms.size).coerceAtLeast(1).toDouble())
             .coerceIn(0.0, 1.0)
     }
 
