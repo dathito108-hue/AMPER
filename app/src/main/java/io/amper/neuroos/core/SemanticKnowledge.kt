@@ -157,8 +157,9 @@ class MemoryBackedSemanticKnowledgeStore(
                 value = active.value,
                 confidence = assessment?.confidence ?: 0.0,
                 status = SemanticKnowledgeStatus.RETRACTED,
-                evidenceIds = (evidenceIds + active.id).distinct(),
-                supersedes = active.id
+                evidenceIds = evidenceIds.distinct(),
+                supersedes = active.id,
+                createdAtEpochMs = maxOf(clock(), active.createdAtEpochMs + 1L)
             )
             require(retraction.status == SemanticKnowledgeStatus.RETRACTED)
             return SemanticKnowledgeTransition(
@@ -189,8 +190,9 @@ class MemoryBackedSemanticKnowledgeStore(
             value = value,
             confidence = assessment.confidence,
             status = SemanticKnowledgeStatus.ACTIVE,
-            evidenceIds = (evidenceIds + listOfNotNull(latest?.id)).distinct(),
-            supersedes = latest?.id
+            evidenceIds = evidenceIds,
+            supersedes = latest?.id,
+            createdAtEpochMs = maxOf(clock(), (latest?.createdAtEpochMs ?: Long.MIN_VALUE) + 1L)
         )
         return SemanticKnowledgeTransition(
             kind = if (latest == null) {
@@ -210,9 +212,10 @@ class MemoryBackedSemanticKnowledgeStore(
         confidence: Double,
         status: SemanticKnowledgeStatus,
         evidenceIds: List<MemoryId>,
-        supersedes: MemoryId?
+        supersedes: MemoryId?,
+        createdAtEpochMs: Long
     ): SemanticKnowledgeEntry {
-        val createdAt = clock()
+        val createdAt = createdAtEpochMs
         val provisional = SemanticKnowledgeEntry(
             id = MemoryId("pending"),
             subject = subject,
@@ -236,7 +239,7 @@ class MemoryBackedSemanticKnowledgeStore(
                 producer = "semantic-knowledge-store",
                 observedAtEpochMs = createdAt,
                 confidence = confidence.coerceIn(0.0, 1.0),
-                parents = evidenceIds.toSet()
+                parents = (evidenceIds + listOfNotNull(supersedes)).toSet()
             ),
             createdAtEpochMs = createdAt
         )
