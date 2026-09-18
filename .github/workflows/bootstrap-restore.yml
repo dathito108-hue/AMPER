@@ -1,0 +1,61 @@
+name: Restore AMPER Snapshot
+
+on:
+  push:
+    paths:
+      - '.bootstrap/**'
+
+permissions:
+  contents: write
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Reconstruct and verify snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .bootstrap/part-* > /tmp/AMPER-main.zip
+          echo "75b07cfef21fb2949c9cef56465fede9bee8ab74bb920ef6489ade80ec964d8c  /tmp/AMPER-main.zip" | sha256sum -c -
+          rm -rf /tmp/amper-unpack
+          mkdir -p /tmp/amper-unpack
+          unzip -q /tmp/AMPER-main.zip -d /tmp/amper-unpack
+          ROOT="$(find /tmp/amper-unpack -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          test -n "$ROOT"
+          test -f "$ROOT/settings.gradle.kts"
+          test -f "$ROOT/.github/workflows/android-ci.yml"
+          test -f "$ROOT/app/src/main/java/io/amper/neuroos/core/GoalVerification.kt"
+          test -f "$ROOT/app/src/test/java/io/amper/neuroos/core/EvidenceBackedGoalVerificationTest.kt"
+      - name: Publish recovered source branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$(find /tmp/amper-unpack -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          git switch -C canonical-bootstrap
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp -a "$ROOT"/. .
+          cat > RECOVERY_PROVENANCE.md <<'EOF'
+          # AMPER recovery provenance
+
+          This repository was reconstructed from the owner-provided GitHub source snapshot
+          AMPER-main.zip after the previous account became unavailable to the connected GitHub app.
+
+          Snapshot SHA-256:
+          75b07cfef21fb2949c9cef56465fede9bee8ab74bb920ef6489ade80ec964d8c
+
+          Known lineage before recovery:
+          - Phase183 canonical: f322cbd37c732ce5146eaefaa8790c69ec41a2f5
+          - Snapshot contains Phase184 evidence-backed goal verification implementation/tests.
+
+          Historical Git commit/PR metadata is not asserted by this recovery commit.
+          The first fully passing 4-gate CI commit in this repository becomes the new canonical.
+          EOF
+          git config user.name "AMPER Recovery"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "Restore AMPER canonical snapshot with Phase184"
+          git push --force origin HEAD:canonical-bootstrap
