@@ -43,6 +43,13 @@ the candidate being evaluated.
 Provenance-bearing claims, uncertainty, contradiction resolution, freshness and semantic
 consolidation. Planning consumes reconciled beliefs rather than treating every memory as fact.
 
+### Implemented checkpoint — Phase188-190
+Phase188 adds durable semantic consolidation from planning-eligible epistemic assessments with direct
+evidence lineage. Phase189 adds immutable semantic versioning, supersession and retraction when a
+belief changes or becomes contested/uncertain/stale. Phase190 isolates raw epistemic/semantic journal
+records from general planning memory, exposes only current semantic knowledge, and feeds the same
+reconciled epistemic packet to the independent plan critic.
+
 ### Mega-Phase 191-195 — Predictive World Model
 Structured entities/state, temporal transitions, causal relations, predictions and counterfactual
 updates.
