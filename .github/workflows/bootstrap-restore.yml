@@ -2,8 +2,9 @@ name: Restore AMPER Snapshot
 
 on:
   push:
+    branches: [ main ]
     paths:
-      - '.bootstrap/manifest.sha256'
+      - 'AMPER-main*.zip'
 
 permissions:
   contents: write
@@ -15,34 +16,37 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Reconstruct and verify snapshot
+
+      - name: Verify owner snapshot
         shell: bash
         run: |
           set -euo pipefail
-          cat .bootstrap/part-* | base64 --decode > /tmp/AMPER-main.zip
-          echo "75b07cfef21fb2949c9cef56465fede9bee8ab74bb920ef6489ade80ec964d8c  /tmp/AMPER-main.zip" | sha256sum -c -
+          ZIP="$(find . -maxdepth 1 -type f -name 'AMPER-main*.zip' | head -n 1)"
+          test -n "$ZIP"
+          echo "75b07cfef21fb2949c9cef56465fede9bee8ab74bb920ef6489ade80ec964d8c  $ZIP" | sha256sum -c -
           rm -rf /tmp/amper-unpack
           mkdir -p /tmp/amper-unpack
-          unzip -q /tmp/AMPER-main.zip -d /tmp/amper-unpack
+          unzip -q "$ZIP" -d /tmp/amper-unpack
           ROOT="$(find /tmp/amper-unpack -mindepth 1 -maxdepth 1 -type d | head -n 1)"
           test -n "$ROOT"
           test -f "$ROOT/settings.gradle.kts"
           test -f "$ROOT/.github/workflows/android-ci.yml"
           test -f "$ROOT/app/src/main/java/io/amper/neuroos/core/GoalVerification.kt"
           test -f "$ROOT/app/src/test/java/io/amper/neuroos/core/EvidenceBackedGoalVerificationTest.kt"
-      - name: Publish recovered source branch
+          echo "AMPER_RESTORE_ROOT=$ROOT" >> "$GITHUB_ENV"
+
+      - name: Publish recovered canonical candidate
         shell: bash
         run: |
           set -euo pipefail
-          ROOT="$(find /tmp/amper-unpack -mindepth 1 -maxdepth 1 -type d | head -n 1)"
           git switch -C canonical-bootstrap
           find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
-          cp -a "$ROOT"/. .
+          cp -a "$AMPER_RESTORE_ROOT"/. .
           cat > RECOVERY_PROVENANCE.md <<'EOF'
           # AMPER recovery provenance
 
           This repository was reconstructed from the owner-provided GitHub source snapshot
-          AMPER-main.zip after the previous account became unavailable to the connected GitHub app.
+          after the previous account became unavailable to the connected GitHub app.
 
           Snapshot SHA-256:
           75b07cfef21fb2949c9cef56465fede9bee8ab74bb920ef6489ade80ec964d8c
@@ -52,7 +56,8 @@ jobs:
           - Snapshot contains Phase184 evidence-backed goal verification implementation/tests.
 
           Historical Git commit/PR metadata is not asserted by this recovery commit.
-          The first fully passing 4-gate CI commit in this repository becomes the new canonical.
+          The first fully passing canonical 4-gate CI commit in this repository becomes
+          the new canonical lineage root.
           EOF
           git config user.name "AMPER Recovery"
           git config user.email "actions@users.noreply.github.com"
