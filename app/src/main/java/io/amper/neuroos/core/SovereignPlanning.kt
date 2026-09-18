@@ -652,9 +652,11 @@ class SovereignPlanCoordinator(
         userGoal: String,
         charBudget: Int
     ): String {
-        val base = TitanDeliberationProtocol.instructions(capabilities, emptyList())
+        val epistemicPolicy = EpistemicPlanningPolicy.instructions()
+        val base = TitanDeliberationProtocol.instructions(capabilities, emptyList()) +
+            "\n\n" + epistemicPolicy
         require(base.length <= charBudget) {
-            "conversation prompt budget cannot preserve mandatory planning protocol"
+            "conversation prompt budget cannot preserve mandatory planning and epistemic protocol"
         }
         val allowed = capabilities.toSet()
         val selected = mutableListOf<ToolDescriptor>()
@@ -663,11 +665,13 @@ class SovereignPlanCoordinator(
             .filter { it.capability in allowed }
             .sortedBy { it.capability.value }
             .forEach { descriptor ->
-                val candidate = TitanDeliberationProtocol.instructions(capabilities, selected + descriptor)
+                val candidate = TitanDeliberationProtocol.instructions(capabilities, selected + descriptor) +
+                    "\n\n" + epistemicPolicy
                 if (candidate.length <= charBudget) selected += descriptor
             }
 
-        val protocol = TitanDeliberationProtocol.instructions(capabilities, selected)
+        val protocol = TitanDeliberationProtocol.instructions(capabilities, selected) +
+            "\n\n" + epistemicPolicy
         val evidenceGuidance = EvidenceGroundedStrategyGuidance.select(
             evidence = runtime.strategies.recent(EvidenceGroundedStrategyGuidance.LOOKBACK),
             allowedCapabilities = allowed,
