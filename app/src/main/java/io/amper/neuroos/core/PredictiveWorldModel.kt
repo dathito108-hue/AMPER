@@ -268,7 +268,7 @@ class MemoryBackedPredictiveWorldModel(
         if (limit == 0) return emptyList()
         return loadTransitions()
             .asSequence()
-            .filter { it.key == key }
+            .filter { it.key.canonical == key.canonical }
             .sortedByDescending { it.observedAtEpochMs }
             .take(limit)
             .toList()
@@ -285,23 +285,17 @@ class MemoryBackedPredictiveWorldModel(
         val effects = all.filter { it.key == effectKey && !it.toValue.isNullOrBlank() }
         if (effects.isEmpty()) return emptyList()
 
-        data class Pattern(
-            val causeKey: WorldStateKey,
-            val causeValue: String,
-            val effectValue: String
-        )
-
-        val candidates = linkedSetOf<Pattern>()
+        val candidates = linkedSetOf<CausalPattern>()
         effects.forEach { effect ->
             all.asSequence()
                 .filter { cause ->
-                    cause.key != effectKey &&
+                    cause.key.canonical != effectKey.canonical &&
                         !cause.toValue.isNullOrBlank() &&
                         cause.observedAtEpochMs < effect.observedAtEpochMs &&
                         effect.observedAtEpochMs - cause.observedAtEpochMs <= MAX_CAUSAL_LAG_MS
                 }
                 .forEach { cause ->
-                    candidates += Pattern(
+                    candidates += CausalPattern(
                         causeKey = cause.key,
                         causeValue = requireNotNull(cause.toValue),
                         effectValue = requireNotNull(effect.toValue)
@@ -311,7 +305,7 @@ class MemoryBackedPredictiveWorldModel(
 
         return candidates.mapNotNull { pattern ->
             val occurrences = all.filter {
-                it.key == pattern.causeKey &&
+                it.key.canonical == pattern.causeKey.canonical &&
                     normalize(it.toValue.orEmpty()) == normalize(pattern.causeValue)
             }
             if (occurrences.isEmpty()) return@mapNotNull null
@@ -661,10 +655,16 @@ class MemoryBackedPredictiveWorldModel(
             .asSequence()
             .filter { it.kind == PREDICTION_KIND }
             .mapNotNull(PredictiveWorldCodec::decodePrediction)
-            .filter { it.targetKey == key }
+            .filter { it.targetKey.canonical == key.canonical }
             .toList()
 
     private fun normalize(value: String): String = value.trim().lowercase()
+
+    private data class CausalPattern(
+        val causeKey: WorldStateKey,
+        val causeValue: String,
+        val effectValue: String
+    )
 
     private data class PredictionCandidate(
         val value: String,
