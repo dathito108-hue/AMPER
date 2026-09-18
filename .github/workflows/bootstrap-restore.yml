@@ -3,7 +3,7 @@ name: Restore AMPER Snapshot
 on:
   push:
     paths:
-      - '.bootstrap/**'
+      - '.bootstrap/manifest.sha256'
 
 permissions:
   contents: write
@@ -19,7 +19,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat .bootstrap/part-* > /tmp/AMPER-main.zip
+          cat .bootstrap/part-* | base64 --decode > /tmp/AMPER-main.zip
           echo "75b07cfef21fb2949c9cef56465fede9bee8ab74bb920ef6489ade80ec964d8c  /tmp/AMPER-main.zip" | sha256sum -c -
           rm -rf /tmp/amper-unpack
           mkdir -p /tmp/amper-unpack
