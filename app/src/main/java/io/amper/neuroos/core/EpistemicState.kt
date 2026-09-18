@@ -49,6 +49,8 @@ data class EpistemicAssessment(
     val independentProducerCount: Int = 1,
     val winningSupport: Double = 1.0,
     val competingSupport: Double = 0.0,
+    val planningEligible: Boolean =
+        status == EpistemicStatus.SUPPORTED || status == EpistemicStatus.RECONCILED,
     /**
      * Epistemic evidence is descriptive data only. It can never grant tool authority,
      * approve a side effect, or widen the execution boundary.
@@ -66,6 +68,9 @@ data class EpistemicAssessment(
         require(winningSupport >= 0.0)
         require(competingSupport >= 0.0)
         require(!authorityBearing) { "epistemic evidence must never become execution authority" }
+        require(planningEligible == (
+            status == EpistemicStatus.SUPPORTED || status == EpistemicStatus.RECONCILED
+        )) { "only supported or reconciled beliefs may be planning-eligible" }
         require(status != EpistemicStatus.RECONCILED || competingValues.size > 1) {
             "reconciled status requires retained competing evidence"
         }
