@@ -19,6 +19,7 @@ class EpistemicStateTest {
         assertEquals("normal", assessment.preferredValue)
         assertEquals(2, assessment.evidenceCount)
         assertEquals(setOf(first, second), assessment.evidenceIds.toSet())
+        assertTrue(assessment.planningEligible)
         assertFalse(assessment.authorityBearing)
     }
 
@@ -33,6 +34,7 @@ class EpistemicStateTest {
         val assessment = requireNotNull(state.assess("network", "reachable"))
         assertEquals(EpistemicStatus.CONTESTED, assessment.status)
         assertEquals(setOf("false", "true"), assessment.competingValues)
+        assertFalse(assessment.planningEligible)
         assertTrue(assessment.confidence in 0.0..1.0)
     }
 
@@ -52,6 +54,7 @@ class EpistemicStateTest {
         assertEquals(2, assessment.independentProducerCount)
         assertEquals(setOf("false", "true"), assessment.competingValues)
         assertTrue(assessment.winningSupport > assessment.competingSupport)
+        assertTrue(assessment.planningEligible)
         assertFalse(assessment.authorityBearing)
     }
 
@@ -76,10 +79,11 @@ class EpistemicStateTest {
         state.observe(claim("sensor", "healthy", "true", 0.80, 9_600L, "independent-b"))
 
         val assessment = requireNotNull(state.assess("sensor", "healthy"))
-        assertEquals(EpistemicStatus.RECONCILED, assessment.status)
-        assertEquals("true", assessment.preferredValue)
+        assertEquals(EpistemicStatus.CONTESTED, assessment.status)
+        assertEquals(EpistemicResolutionReason.UNRESOLVED_CONFLICT, assessment.resolutionReason)
         assertEquals(2, assessment.independentProducerCount)
         assertEquals(14, assessment.evidenceCount)
+        assertFalse(assessment.planningEligible)
     }
 
     @Test
@@ -117,6 +121,30 @@ class EpistemicStateTest {
         assertTrue(prompt.contains("epistemic_beliefs:"))
         assertTrue(prompt.contains("authority=false"))
         assertTrue(prompt.contains("status=SUPPORTED"))
+    }
+
+    @Test
+    fun unresolvedConflictIsRenderedAsUnknownForPlanning() {
+        val memory = InMemoryMemoryOs()
+        val epistemic = MemoryBackedEpistemicState(memory, clock = { 3_000L }, staleAfterMs = 10_000L)
+        epistemic.observe(claim("network", "reachable", "true", 0.95, 1_000L, "probe-a"))
+        epistemic.observe(claim("network", "reachable", "false", 0.90, 2_000L, "probe-b"))
+
+        val context = CanonicalSovereignContextSource(
+            workspace = InMemoryWorkspace(),
+            memory = memory,
+            selfModel = CanonicalSelfModel(),
+            goals = CanonicalGoalSystem(),
+            world = CanonicalWorldModel(),
+            epistemic = epistemic
+        )
+
+        val prompt = context.groundedPrompt("network reachable")
+        assertTrue(prompt.contains("status=CONTESTED"))
+        assertTrue(prompt.contains("resolution=UNRESOLVED_CONFLICT"))
+        assertTrue(prompt.contains("value=unknown"))
+        assertTrue(prompt.contains("planning_eligible=false"))
+        assertTrue(prompt.contains("alternatives=false|true"))
     }
 
     private fun claim(
