@@ -282,7 +282,11 @@ class MemoryBackedPredictiveWorldModel(
         if (limit == 0) return emptyList()
 
         val all = loadTransitions()
-        val effects = all.filter { it.key == effectKey && !it.toValue.isNullOrBlank() }
+        val effects = all.filter {
+            it.key.canonical == effectKey.canonical &&
+                it.confidence > 0.0 &&
+                !it.toValue.isNullOrBlank()
+        }
         if (effects.isEmpty()) return emptyList()
 
         val candidates = linkedSetOf<CausalPattern>()
@@ -290,6 +294,7 @@ class MemoryBackedPredictiveWorldModel(
             all.asSequence()
                 .filter { cause ->
                     cause.key.canonical != effectKey.canonical &&
+                        cause.confidence > 0.0 &&
                         !cause.toValue.isNullOrBlank() &&
                         cause.observedAtEpochMs < effect.observedAtEpochMs &&
                         effect.observedAtEpochMs - cause.observedAtEpochMs <= MAX_CAUSAL_LAG_MS
@@ -306,6 +311,7 @@ class MemoryBackedPredictiveWorldModel(
         return candidates.mapNotNull { pattern ->
             val occurrences = all.filter {
                 it.key.canonical == pattern.causeKey.canonical &&
+                    it.confidence > 0.0 &&
                     normalize(it.toValue.orEmpty()) == normalize(pattern.causeValue)
             }
             if (occurrences.isEmpty()) return@mapNotNull null
