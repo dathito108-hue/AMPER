@@ -613,10 +613,17 @@ class SovereignPlanCoordinator(
         // Procedural/skill learning is observational. It cannot change plan status, execute a tool,
         // grant authority, or turn a denied/failed action into success.
         runCatching { runtime.strategies.observe(plan) }
-        runCatching {
+        val worldStates = runtime.predictiveWorld.queryStates(plan.goal, 8)
+        val learnedSkill = runCatching {
             runtime.skills.observe(
                 plan = plan,
-                worldStates = runtime.predictiveWorld.queryStates(plan.goal, 8)
+                worldStates = worldStates
+            )
+        }.getOrNull()
+        runCatching {
+            runtime.generalization.observe(
+                plan = plan,
+                skill = learnedSkill
             )
         }
     }
@@ -734,6 +741,38 @@ class SovereignPlanCoordinator(
             }
         }
 
+        val transferGuidance = runtime.generalization.guidance(
+            goal = userGoal,
+            allowedCapabilities = allowed,
+            descriptors = selected,
+            worldStates = worldStates,
+            limit = MemoryBackedSkillGeneralizationModel.MAX_GUIDANCE
+        )
+        val generalizedChains = runtime.generalization.chains(
+            goal = userGoal,
+            allowedCapabilities = allowed,
+            descriptors = selected,
+            worldStates = worldStates,
+            limit = MemoryBackedSkillGeneralizationModel.MAX_CHAINS
+        )
+
+        // Cross-task transfer is optional advisory evidence. It can only consume remaining prompt
+        // budget after the mandatory live tool contracts (and any bounded direct skill evidence).
+        generalization@ for (transferCount in transferGuidance.size downTo 0) {
+            for (chainCount in generalizedChains.size downTo 0) {
+                if (transferCount == 0 && chainCount == 0) continue
+                val rendered = GeneralizationGuidanceRenderer.render(
+                    guidance = transferGuidance.take(transferCount),
+                    chains = generalizedChains.take(chainCount)
+                )
+                val candidate = bounded + "\n\n" + rendered
+                if (candidate.length <= charBudget) {
+                    bounded = candidate
+                    break@generalization
+                }
+            }
+        }
+
         val evidenceGuidance = EvidenceGroundedStrategyGuidance.select(
             evidence = runtime.strategies.recent(EvidenceGroundedStrategyGuidance.LOOKBACK),
             allowedCapabilities = allowed,
@@ -751,7 +790,7 @@ class SovereignPlanCoordinator(
             val candidate = bounded + "\n\n" + rendered
             if (candidate.length <= charBudget) return candidate
         }
-        return if (skillAdded) bounded else protocol
+        return bounded
     }
 
     private fun routedDescriptors(): List<ToolDescriptor> = advertisedCapabilities
