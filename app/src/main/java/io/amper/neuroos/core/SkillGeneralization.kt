@@ -396,7 +396,7 @@ class MemoryBackedSkillGeneralizationModel(
                     capabilities = first.signature.capabilities,
                     confidence = (
                         first.confidence * profile.confidence *
-                            if (novel) NOVEL_CONTEXT_DISCOUNT else 1.0
+                            (if (novel) NOVEL_CONTEXT_DISCOUNT else 1.0)
                     ).coerceIn(0.0, 1.0),
                     novelContext = novel
                 )
@@ -424,7 +424,7 @@ class MemoryBackedSkillGeneralizationModel(
                     val nextConfidence = minOf(
                         node.confidence,
                         next.confidence * profile.confidence *
-                            if (novel) NOVEL_CONTEXT_DISCOUNT else 1.0
+                            (if (novel) NOVEL_CONTEXT_DISCOUNT else 1.0)
                     ).coerceIn(0.0, 1.0)
                     val nextNode = Node(
                         skills = node.skills + next,
@@ -475,11 +475,6 @@ class MemoryBackedSkillGeneralizationModel(
         successRate: Double,
         successfulContexts: Int
     ): SkillGeneralizationMaturity = when {
-        (previous == SkillGeneralizationMaturity.TRANSFERABLE ||
-            previous == SkillGeneralizationMaturity.GENERALIZED) &&
-            successRate < MIN_RETAINED_SUCCESS_RATE ->
-            SkillGeneralizationMaturity.DEGRADED
-
         successfulContexts >= MIN_GENERALIZED_CONTEXTS &&
             successes >= MIN_GENERALIZED_SUCCESSES &&
             successRate >= MIN_GENERALIZED_SUCCESS_RATE ->
@@ -489,6 +484,10 @@ class MemoryBackedSkillGeneralizationModel(
             successes >= MIN_TRANSFER_SUCCESSES &&
             successRate >= MIN_TRANSFER_SUCCESS_RATE ->
             SkillGeneralizationMaturity.TRANSFERABLE
+
+        previous == SkillGeneralizationMaturity.TRANSFERABLE ||
+            previous == SkillGeneralizationMaturity.GENERALIZED ->
+            SkillGeneralizationMaturity.DEGRADED
 
         else -> SkillGeneralizationMaturity.LOCAL
     }
