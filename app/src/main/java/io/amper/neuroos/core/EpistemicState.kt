@@ -193,7 +193,7 @@ internal object EpistemicClaimCodec {
             claim.predicate,
             claim.value,
             claim.confidence.toString()
-        ).joinToString(".")(::enc)
+        ).joinToString(separator = ".", transform = ::enc)
         return "search=$search\npayload=$payload"
     }
 
