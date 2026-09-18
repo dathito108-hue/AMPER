@@ -1,6 +1,6 @@
 # APEX–MUXER SOVEREIGN NEURO-OS — Canonical Architecture
 
-This document freezes architectural boundaries for AMPER. Capability implementations may evolve; these boundaries must not be casually rewritten.
+This document freezes only AMPER's sovereign identity and external containment boundary. Internal cognitive architecture, code, models, planners, memory structures, skills and learning strategies are explicitly evolvable.
 
 ## Sovereign invariant
 
@@ -12,7 +12,7 @@ AMPER is one sovereign identity with one cognitive kernel. Models are replaceabl
 2. **Global Cognitive Workspace** — common event plane for intent, self-state, goals, world observations and meta-cognition.
 3. **Self Model** — stable AMPER identity plus immutable architecture invariants and mutable operational state.
 4. **Goal System** — persistent root continuity goal plus aligned task goals.
-5. **World/Causal Model** — provenance-bearing observations that later causal reasoning can build on.
+5. **Epistemic + World/Causal Model** — provenance-bearing claims, uncertainty/contradiction state and observations that causal reasoning can build on.
 6. **Persistent Memory OS** — journal-backed memory with provenance, confidence, retention and tombstones.
 7. **Meta-Cognition** — observes workspace state and emits reflection events.
 8. **Dynamic Agent Fabric** — capability-routed, resource-bounded ephemeral specialists with explicit lease/release lifecycle; no duplicated sovereign identity.
@@ -20,7 +20,7 @@ AMPER is one sovereign identity with one cognitive kernel. Models are replaceabl
 10. **Capability Registry / Model Registry / Titan Cortex** — replaceable local or remote providers route by capability. User-installed GGUF or future backends attach here without replacing identity.
 11. **Multimodal Perception Bus** — normalizes text/image/audio/screen/camera/sensor percepts into provenance-bearing workspace/world events.
 12. **Learning + Consolidation** — records outcome-bearing episodes and creates durable patterns with explicit evidence lineage.
-13. **Verified Evolution** — propose → sandbox → test → verify canonical invariants → promote with rollback capability → rollback when required.
+13. **Autonomous Verified Evolution** — AMPER may propose, implement, benchmark and promote internal code/model/architecture changes without routine human approval; containment invariants and recoverable checkpoints remain external constraints.
 14. **Resource Governor** — constrains concurrency, memory and thermal pressure for mobile operation.
 
 ## Implemented in canonical foundation
@@ -28,7 +28,7 @@ AMPER is one sovereign identity with one cognitive kernel. Models are replaceabl
 - Kernel tick and workspace event plane.
 - Stable self identity/invariants.
 - Root + intent-aligned goal system.
-- World observation model.
+- World observation model plus provenance-backed epistemic state for supported, uncertain, contested and stale beliefs.
 - Persistent append-only memory journal with provenance replay and deletion tombstones.
 - Dynamic Agent Fabric with capability routing, resource gating and explicit ephemeral leases.
 - Generic Capability Registry plus model routing contract and Titan Cortex placeholder.
@@ -45,4 +45,4 @@ No model weights are bundled as sovereign identity. Local GGUF files are user-in
 
 ## Evolution rule
 
-Self-modifying code is never promoted directly into the trusted runtime. Candidate changes must be isolated, tested, evaluated against every canonical invariant, versioned, and rollback-capable before promotion. A missing invariant result is a rejection, not an implicit pass.
+AMPER may autonomously change its internal architecture, source code, strategies, skills and model artifacts. Candidate changes are isolated, benchmarked and machine-verified before automatic promotion; routine human approval is not required. The evolving candidate cannot redefine the external containment/authority boundary from inside itself, and a recoverable canonical checkpoint must remain available.

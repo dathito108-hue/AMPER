@@ -170,6 +170,7 @@ class AmperRuntime private constructor(
     val context: SovereignContextSource,
     val competence: CapabilityCompetenceModel,
     val strategies: StrategyLearningModel,
+    val epistemic: EpistemicState,
     val conversations: SovereignConversationCoordinator,
     val inferenceProfiles: ConversationInferenceProfileStore,
     val plans: SovereignPlanStore,
@@ -272,6 +273,7 @@ class AmperRuntime private constructor(
             val workspace = InMemoryWorkspace()
             val competence = MemoryBackedCapabilityCompetenceModel(memory)
             val strategies = MemoryBackedStrategyLearningModel(memory)
+            val epistemic = MemoryBackedEpistemicState(memory)
             val selfModel = CanonicalSelfModel()
             val goals = CanonicalGoalSystem()
             val world = CanonicalWorldModel()
@@ -282,7 +284,8 @@ class AmperRuntime private constructor(
                 goals = goals,
                 world = world,
                 competence = competence,
-                strategies = strategies
+                strategies = strategies,
+                epistemic = epistemic
             )
             val conversations = SovereignConversationCoordinator(
                 memory = memory,
@@ -320,6 +323,7 @@ class AmperRuntime private constructor(
                 context = context,
                 competence = competence,
                 strategies = strategies,
+                epistemic = epistemic,
                 conversations = conversations,
                 inferenceProfiles = inferenceProfiles,
                 plans = plans,

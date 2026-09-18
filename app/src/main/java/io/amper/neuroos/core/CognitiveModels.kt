@@ -3,10 +3,10 @@ package io.amper.neuroos.core
 class CanonicalSelfModel : SelfModel {
     private val invariants = linkedSetOf(
         "one-sovereign-identity",
-        "kernel-boundaries-are-stable",
         "models-are-replaceable-capabilities",
-        "tools-require-authority",
-        "evolution-requires-verification-and-rollback"
+        "external-actions-require-authority",
+        "self-evolution-stays-inside-containment",
+        "evolution-keeps-recoverable-canonical-checkpoints"
     )
     @Volatile private var lastIntent: String? = null
 
@@ -30,7 +30,7 @@ class CanonicalGoalSystem : GoalSystem {
     init {
         val root = GoalState(
             id = GoalId("canonical-continuity"),
-            objective = "Preserve sovereign identity and canonical architecture while expanding capabilities",
+            objective = "Preserve sovereign identity and containment while autonomously evolving internal architecture, models, skills and capabilities",
             priority = 1.0
         )
         goals[root.id] = root

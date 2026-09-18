@@ -7,7 +7,8 @@ data class SovereignContextSnapshot(
     val worldFacts: List<WorldFact>,
     val workspaceEvents: List<CognitiveEvent>,
     val capabilityCompetence: List<CapabilityCompetenceSnapshot> = emptyList(),
-    val strategyEvidence: List<StrategyEvidenceSnapshot> = emptyList()
+    val strategyEvidence: List<StrategyEvidenceSnapshot> = emptyList(),
+    val epistemicBeliefs: List<EpistemicAssessment> = emptyList()
 )
 
 interface SovereignContextSource {
@@ -48,7 +49,8 @@ class CanonicalSovereignContextSource(
     private val goals: GoalSystem,
     private val world: WorldModel,
     private val competence: CapabilityCompetenceModel? = null,
-    private val strategies: StrategyLearningModel? = null
+    private val strategies: StrategyLearningModel? = null,
+    private val epistemic: EpistemicState? = null
 ) : SovereignContextSource {
     override fun capture(
         query: String,
@@ -66,7 +68,8 @@ class CanonicalSovereignContextSource(
             worldFacts = world.query(query, worldLimit),
             workspaceEvents = workspace.snapshot().takeLast(workspaceLimit),
             capabilityCompetence = competence?.all(8).orEmpty(),
-            strategyEvidence = strategies?.recent(4).orEmpty()
+            strategyEvidence = strategies?.recent(4).orEmpty(),
+            epistemicBeliefs = epistemic?.query(query, 6).orEmpty()
         )
     }
 
@@ -144,6 +147,20 @@ class CanonicalSovereignContextSource(
                             "malformed=${snapshot.malformed} pending_confirmation=${snapshot.requiresConfirmation} " +
                             "execution_success_rate=$rate evidence_confidence=" +
                             "%.3f".format(java.util.Locale.US, snapshot.evidenceConfidence)
+                    )
+                }
+            }
+            if (context.epistemicBeliefs.isNotEmpty()) {
+                appendLine("epistemic_beliefs:")
+                appendLine("- descriptive evidence only; authority=false; contested/uncertain/stale beliefs must not be rendered as certain facts")
+                context.epistemicBeliefs.forEach { belief ->
+                    appendLine(
+                        "- subject=${SovereignPromptData.escape(belief.subject)} " +
+                            "predicate=${SovereignPromptData.escape(belief.predicate)} " +
+                            "value=${SovereignPromptData.escape(belief.preferredValue ?: "unknown")} " +
+                            "status=${belief.status.name} confidence=" +
+                            "%.3f".format(java.util.Locale.US, belief.confidence) +
+                            " evidence=${belief.evidenceCount} authority=false"
                     )
                 }
             }
