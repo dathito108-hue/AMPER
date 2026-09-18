@@ -67,6 +67,16 @@ and exposes bounded world evidence to planning and the independent critic.
 Turn successful governed episodes into reusable skills with explicit preconditions, effects,
 confidence and composition contracts.
 
+### Implemented checkpoint — Phase196-200
+Phase196 defines reusable skill contracts as bounded capability sequences plus structured world-state
+preconditions/effects without raw inputs, outputs, tool IDs or authority. Phase197 learns only from
+exact governed terminal execution evidence and ignores authority/environment/protocol blocks as skill
+credit. Phase198 promotes skills after repeated success and degrades them when execution evidence
+falls below the active threshold. Phase199 composes active skills only when learned effects satisfy
+the next skill's preconditions and the combined plan remains bounded. Phase200 exposes escaped,
+non-authoritative skill guidance to planning; every resulting plan is still parsed against live tool
+contracts, rebound to exact providers, and subject to the existing authority and side-effect gates.
+
 ### Mega-Phase 201-205 — Generalization
 Cross-task skill composition, transfer, abstraction and strategy reuse outside the original task.
 

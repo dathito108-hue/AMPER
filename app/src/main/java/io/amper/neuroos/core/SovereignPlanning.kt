@@ -349,6 +349,12 @@ class SovereignPlanCoordinator(
             counterfactualViability = finalEvaluation.counterfactualViability,
             counterfactualConfidence = finalEvaluation.counterfactualConfidence
         )
+        runCatching {
+            runtime.skills.begin(
+                plan = plan,
+                worldStates = runtime.predictiveWorld.queryStates(userGoal, 8)
+            )
+        }
         runtime.conversations.commitAssistant(
             conversationId = conversationId,
             userPrompt = userGoal,
@@ -446,6 +452,12 @@ class SovereignPlanCoordinator(
             counterfactualViability = finalEvaluation.counterfactualViability,
             counterfactualConfidence = finalEvaluation.counterfactualConfidence
         ).also { replacement ->
+            runCatching {
+                runtime.skills.begin(
+                    plan = replacement,
+                    worldStates = runtime.predictiveWorld.queryStates(replacement.goal, 8)
+                )
+            }
             runtime.conversations.commitAssistant(
                 conversationId = plan.conversationId,
                 userPrompt = plan.goal,
@@ -598,9 +610,15 @@ class SovereignPlanCoordinator(
 
     private fun observeCompletedStrategy(plan: SovereignPlan) {
         if (!plan.complete) return
-        // Procedural learning is observational. It cannot change plan status, execute a tool,
-        // or turn a denied/failed action into success.
+        // Procedural/skill learning is observational. It cannot change plan status, execute a tool,
+        // grant authority, or turn a denied/failed action into success.
         runCatching { runtime.strategies.observe(plan) }
+        runCatching {
+            runtime.skills.observe(
+                plan = plan,
+                worldStates = runtime.predictiveWorld.queryStates(plan.goal, 8)
+            )
+        }
     }
 
     private fun buildPlanningPrompt(
@@ -679,27 +697,61 @@ class SovereignPlanCoordinator(
             }
 
         val protocol = TitanDeliberationProtocol.instructions(capabilities, selected)
+        var bounded = protocol
+
+        val worldStates = runtime.predictiveWorld.queryStates(userGoal, 8)
+        val skillGuidance = runtime.skills.guidance(
+            goal = userGoal,
+            allowedCapabilities = allowed,
+            descriptors = selected,
+            worldStates = worldStates,
+            limit = MemoryBackedSkillGenesisModel.MAX_GUIDANCE
+        )
+        val compositions = runtime.skills.compositions(
+            goal = userGoal,
+            allowedCapabilities = allowed,
+            descriptors = selected,
+            worldStates = worldStates,
+            limit = MemoryBackedSkillGenesisModel.MAX_COMPOSITIONS
+        )
+
+        // Live tool contracts are mandatory. Learned skills are advisory and added only if the
+        // bounded protocol can hold them. They contain no authority/approval/tool-id fields.
+        var skillAdded = false
+        outer@ for (skillCount in skillGuidance.size downTo 0) {
+            for (compositionCount in compositions.size downTo 0) {
+                if (skillCount == 0 && compositionCount == 0) continue
+                val rendered = SkillGuidanceRenderer.render(
+                    skills = skillGuidance.take(skillCount),
+                    compositions = compositions.take(compositionCount)
+                )
+                val candidate = protocol + "\n\n" + rendered
+                if (candidate.length <= charBudget) {
+                    bounded = candidate
+                    skillAdded = true
+                    break@outer
+                }
+            }
+        }
+
         val evidenceGuidance = EvidenceGroundedStrategyGuidance.select(
             evidence = runtime.strategies.recent(EvidenceGroundedStrategyGuidance.LOOKBACK),
             allowedCapabilities = allowed,
             limit = EvidenceGroundedStrategyGuidance.MAX_CANDIDATES
         )
-        val guidance = GoalConditionedStrategyRetrieval.rank(
+        val strategyGuidance = GoalConditionedStrategyRetrieval.rank(
             candidates = evidenceGuidance,
             goal = userGoal,
             descriptors = selected,
             limit = EvidenceGroundedStrategyGuidance.MAX_CANDIDATES
         )
-        if (guidance.isEmpty()) return protocol
 
-        // Tool contracts are mandatory. Strategy guidance is optional and is dropped first when the
-        // bound planning budget cannot fit both.
-        for (count in guidance.size downTo 1) {
-            val rendered = EvidenceGroundedStrategyGuidance.render(guidance.take(count))
-            val candidate = protocol + "\n\n" + rendered
+        for (count in strategyGuidance.size downTo 1) {
+            val rendered = EvidenceGroundedStrategyGuidance.render(strategyGuidance.take(count))
+            val candidate = bounded + "\n\n" + rendered
             if (candidate.length <= charBudget) return candidate
         }
-        return protocol
+        return if (skillAdded) bounded else protocol
     }
 
     private fun routedDescriptors(): List<ToolDescriptor> = advertisedCapabilities

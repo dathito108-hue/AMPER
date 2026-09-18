@@ -73,7 +73,11 @@ class CanonicalSovereignContextSource(
             MemoryBackedPredictiveWorldModel.STATE_KIND,
             MemoryBackedPredictiveWorldModel.TRANSITION_KIND,
             MemoryBackedPredictiveWorldModel.PREDICTION_KIND,
-            MemoryBackedPredictiveWorldModel.OUTCOME_KIND
+            MemoryBackedPredictiveWorldModel.OUTCOME_KIND,
+            MemoryBackedSkillGenesisModel.START_KIND,
+            MemoryBackedSkillGenesisModel.OBSERVATION_KIND,
+            MemoryBackedSkillGenesisModel.SNAPSHOT_KIND,
+            MemoryBackedSkillGenesisModel.INDEX_KIND
         )
         val seedScanLimit = if (memoryLimit == 0) 0 else (memoryLimit * 6).coerceAtLeast(memoryLimit)
         val seeds = memory.recall(query, seedScanLimit)
