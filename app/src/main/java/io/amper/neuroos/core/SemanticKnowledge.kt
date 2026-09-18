@@ -174,8 +174,7 @@ class MemoryBackedSemanticKnowledgeStore(
         if (
             active != null &&
             normalize(active.value.orEmpty()) == normalize(value) &&
-            active.evidenceIds.toSet() == evidenceIds.toSet() &&
-            confidenceEquivalent(active.confidence, assessment.confidence)
+            active.evidenceIds.toSet() == evidenceIds.toSet()
         ) {
             return SemanticKnowledgeTransition(
                 kind = SemanticKnowledgeTransitionKind.UNCHANGED,
@@ -257,9 +256,6 @@ class MemoryBackedSemanticKnowledgeStore(
             .filter { normalize(it.subject) == subjectKey && normalize(it.predicate) == predicateKey }
             .toList()
     }
-
-    private fun confidenceEquivalent(left: Double, right: Double): Boolean =
-        kotlin.math.abs(left - right) < 0.000001
 
     private fun normalize(value: String): String = value.trim().lowercase()
 
