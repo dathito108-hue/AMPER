@@ -210,7 +210,9 @@ object ReflectivePlanCriticPrompt {
         evaluation: DeliberationEvaluation,
         allowedCapabilities: Collection<CapabilityId>,
         descriptors: Collection<ToolDescriptor>,
-        charBudget: Int
+        charBudget: Int,
+        semanticKnowledge: List<SemanticKnowledgeEntry> = emptyList(),
+        epistemicBeliefs: List<EpistemicAssessment> = emptyList()
     ): String {
         require(userGoal.isNotBlank())
         require(charBudget >= ConversationInferenceProfile.MIN_PROMPT_CHARS)
@@ -293,11 +295,50 @@ object ReflectivePlanCriticPrompt {
             }
         }
 
-        return if (lines.isEmpty()) {
+        val withContracts = if (lines.isEmpty()) {
             base
         } else {
             base + "\n<LIVE_TOOL_CONTRACTS>\n" + lines.joinToString("\n") +
                 "\n</LIVE_TOOL_CONTRACTS>"
+        }
+
+        val epistemicLines = buildList {
+            semanticKnowledge.take(4).forEach { knowledge ->
+                add(
+                    "SEMANTIC " +
+                        sanitizeData(knowledge.subject, 64) + " " +
+                        sanitizeData(knowledge.predicate, 64) + "=" +
+                        sanitizeData(knowledge.value ?: "unknown", 96) +
+                        " confidence=" + "%.3f".format(java.util.Locale.US, knowledge.confidence) +
+                        " authority=false"
+                )
+            }
+            epistemicBeliefs.take(4).forEach { belief ->
+                val value = if (belief.planningEligible) belief.preferredValue ?: "unknown" else "unknown"
+                add(
+                    "BELIEF " +
+                        sanitizeData(belief.subject, 64) + " " +
+                        sanitizeData(belief.predicate, 64) + "=" +
+                        sanitizeData(value, 96) +
+                        " status=" + belief.status.name +
+                        " planning_eligible=" + belief.planningEligible +
+                        " authority=false"
+                )
+            }
+        }
+
+        if (epistemicLines.isEmpty()) return withContracts
+        val accepted = mutableListOf<String>()
+        epistemicLines.forEach { line ->
+            val candidate = withContracts + "\n<EPISTEMIC_CONTEXT>\n" +
+                (accepted + line).joinToString("\n") + "\n</EPISTEMIC_CONTEXT>"
+            if (candidate.length <= charBudget) accepted += line
+        }
+        return if (accepted.isEmpty()) {
+            withContracts
+        } else {
+            withContracts + "\n<EPISTEMIC_CONTEXT>\n" +
+                accepted.joinToString("\n") + "\n</EPISTEMIC_CONTEXT>"
         }
     }
 

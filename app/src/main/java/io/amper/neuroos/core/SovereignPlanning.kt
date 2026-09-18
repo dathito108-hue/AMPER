@@ -472,12 +472,20 @@ class SovereignPlanCoordinator(
         )
         val critic = criticInference ?: return structural
 
+        val epistemicContext = runtime.context.capture(
+            query = userGoal,
+            memoryLimit = 0,
+            worldLimit = 0,
+            workspaceLimit = 0
+        )
         val prompt = ReflectivePlanCriticPrompt.build(
             userGoal = userGoal,
             evaluation = selected,
             allowedCapabilities = advertisedCapabilities,
             descriptors = descriptors,
-            charBudget = profile.maxPromptChars
+            charBudget = profile.maxPromptChars,
+            semanticKnowledge = epistemicContext.semanticKnowledge,
+            epistemicBeliefs = epistemicContext.epistemicBeliefs
         )
         val response = critic.infer(
             InferenceRequest(

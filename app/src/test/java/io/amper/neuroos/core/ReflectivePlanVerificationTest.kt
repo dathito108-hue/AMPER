@@ -112,6 +112,21 @@ class ReflectivePlanVerificationTest {
             """.trimIndent()
         )
 
+        h.runtime.epistemic.observe(
+            EpistemicClaim(
+                subject = "governed",
+                predicate = "value",
+                value = "one",
+                confidence = 0.95,
+                provenance = Provenance(
+                    source = "phase190-test",
+                    producer = "independent-evidence",
+                    observedAtEpochMs = System.currentTimeMillis(),
+                    confidence = 0.95
+                )
+            )
+        )
+
         val plan = h.planner.create(
             h.runtime.conversations.primary(),
             "Read one governed value"
@@ -126,6 +141,10 @@ class ReflectivePlanVerificationTest {
         assertTrue(criticRequest.prompt.contains("causal/world-model assumptions"))
         assertTrue(criticRequest.prompt.contains("authority invariants"))
         assertTrue(criticRequest.prompt.contains("prompt/evidence conflicts"))
+        assertTrue(criticRequest.prompt.contains("<EPISTEMIC_CONTEXT>"))
+        assertTrue(criticRequest.prompt.contains("SEMANTIC governed value=one"))
+        assertTrue(criticRequest.prompt.contains("BELIEF governed value=one status=SUPPORTED"))
+        assertFalse(criticRequest.prompt.contains("payload="))
         assertEquals("one", plan.steps.single().input)
         assertEquals(ToolId("phase185-provider"), plan.steps.single().boundToolId)
         assertEquals(ToolSideEffect.READ_ONLY, plan.steps.single().boundSideEffect)
