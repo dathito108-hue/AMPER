@@ -37,6 +37,52 @@ class EpistemicStateTest {
     }
 
     @Test
+    fun independentFreshCorroborationReconcilesConflictAndRetainsCompetingEvidence() {
+        val memory = InMemoryMemoryOs()
+        val state = MemoryBackedEpistemicState(memory, clock = { 10_000L }, staleAfterMs = 10_000L)
+
+        state.observe(claim("service", "reachable", "true", 0.95, 9_500L, "probe-a"))
+        state.observe(claim("service", "reachable", "true", 0.90, 9_000L, "probe-b"))
+        state.observe(claim("service", "reachable", "false", 0.60, 1_000L, "legacy-probe"))
+
+        val assessment = requireNotNull(state.assess("service", "reachable"))
+        assertEquals(EpistemicStatus.RECONCILED, assessment.status)
+        assertEquals(EpistemicResolutionReason.INDEPENDENT_CORROBORATION, assessment.resolutionReason)
+        assertEquals("true", assessment.preferredValue)
+        assertEquals(2, assessment.independentProducerCount)
+        assertEquals(setOf("false", "true"), assessment.competingValues)
+        assertTrue(assessment.winningSupport > assessment.competingSupport)
+        assertFalse(assessment.authorityBearing)
+    }
+
+    @Test
+    fun repeatedClaimsFromOneProducerCannotManufactureIndependentConsensus() {
+        val memory = InMemoryMemoryOs()
+        val state = MemoryBackedEpistemicState(memory, clock = { 10_000L }, staleAfterMs = 10_000L)
+
+        repeat(12) { index ->
+            state.observe(
+                claim(
+                    "sensor",
+                    "healthy",
+                    "false",
+                    0.95,
+                    9_900L - index,
+                    "single-repeater"
+                )
+            )
+        }
+        state.observe(claim("sensor", "healthy", "true", 0.80, 9_700L, "independent-a"))
+        state.observe(claim("sensor", "healthy", "true", 0.80, 9_600L, "independent-b"))
+
+        val assessment = requireNotNull(state.assess("sensor", "healthy"))
+        assertEquals(EpistemicStatus.RECONCILED, assessment.status)
+        assertEquals("true", assessment.preferredValue)
+        assertEquals(2, assessment.independentProducerCount)
+        assertEquals(14, assessment.evidenceCount)
+    }
+
+    @Test
     fun lowConfidenceAndOldEvidenceAreNotPromotedToCurrentFact() {
         val memory = InMemoryMemoryOs()
         var now = 2_000L
