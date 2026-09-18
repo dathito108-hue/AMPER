@@ -155,6 +155,51 @@ object ReflectivePlanCriticProtocol {
 }
 
 /**
+ * Deterministic structural fallback used by legacy/test coordinators that do not inject a separate
+ * critic inference port. It re-parses the selected plan against the same live descriptors and fails
+ * closed on any binding or contract drift. Production AMPER injects a critic inference port and
+ * therefore performs the semantic critic pass as well.
+ */
+object ReflectivePlanCriticGate {
+    fun structuralVerify(
+        evaluation: DeliberationEvaluation,
+        allowedCapabilities: Collection<CapabilityId>,
+        descriptors: Collection<ToolDescriptor>
+    ): ReflectivePlanCritique {
+        val canonical = buildString {
+            appendLine("<AMPER_PLAN_V1>")
+            evaluation.candidate.steps.sortedBy { it.index }.forEach { step ->
+                appendLine("step.${step.index}.capability=${step.capability.value}")
+                appendLine("step.${step.index}.reason=${step.reason}")
+                appendLine("step.${step.index}.input=${step.input}")
+            }
+            append("</AMPER_PLAN_V1>")
+        }
+        val reparsed = TitanPlanProtocol.parse(
+            modelOutput = canonical,
+            allowedCapabilities = allowedCapabilities,
+            descriptors = descriptors
+        ).getOrThrow()
+        val original = evaluation.candidate.steps.sortedBy { it.index }
+        require(reparsed.size == original.size) { "reflective structural critic changed plan size" }
+        reparsed.zip(original).forEach { (checked, source) ->
+            require(checked.index == source.index) { "reflective critic step index drift" }
+            require(checked.capability == source.capability) { "reflective critic capability drift" }
+            require(checked.reason == source.reason) { "reflective critic reason drift" }
+            require(checked.input == source.input) { "reflective critic input drift" }
+            require(checked.boundToolId == source.boundToolId) { "reflective critic tool binding drift" }
+            require(checked.boundSideEffect == source.boundSideEffect) {
+                "reflective critic side-effect classification drift"
+            }
+        }
+        return ReflectivePlanCritique(
+            verdict = ReflectivePlanCriticVerdict.ACCEPT,
+            critique = "deterministic structural critic accepted exact live bindings"
+        )
+    }
+}
+
+/**
  * Bounded critic prompt that contains only the current goal, the already-selected candidate,
  * live tool descriptors and deterministic governed evidence. Conversation history is deliberately
  * excluded so earlier prompt text cannot silently become critic authority.
@@ -175,22 +220,22 @@ object ReflectivePlanCriticPrompt {
 
         val fixedData = buildString {
             appendLine("<CURRENT_GOAL_DATA>")
-            appendLine(sanitizeData(userGoal, 512))
+            appendLine(sanitizeData(userGoal, 320))
             appendLine("</CURRENT_GOAL_DATA>")
             appendLine("<SELECTED_PLAN_DATA>")
             evaluation.candidate.steps.sortedBy { it.index }.forEach { step ->
                 append("step.")
                 append(step.index)
                 append(" capability=")
-                append(sanitizeData(step.capability.value, 96))
+                append(sanitizeData(step.capability.value, 64))
                 append(" bound_tool=")
-                append(sanitizeData(step.boundToolId?.value ?: "MISSING", 96))
+                append(sanitizeData(step.boundToolId?.value ?: "MISSING", 64))
                 append(" side_effect=")
                 append(step.boundSideEffect?.name ?: "MISSING")
                 append(" reason=")
-                append(sanitizeData(step.reason, 128))
+                append(sanitizeData(step.reason, 96))
                 append(" input=")
-                append(sanitizeData(step.input, 128))
+                append(sanitizeData(step.input, 96))
                 appendLine()
             }
             appendLine("</SELECTED_PLAN_DATA>")
