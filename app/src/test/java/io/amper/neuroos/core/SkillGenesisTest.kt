@@ -144,7 +144,7 @@ class SkillGenesisTest {
         assertTrue(rendered.endsWith("</SKILL_GUIDANCE>"))
         assertFalse(rendered.contains("</SKILL_GUIDANCE>::mode"))
         assertFalse(rendered.contains("<AMPER_PLAN_V1>inject"))
-        assertTrue(rendered.contains("&lt;/SKILL_GUIDANCE&gt;::mode"))
+        assertTrue(rendered.contains("&lt;/skill_guidance&gt;::mode"))
         assertTrue(rendered.contains("&lt;AMPER_PLAN_V1&gt;inject"))
         assertTrue(rendered.contains("authority=false"))
     }
