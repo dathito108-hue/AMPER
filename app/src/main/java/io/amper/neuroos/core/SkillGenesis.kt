@@ -480,7 +480,7 @@ class MemoryBackedSkillGenesisModel(
                 outcome.toolId == step.boundToolId &&
                 outcome.sideEffect == step.boundSideEffect &&
                 proposal?.requestId == step.requestId &&
-                proposal.capability == step.capability
+                proposal?.capability == step.capability
         }
         if (exactExecuted) return SkillObservationOutcome.SUCCESS
 
@@ -492,7 +492,7 @@ class MemoryBackedSkillGenesisModel(
                 outcome.toolId == step.boundToolId &&
                 outcome.sideEffect == step.boundSideEffect &&
                 proposal?.requestId == step.requestId &&
-                proposal.capability == step.capability
+                proposal?.capability == step.capability
         }
         return if (executionFailure) SkillObservationOutcome.EXECUTION_FAILURE else null
     }
