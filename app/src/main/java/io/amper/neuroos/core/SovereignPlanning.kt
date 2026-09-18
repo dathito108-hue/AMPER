@@ -262,6 +262,11 @@ object TitanPlanProtocol {
  * Phase 182 adds a causal counterfactual world projection over those validated candidates. It
  * separates execution quality from environment/protocol fragility and keeps authority history
  * diagnostic-only, never as an optimization signal for bypassing governance.
+ * Phase 185 inserts an independent bounded reflective critic after candidate selection and before
+ * SovereignPlan materialization. Production wiring gives the critic only an inference port: it has
+ * no ToolFabric/AuthorityGate handle, may perform at most one critique/revision pass, and any revised
+ * steps are re-parsed through TitanPlanProtocol so exact live binding and side-effect classification
+ * remain authoritative.
  */
 class SovereignPlanCoordinator(
     private val runtime: AmperRuntime,
@@ -270,7 +275,8 @@ class SovereignPlanCoordinator(
     private val advertisedCapabilities: Set<CapabilityId>,
     private val maxPromptChars: Int = 9000,
     private val maxOutputTokens: Int = 384,
-    private val temperature: Double = 0.7
+    private val temperature: Double = 0.7,
+    private val criticInference: CognitiveInferencePort? = null
 ) {
     private val recoveryGuard = SovereignPlanRecoveryGuard(actions, advertisedCapabilities)
     private val baselineCapabilities = setOf(TitanCapabilities.REASONING)
@@ -323,17 +329,25 @@ class SovereignPlanCoordinator(
             strategies = runtime.strategies,
             allowedCapabilities = advertisedCapabilities
         )
+        val critique = critiqueSelection(
+            conversationId = conversationId,
+            userGoal = userGoal,
+            selected = selection.selected,
+            descriptors = descriptors,
+            profile = boundInferenceProfile
+        )
+        val finalEvaluation = postCriticEvaluation(selection.selected, critique)
         val plan = SovereignPlan(
             conversationId = conversationId,
             goal = userGoal,
-            steps = selection.selected.candidate.steps,
+            steps = finalEvaluation.candidate.steps,
             planningBackendId = response.backendId,
             planningModelId = response.modelId,
             planningSelectedCapabilities = response.selectedCapabilities,
             deliberationCandidateCount = selection.evaluated.size,
-            deliberationScore = selection.selected.totalScore,
-            counterfactualViability = selection.selected.counterfactualViability,
-            counterfactualConfidence = selection.selected.counterfactualConfidence
+            deliberationScore = finalEvaluation.totalScore,
+            counterfactualViability = finalEvaluation.counterfactualViability,
+            counterfactualConfidence = finalEvaluation.counterfactualConfidence
         )
         runtime.conversations.commitAssistant(
             conversationId = conversationId,
@@ -407,7 +421,15 @@ class SovereignPlanCoordinator(
             strategies = runtime.strategies,
             allowedCapabilities = advertisedCapabilities
         )
-        val steps = selection.selected.candidate.steps
+        val critique = critiqueSelection(
+            conversationId = plan.conversationId,
+            userGoal = plan.goal,
+            selected = selection.selected,
+            descriptors = descriptors,
+            profile = boundInferenceProfile
+        )
+        val finalEvaluation = postCriticEvaluation(selection.selected, critique)
+        val steps = finalEvaluation.candidate.steps
         GovernedStrategyRecovery.validateReplacement(plan, steps)
 
         SovereignPlan(
@@ -420,9 +442,9 @@ class SovereignPlanCoordinator(
             parentPlanId = plan.id,
             recoveryDepth = plan.recoveryDepth + 1,
             deliberationCandidateCount = selection.evaluated.size,
-            deliberationScore = selection.selected.totalScore,
-            counterfactualViability = selection.selected.counterfactualViability,
-            counterfactualConfidence = selection.selected.counterfactualConfidence
+            deliberationScore = finalEvaluation.totalScore,
+            counterfactualViability = finalEvaluation.counterfactualViability,
+            counterfactualConfidence = finalEvaluation.counterfactualConfidence
         ).also { replacement ->
             runtime.conversations.commitAssistant(
                 conversationId = plan.conversationId,
@@ -434,6 +456,60 @@ class SovereignPlanCoordinator(
                 selectedCapabilities = response.selectedCapabilities
             )
         }
+    }
+
+    private fun critiqueSelection(
+        conversationId: ConversationId,
+        userGoal: String,
+        selected: DeliberationEvaluation,
+        descriptors: List<ToolDescriptor>,
+        profile: BoundConversationInferenceProfile
+    ): ReflectivePlanCritique {
+        val structural = ReflectivePlanCriticGate.structuralVerify(
+            evaluation = selected,
+            allowedCapabilities = advertisedCapabilities,
+            descriptors = descriptors
+        )
+        val critic = criticInference ?: return structural
+
+        val prompt = ReflectivePlanCriticPrompt.build(
+            userGoal = userGoal,
+            evaluation = selected,
+            allowedCapabilities = advertisedCapabilities,
+            descriptors = descriptors,
+            charBudget = profile.maxPromptChars
+        )
+        val response = critic.infer(
+            InferenceRequest(
+                prompt = prompt,
+                requiredCapabilities = baselineCapabilities,
+                maxOutputTokens = profile.maxOutputTokens,
+                temperature = profile.temperature,
+                sessionRoutingPreference = profile.sessionRoutingPreference
+            )
+        ).getOrThrow()
+
+        return ReflectivePlanCriticProtocol.parse(
+            modelOutput = response.text,
+            allowedCapabilities = advertisedCapabilities,
+            descriptors = descriptors
+        ).getOrThrow()
+    }
+
+    private fun postCriticEvaluation(
+        selected: DeliberationEvaluation,
+        critique: ReflectivePlanCritique
+    ): DeliberationEvaluation {
+        if (!critique.revised) return selected
+        val revisedCandidate = DeliberationCandidate(
+            index = selected.candidate.index,
+            steps = requireNotNull(critique.revisedSteps)
+        )
+        return EvidenceGroundedDeliberationEvaluator.select(
+            candidates = listOf(revisedCandidate),
+            strategies = runtime.strategies,
+            allowedCapabilities = advertisedCapabilities
+        ).selected
     }
 
     /** Process at most one step. No loop is permitted inside this method. */
