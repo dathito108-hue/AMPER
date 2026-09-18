@@ -80,6 +80,17 @@ contracts, rebound to exact providers, and subject to the existing authority and
 ### Mega-Phase 201-205 — Generalization
 Cross-task skill composition, transfer, abstraction and strategy reuse outside the original task.
 
+### Implemented checkpoint — Phase201-205
+Phase201 creates privacy-preserving hashed goal-context fingerprints instead of persisting raw goals
+inside transfer evidence. Phase202 records only exact governed success/execution-failure evidence for
+cross-task reuse, with per-plan idempotence. Phase203 promotes skills from LOCAL to TRANSFERABLE and
+GENERALIZED only after success across distinct contexts, and marks previously transferable skills
+DEGRADED when later execution evidence falls below the transfer threshold. Phase204 searches bounded
+multi-skill chains by simulating learned effects into the next skill's preconditions and requires a
+real produced-state dependency between adjacent skills. Phase205 exposes escaped novel-context
+transfer/chains as advisory planning evidence; normal live tool binding, AuthorityGate and side-effect
+approval remain authoritative.
+
 ### Mega-Phase 206-210 — Autonomous Learning
 Competence maps, weakness detection, active curriculum generation and evidence-driven practice.
 

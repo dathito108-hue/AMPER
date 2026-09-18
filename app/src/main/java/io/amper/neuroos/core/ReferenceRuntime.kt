@@ -174,6 +174,7 @@ class AmperRuntime private constructor(
     val semanticKnowledge: SemanticKnowledgeStore,
     val predictiveWorld: PredictiveWorldModel,
     val skills: SkillGenesisModel,
+    val generalization: SkillGeneralizationModel,
     val conversations: SovereignConversationCoordinator,
     val inferenceProfiles: ConversationInferenceProfileStore,
     val plans: SovereignPlanStore,
@@ -280,6 +281,7 @@ class AmperRuntime private constructor(
             val semanticKnowledge = MemoryBackedSemanticKnowledgeStore(memory, epistemic)
             val predictiveWorld = MemoryBackedPredictiveWorldModel(memory)
             val skills = MemoryBackedSkillGenesisModel(memory)
+            val generalization = MemoryBackedSkillGeneralizationModel(memory, skills)
             val selfModel = CanonicalSelfModel()
             val goals = CanonicalGoalSystem()
             val world = CanonicalWorldModel()
@@ -335,6 +337,7 @@ class AmperRuntime private constructor(
                 semanticKnowledge = semanticKnowledge,
                 predictiveWorld = predictiveWorld,
                 skills = skills,
+                generalization = generalization,
                 conversations = conversations,
                 inferenceProfiles = inferenceProfiles,
                 plans = plans,
