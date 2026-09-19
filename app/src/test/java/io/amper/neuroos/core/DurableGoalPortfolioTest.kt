@@ -157,6 +157,129 @@ class DurableGoalPortfolioTest {
     }
 
     @Test
+    fun persistentGoalSelectorUsesDurablePendingWhenLiveContextIsEmpty() {
+        val runtime = AmperRuntime.reference()
+        val durableId = "phase313-restart-goal"
+        val durableObjective = "Resume this objective even after live GoalSystem state is gone"
+        runtime.goalPortfolio.observe(
+            listOf(
+                DurableGoalCandidate(
+                    sourceGoalId = durableId,
+                    objective = durableObjective,
+                    priority = 0.97
+                )
+            ),
+            observedAtEpochMs = 50L
+        )
+
+        val liveContext = runtime.context
+        val emptyGoalContext = object : SovereignContextSource {
+            override fun capture(
+                query: String,
+                memoryLimit: Int,
+                worldLimit: Int,
+                workspaceLimit: Int
+            ): SovereignContextSnapshot =
+                liveContext.capture(query, memoryLimit, worldLimit, workspaceLimit)
+                    .copy(goals = emptyList())
+
+            override fun groundedPrompt(query: String, charBudget: Int): String =
+                liveContext.groundedPrompt(query, charBudget)
+
+            override fun rememberAssistantResponse(
+                userPrompt: String,
+                response: String,
+                backendId: String,
+                confidence: Double
+            ) {
+                liveContext.rememberAssistantResponse(
+                    userPrompt,
+                    response,
+                    backendId,
+                    confidence
+                )
+            }
+        }
+
+        val baseState = runtime.integratedCognition.capture(
+            query = durableObjective,
+            allowedCapabilities = setOf(capability),
+            descriptors = listOf(descriptor())
+        )
+        val ready = baseState.copy(
+            learningNeeds = emptyList(),
+            perceptualEvidence = emptyList(),
+            readiness = baseState.readiness.copy(
+                epistemicConfidence = 0.9,
+                worldConfidence = 0.9,
+                skillConfidence = 0.85,
+                competenceConfidence = 0.8,
+                uncertainty = 0.1,
+                learningPressure = 0.1,
+                overallReadiness = 0.88
+            )
+        )
+        var createdGoal: String? = null
+        val plannedId = PlanId("phase313-resumed-plan")
+        val executive = AutonomousCognitiveExecutive(
+            stateSource = object : IntegratedCognitiveStateSource {
+                override fun capture(
+                    query: String,
+                    allowedCapabilities: Set<CapabilityId>,
+                    descriptors: Collection<ToolDescriptor>
+                ): IntegratedCognitiveStatePacket = ready
+            },
+            allowedCapabilities = setOf(capability),
+            descriptors = { listOf(descriptor()) },
+            createPlan = { conversationId, goal ->
+                createdGoal = goal
+                Result.success(
+                    SovereignPlan(
+                        id = plannedId,
+                        conversationId = conversationId,
+                        goal = goal,
+                        steps = listOf(
+                            SovereignPlanStep(
+                                index = 1,
+                                requestId = ActionRequestId("phase313-request"),
+                                capability = capability,
+                                reason = "Resume durable pending goal",
+                                input = "read",
+                                boundToolId = descriptor().id,
+                                boundSideEffect = ToolSideEffect.READ_ONLY
+                            )
+                        ),
+                        planningBackendId = "phase313-planner"
+                    )
+                )
+            },
+            practiceOne = {
+                Result.failure(IllegalStateException("ready durable goal must plan"))
+            }
+        )
+        val coordinator = PersistentGoalExecutiveCoordinator(
+            context = emptyGoalContext,
+            executive = executive,
+            store = runtime.persistentGoalExecutiveStore,
+            plans = runtime.plans,
+            portfolio = runtime.goalPortfolio,
+            clock = { 60L }
+        )
+
+        val result = coordinator.runNext(
+            ConversationId("phase313-conversation")
+        ).getOrThrow()
+
+        assertTrue(result is PersistentGoalExecutiveResult.Ran)
+        val ran = result as PersistentGoalExecutiveResult.Ran
+        assertEquals(durableId, ran.checkpoint.sourceGoalId)
+        assertEquals(durableObjective, createdGoal)
+        assertEquals(PersistentGoalExecutiveStage.PLANNED, ran.checkpoint.stage)
+        assertEquals(plannedId, ran.checkpoint.plannedPlanId)
+        assertTrue(runtime.plans.load(plannedId) != null)
+    }
+
+    @Test
     fun missingGoalCompletionDoesNotInventPortfolioRecord() {
         val portfolio = MemoryBackedDurableGoalPortfolio(InMemoryMemoryOs())
         assertNull(portfolio.markCompleted("unknown-goal", completedAtEpochMs = 100L))
