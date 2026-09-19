@@ -54,6 +54,52 @@ data class GoalRepairValidationSnapshot(
         get() = false
 }
 
+enum class GoalRepairRequalificationState {
+    REQUALIFIED,
+    INVALIDATED
+}
+
+data class GoalRepairRequalificationSnapshot(
+    val capability: CapabilityId,
+    val practiceCreditObservedAtEpochMs: Long,
+    val practiceValidatedAtEpochMs: Long,
+    val strategy: StrategySignature,
+    val verifiedSuccesses: Int = 0,
+    val realFailures: Int = 0,
+    val lastSuccessAtEpochMs: Long = 0L,
+    val lastFailureAtEpochMs: Long = 0L
+) {
+    init {
+        require(practiceCreditObservedAtEpochMs >= 0L)
+        require(practiceValidatedAtEpochMs >= 0L)
+        require(verifiedSuccesses >= 0)
+        require(realFailures >= 0)
+        require(lastSuccessAtEpochMs >= 0L)
+        require(lastFailureAtEpochMs >= 0L)
+        require(capability in strategy.capabilities)
+    }
+
+    val state: GoalRepairRequalificationState
+        get() = if (
+            verifiedSuccesses > 0 &&
+            (lastFailureAtEpochMs == 0L || lastSuccessAtEpochMs > lastFailureAtEpochMs)
+        ) {
+            GoalRepairRequalificationState.REQUALIFIED
+        } else {
+            GoalRepairRequalificationState.INVALIDATED
+        }
+
+    val evidenceConfidence: Double
+        get() = if (state == GoalRepairRequalificationState.REQUALIFIED) {
+            verifiedSuccesses.toDouble() / (verifiedSuccesses.toDouble() + 1.0)
+        } else {
+            0.0
+        }
+
+    val authorityBearing: Boolean
+        get() = false
+}
+
 interface GoalRepairValidationModel {
     fun observe(
         task: AutonomousPracticeTask,
@@ -65,6 +111,20 @@ interface GoalRepairValidationModel {
     fun validatedConfidence(capability: CapabilityId): Double
 
     fun pressureMultiplier(signal: GoalHierarchicalLearningSignal): Double
+
+    fun observeGovernedOutcome(
+        plan: SovereignPlan,
+        outcome: GoalOutcomeEvidenceKind,
+        observedAtEpochMs: Long = System.currentTimeMillis()
+    ): List<GoalRepairRequalificationSnapshot> = emptyList()
+
+    fun requalificationSnapshot(
+        capability: CapabilityId
+    ): GoalRepairRequalificationSnapshot? = null
+
+    fun requalifiedConfidence(capability: CapabilityId): Double = 0.0
+
+    fun requalifiedTransferConfidence(strategy: StrategySignature): Double = 0.0
 }
 
 /**
@@ -176,16 +236,206 @@ class MemoryBackedGoalRepairValidationModel(
     }
 
     override fun pressureMultiplier(signal: GoalHierarchicalLearningSignal): Double {
-        val snapshot = snapshot(signal.capability) ?: return 1.0
-        if (snapshot.creditObservedAtEpochMs != signal.latestObservedAtEpochMs) {
-            return 1.0
+        val practice = snapshot(signal.capability)
+        val practiceRelief = if (
+            practice != null &&
+            practice.creditObservedAtEpochMs == signal.latestObservedAtEpochMs
+        ) {
+            practice.validatedConfidence * MAX_LEARNING_PRESSURE_RELIEF
+        } else {
+            0.0
         }
-        val relief = (
-            snapshot.validatedConfidence * MAX_LEARNING_PRESSURE_RELIEF
-            ).coerceIn(0.0, MAX_LEARNING_PRESSURE_RELIEF)
+        val real = requalificationSnapshot(signal.capability)
+        val realRelief = if (
+            real?.state == GoalRepairRequalificationState.REQUALIFIED &&
+            real.lastSuccessAtEpochMs >= signal.latestObservedAtEpochMs
+        ) {
+            real.evidenceConfidence * MAX_REQUALIFIED_LEARNING_PRESSURE_RELIEF
+        } else {
+            0.0
+        }
+        val relief = maxOf(practiceRelief, realRelief).coerceIn(
+            0.0,
+            MAX_REQUALIFIED_LEARNING_PRESSURE_RELIEF
+        )
         return (1.0 - relief).coerceIn(
-            1.0 - MAX_LEARNING_PRESSURE_RELIEF,
+            1.0 - MAX_REQUALIFIED_LEARNING_PRESSURE_RELIEF,
             1.0
+        )
+    }
+
+    @Synchronized
+    override fun observeGovernedOutcome(
+        plan: SovereignPlan,
+        outcome: GoalOutcomeEvidenceKind,
+        observedAtEpochMs: Long
+    ): List<GoalRepairRequalificationSnapshot> {
+        require(plan.complete)
+        require(observedAtEpochMs >= 0L)
+        if (
+            outcome == GoalOutcomeEvidenceKind.AUTHORITY_BLOCKED ||
+            outcome == GoalOutcomeEvidenceKind.PARTIAL_EXECUTION_BLOCKED
+        ) {
+            return emptyList()
+        }
+
+        val strategy = StrategySignature.from(plan)
+        return strategy.capabilities.distinct().mapNotNull { capability ->
+            val markerId = realOutcomeMarkerId(plan.id, capability)
+            memory.get(markerId)
+                ?.takeIf { it.kind == REAL_OUTCOME_MARKER_KIND }
+                ?.let { marker ->
+                    require(marker.content == outcome.name) {
+                        "repair real-world outcome changed for an existing plan"
+                    }
+                    return@mapNotNull requalificationSnapshot(capability)
+                }
+
+            val previous = requalificationSnapshot(capability)
+            val updated = when (outcome) {
+                GoalOutcomeEvidenceKind.VERIFIED_SUCCESS -> {
+                    val practice = snapshot(capability)
+                        ?.takeIf {
+                            it.state == GoalRepairValidationState.VALIDATED &&
+                                it.lastPracticeAtEpochMs <= observedAtEpochMs
+                        }
+                        ?: run {
+                            rememberRealOutcomeMarker(markerId, outcome, observedAtEpochMs)
+                            return@mapNotNull null
+                        }
+                    val compatiblePrevious = previous?.takeIf {
+                        it.practiceCreditObservedAtEpochMs == practice.creditObservedAtEpochMs &&
+                            it.practiceValidatedAtEpochMs == practice.lastPracticeAtEpochMs
+                    }
+                    (compatiblePrevious ?: GoalRepairRequalificationSnapshot(
+                        capability = capability,
+                        practiceCreditObservedAtEpochMs = practice.creditObservedAtEpochMs,
+                        practiceValidatedAtEpochMs = practice.lastPracticeAtEpochMs,
+                        strategy = strategy
+                    )).copy(
+                        strategy = strategy,
+                        verifiedSuccesses = (compatiblePrevious?.verifiedSuccesses ?: 0) + 1,
+                        lastSuccessAtEpochMs = maxOf(
+                            compatiblePrevious?.lastSuccessAtEpochMs ?: 0L,
+                            observedAtEpochMs
+                        )
+                    )
+                }
+                GoalOutcomeEvidenceKind.EXECUTION_EXHAUSTED,
+                GoalOutcomeEvidenceKind.EVIDENCE_EXHAUSTED -> {
+                    val active = previous ?: run {
+                        rememberRealOutcomeMarker(markerId, outcome, observedAtEpochMs)
+                        return@mapNotNull null
+                    }
+                    active.copy(
+                        realFailures = active.realFailures + 1,
+                        lastFailureAtEpochMs = maxOf(active.lastFailureAtEpochMs, observedAtEpochMs)
+                    )
+                }
+                GoalOutcomeEvidenceKind.AUTHORITY_BLOCKED,
+                GoalOutcomeEvidenceKind.PARTIAL_EXECUTION_BLOCKED -> return@mapNotNull null
+            }
+            memory.transaction {
+                remember(
+                    MemoryRecord(
+                        id = requalificationId(capability),
+                        kind = REQUALIFICATION_KIND,
+                        content = GoalRepairRequalificationCodec.encode(updated),
+                        importance = if (updated.state == GoalRepairRequalificationState.REQUALIFIED) 0.78 else 0.66,
+                        provenance = Provenance(
+                            source = "governed-repair-requalification",
+                            producer = "goal-repair-validation",
+                            confidence = updated.evidenceConfidence,
+                            parents = setOf(snapshotId(capability))
+                        ),
+                        createdAtEpochMs = observedAtEpochMs
+                    )
+                )
+                remember(
+                    MemoryRecord(
+                        id = markerId,
+                        kind = REAL_OUTCOME_MARKER_KIND,
+                        content = outcome.name,
+                        importance = 0.50,
+                        provenance = Provenance(
+                            source = "governed-repair-requalification",
+                            producer = "goal-repair-validation-marker",
+                            confidence = 1.0
+                        ),
+                        createdAtEpochMs = observedAtEpochMs
+                    )
+                )
+            }
+            updated
+        }
+    }
+
+    override fun requalificationSnapshot(
+        capability: CapabilityId
+    ): GoalRepairRequalificationSnapshot? =
+        memory.get(requalificationId(capability))
+            ?.takeIf { it.kind == REQUALIFICATION_KIND }
+            ?.let { GoalRepairRequalificationCodec.decode(it.content) }
+            ?.takeIf { it.capability == capability }
+
+    override fun requalifiedConfidence(capability: CapabilityId): Double =
+        requalificationSnapshot(capability)
+            ?.takeIf { it.state == GoalRepairRequalificationState.REQUALIFIED }
+            ?.evidenceConfidence
+            ?: 0.0
+
+    override fun requalifiedTransferConfidence(strategy: StrategySignature): Double {
+        val targetCapabilities = strategy.capabilities.distinct()
+        if (targetCapabilities.isEmpty()) return 0.0
+        val scores = mutableListOf<Double>()
+        for (capability in targetCapabilities) {
+            val snapshot = requalificationSnapshot(capability)
+                ?.takeIf { it.state == GoalRepairRequalificationState.REQUALIFIED }
+                ?: return 0.0
+            val similarity = structuralSimilarity(snapshot.strategy, strategy)
+            if (similarity < MIN_REQUALIFIED_TRANSFER_SIMILARITY) return 0.0
+            scores += (
+                snapshot.evidenceConfidence * (0.50 + 0.50 * similarity)
+                ).coerceIn(0.0, 1.0)
+        }
+        return scores.average().coerceIn(0.0, 1.0)
+    }
+
+    private fun structuralSimilarity(
+        source: StrategySignature,
+        target: StrategySignature
+    ): Double {
+        val sourceSet = source.capabilities.toSet()
+        val targetSet = target.capabilities.toSet()
+        val union = sourceSet union targetSet
+        val jaccard = if (union.isEmpty()) 0.0 else {
+            sourceSet.intersect(targetSet).size.toDouble() / union.size.toDouble()
+        }
+        val longest = maxOf(source.capabilities.size, target.capabilities.size).coerceAtLeast(1)
+        val prefix = source.capabilities.zip(target.capabilities)
+            .takeWhile { (left, right) -> left == right }
+            .size.toDouble() / longest.toDouble()
+        return (jaccard * 0.65 + prefix * 0.35).coerceIn(0.0, 1.0)
+    }
+
+    private fun rememberRealOutcomeMarker(
+        markerId: MemoryId,
+        outcome: GoalOutcomeEvidenceKind,
+        observedAtEpochMs: Long
+    ) {
+        memory.remember(
+            MemoryRecord(
+                id = markerId,
+                kind = REAL_OUTCOME_MARKER_KIND,
+                content = outcome.name,
+                importance = 0.44,
+                provenance = Provenance(
+                    source = "governed-repair-requalification",
+                    producer = "goal-repair-validation-marker",
+                    confidence = 1.0
+                ),
+                createdAtEpochMs = observedAtEpochMs
+            )
         )
     }
 
@@ -198,20 +448,31 @@ class MemoryBackedGoalRepairValidationModel(
     private fun snapshotId(capability: CapabilityId): MemoryId =
         MemoryId("goal-repair-validation:" + capability.value)
 
+    private fun requalificationId(capability: CapabilityId): MemoryId =
+        MemoryId("goal-repair-requalification:" + capability.value)
+
+    private fun realOutcomeMarkerId(planId: PlanId, capability: CapabilityId): MemoryId =
+        MemoryId("goal-repair-real-outcome:" + planId.value + ":" + capability.value)
+
     private fun evidenceMarkerId(evidenceId: MemoryId): MemoryId =
         MemoryId("goal-repair-validation-evidence:" + evidenceId.value)
 
     companion object {
         const val SNAPSHOT_KIND = "goal-repair-validation-v1"
         const val EVIDENCE_MARKER_KIND = "goal-repair-validation-evidence-v1"
+        const val REQUALIFICATION_KIND = "goal-repair-requalification-v1"
+        const val REAL_OUTCOME_MARKER_KIND = "goal-repair-real-outcome-v1"
         const val MIN_VALIDATION_ATTEMPTS = 2
         const val MIN_VALIDATION_PASS_RATE = 0.80
         const val MAX_LEARNING_PRESSURE_RELIEF = 0.35
+        const val MAX_REQUALIFIED_LEARNING_PRESSURE_RELIEF = 0.60
+        const val MIN_REQUALIFIED_TRANSFER_SIMILARITY = 0.50
     }
 }
 
 object GoalRepairRefinementPolicy {
     const val MAX_NEGATIVE_PENALTY_ATTENUATION = 0.50
+    const val MAX_REQUALIFIED_NEGATIVE_PENALTY_ATTENUATION = 0.80
 
     fun apply(
         candidates: List<GoalStrategyPortfolioCandidate>,
@@ -228,11 +489,17 @@ object GoalRepairRefinementPolicy {
                 capabilities.sumOf(validation::validatedConfidence) /
                     capabilities.size.toDouble()
                 ).coerceIn(0.0, 1.0)
-            if (validationCoverage <= 0.0) return@map candidate
+            val requalifiedTransfer = validation.requalifiedTransferConfidence(
+                candidate.assessment.candidate.strategy
+            )
+            if (validationCoverage <= 0.0 && requalifiedTransfer <= 0.0) {
+                return@map candidate
+            }
 
-            val attenuation = (
-                validationCoverage * MAX_NEGATIVE_PENALTY_ATTENUATION
-                ).coerceIn(0.0, MAX_NEGATIVE_PENALTY_ATTENUATION)
+            val attenuation = maxOf(
+                validationCoverage * MAX_NEGATIVE_PENALTY_ATTENUATION,
+                requalifiedTransfer * MAX_REQUALIFIED_NEGATIVE_PENALTY_ATTENUATION
+            ).coerceIn(0.0, MAX_REQUALIFIED_NEGATIVE_PENALTY_ATTENUATION)
             val refinedAdjustment = (
                 candidate.hierarchicalCreditAdjustment * (1.0 - attenuation)
                 ).coerceIn(
@@ -276,6 +543,38 @@ private object GoalRepairValidationCodec {
             passed = p[3].toInt(),
             failed = p[4].toInt(),
             lastPracticeAtEpochMs = p[5].toLong()
+        )
+    }.getOrNull()
+}
+
+
+private object GoalRepairRequalificationCodec {
+    private const val VERSION = "AMPER_GOAL_REPAIR_REQUALIFICATION_V1"
+
+    fun encode(snapshot: GoalRepairRequalificationSnapshot): String = listOf(
+        VERSION,
+        snapshot.capability.value,
+        snapshot.practiceCreditObservedAtEpochMs.toString(),
+        snapshot.practiceValidatedAtEpochMs.toString(),
+        snapshot.strategy.capabilities.joinToString(",") { it.value },
+        snapshot.verifiedSuccesses.toString(),
+        snapshot.realFailures.toString(),
+        snapshot.lastSuccessAtEpochMs.toString(),
+        snapshot.lastFailureAtEpochMs.toString()
+    ).joinToString("\t")
+
+    fun decode(content: String): GoalRepairRequalificationSnapshot? = runCatching {
+        val p = content.split('\t')
+        require(p.size == 9 && p[0] == VERSION)
+        GoalRepairRequalificationSnapshot(
+            capability = CapabilityId(p[1]),
+            practiceCreditObservedAtEpochMs = p[2].toLong(),
+            practiceValidatedAtEpochMs = p[3].toLong(),
+            strategy = StrategySignature(p[4].split(',').filter { it.isNotBlank() }.map(::CapabilityId)),
+            verifiedSuccesses = p[5].toInt(),
+            realFailures = p[6].toInt(),
+            lastSuccessAtEpochMs = p[7].toLong(),
+            lastFailureAtEpochMs = p[8].toLong()
         )
     }.getOrNull()
 }
