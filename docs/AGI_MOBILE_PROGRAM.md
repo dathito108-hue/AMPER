@@ -416,6 +416,26 @@ metadata is scheduling evidence only and cannot bypass capability, authority, ap
 governed execution gates.
 
 
+### Implemented checkpoint — Phase326-330
+Phase326 adds a strict one-inference decomposition protocol that classifies a newly selected durable
+goal as ATOMIC or splits it into only 2-4 independently verifiable subgoals. Subgoal dependencies may
+reference only earlier indices, making every generated structure a bounded DAG; the decomposition
+model never supplies durable IDs, tool calls, execution claims, approvals or authority. Phase327
+generates deterministic content-addressed child IDs inside AMPER, caps every child priority at its
+parent priority, inherits the parent deadline and limits recursive decomposition to depth two.
+Phase328 applies the entire decomposition to the durable portfolio in one persistence transaction,
+fails closed when pending capacity or dependency bounds would be exceeded, marks the parent
+DECOMPOSED and hard-blocks it on all generated children. Phase329 integrates decomposition before the
+normal persistent-goal executive: explicit ATOMIC state and depth caps survive restart, while a
+successful split releases the parent checkpoint so the existing dependency/deadline/fairness
+scheduler can select runnable children without hot looping. Phase330 requires all children to reach
+normal governed completion before the parent becomes runnable again; the parent is not auto-completed
+by decomposition and must still create a normal governed plan and pass the existing terminal
+goal-satisfaction verification. The portfolio payload is upgraded to V4 with V1/V2/V3 decoding.
+Decomposition owns no ToolFabric or AuthorityGate handle and cannot widen capabilities, execute a
+side effect or turn planning structure into evidence that the user objective succeeded.
+
+
 ## CI budget policy
 
 GitHub Actions is a scarce verification resource.
