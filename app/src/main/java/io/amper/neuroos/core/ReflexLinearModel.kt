@@ -221,27 +221,37 @@ object ReflexLinearFeatureProjector {
 }
 
 object ReflexLinearModelCodec {
+    // Keep the historical .arl1 suffix so already-persisted V1 files remain discoverable.
     const val FILE_EXTENSION = "arl1"
     const val MAX_ARTIFACT_BYTES = 2_000_000
     private const val MAGIC = 0x41524c31
-    private const val VERSION = 1
+    private const val LEGACY_DENSE_VERSION = 1
+    private const val SPARSE_VERSION = 2
 
+    /**
+     * Phase509 lossless structural compression for the mobile Reflex artifact.
+     *
+     * Training touches only a bounded subset of the 4,096 hashed feature buckets. V2 therefore
+     * stores only non-zero weight cells while preserving FP32 values exactly. Decode remains
+     * backward-compatible with dense V1 artifacts already installed on devices.
+     */
     fun encode(model: ReflexLinearModel): ByteArray {
         val bytes = ByteArrayOutputStream()
         DataOutputStream(bytes).use { out ->
-            out.writeInt(MAGIC)
-            out.writeInt(VERSION)
-            out.writeInt(ReflexLinearModel.FEATURE_DIMENSION)
-            out.writeInt(ReflexLinearModel.CLASS_SLOTS)
-            out.writeInt(model.capabilities.size)
-            model.capabilities.forEach { capability ->
-                val value = capability.value.toByteArray(StandardCharsets.UTF_8)
-                require(value.size in 1..256)
-                out.writeInt(value.size)
-                out.write(value)
-            }
+            writeHeader(out, SPARSE_VERSION, model)
             model.biases.forEach { out.writeFloat(it) }
-            model.weights.forEach { out.writeFloat(it) }
+
+            var nonZero = 0
+            model.weights.forEach { value ->
+                if (value != 0.0f) nonZero += 1
+            }
+            out.writeInt(nonZero)
+            model.weights.forEachIndexed { index, value ->
+                if (value != 0.0f) {
+                    out.writeInt(index)
+                    out.writeFloat(value)
+                }
+            }
         }
         return bytes.toByteArray().also {
             require(it.size <= MAX_ARTIFACT_BYTES)
@@ -252,7 +262,10 @@ object ReflexLinearModelCodec {
         require(bytes.isNotEmpty() && bytes.size <= MAX_ARTIFACT_BYTES)
         DataInputStream(ByteArrayInputStream(bytes)).use { input ->
             require(input.readInt() == MAGIC) { "unsupported AMPER Reflex artifact magic" }
-            require(input.readInt() == VERSION) { "unsupported AMPER Reflex artifact version" }
+            val version = input.readInt()
+            require(version == LEGACY_DENSE_VERSION || version == SPARSE_VERSION) {
+                "unsupported AMPER Reflex artifact version"
+            }
             require(input.readInt() == ReflexLinearModel.FEATURE_DIMENSION) {
                 "Reflex feature dimension mismatch"
             }
@@ -273,9 +286,68 @@ object ReflexLinearModelCodec {
             require(capabilities.distinct().size == capabilities.size)
             require(capabilities == capabilities.sortedBy { it.value })
             val biases = FloatArray(ReflexLinearModel.CLASS_SLOTS) { input.readFloat() }
-            val weights = FloatArray(ReflexLinearModel.PARAMETER_WEIGHTS) { input.readFloat() }
+            val weights = when (version) {
+                LEGACY_DENSE_VERSION ->
+                    FloatArray(ReflexLinearModel.PARAMETER_WEIGHTS) { input.readFloat() }
+
+                SPARSE_VERSION -> {
+                    val result = FloatArray(ReflexLinearModel.PARAMETER_WEIGHTS)
+                    val nonZero = input.readInt()
+                    require(nonZero in 0..ReflexLinearModel.PARAMETER_WEIGHTS) {
+                        "Reflex sparse weight count is invalid"
+                    }
+                    var previousIndex = -1
+                    repeat(nonZero) {
+                        val index = input.readInt()
+                        require(index in 0 until ReflexLinearModel.PARAMETER_WEIGHTS) {
+                            "Reflex sparse weight index is invalid"
+                        }
+                        require(index > previousIndex) {
+                            "Reflex sparse weight indexes must be strictly increasing"
+                        }
+                        val value = input.readFloat()
+                        require(value.isFinite() && value != 0.0f) {
+                            "Reflex sparse weight value is invalid"
+                        }
+                        result[index] = value
+                        previousIndex = index
+                    }
+                    result
+                }
+
+                else -> error("unreachable Reflex artifact version")
+            }
             require(input.available() == 0) { "unexpected trailing Reflex artifact bytes" }
             return ReflexLinearModel(capabilities, biases, weights)
+        }
+    }
+
+    internal fun denseReferenceByteCount(model: ReflexLinearModel): Int {
+        var bytes = 5 * Int.SIZE_BYTES
+        model.capabilities.forEach { capability ->
+            bytes += Int.SIZE_BYTES
+            bytes += capability.value.toByteArray(StandardCharsets.UTF_8).size
+        }
+        bytes += ReflexLinearModel.CLASS_SLOTS * Float.SIZE_BYTES
+        bytes += ReflexLinearModel.PARAMETER_WEIGHTS * Float.SIZE_BYTES
+        return bytes
+    }
+
+    private fun writeHeader(
+        out: DataOutputStream,
+        version: Int,
+        model: ReflexLinearModel
+    ) {
+        out.writeInt(MAGIC)
+        out.writeInt(version)
+        out.writeInt(ReflexLinearModel.FEATURE_DIMENSION)
+        out.writeInt(ReflexLinearModel.CLASS_SLOTS)
+        out.writeInt(model.capabilities.size)
+        model.capabilities.forEach { capability ->
+            val value = capability.value.toByteArray(StandardCharsets.UTF_8)
+            require(value.size in 1..256)
+            out.writeInt(value.size)
+            out.write(value)
         }
     }
 }
