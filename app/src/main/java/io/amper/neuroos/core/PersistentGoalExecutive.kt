@@ -371,10 +371,7 @@ class PersistentGoalExecutiveCoordinator(
         }
         val saved = store.save(next)
         if (saved.stage == PersistentGoalExecutiveStage.COMPLETED) {
-            portfolio?.markCompleted(
-                sourceGoalId = saved.sourceGoalId,
-                completedAtEpochMs = now
-            )
+            markPortfolioCompleted(saved, now)
         }
         saved
     }
@@ -447,10 +444,7 @@ class PersistentGoalExecutiveCoordinator(
         }
         val saved = store.save(next)
         if (saved.stage == PersistentGoalExecutiveStage.COMPLETED) {
-            portfolio?.markCompleted(
-                sourceGoalId = saved.sourceGoalId,
-                completedAtEpochMs = now
-            )
+            markPortfolioCompleted(saved, now)
         }
         saved
     }
@@ -467,6 +461,27 @@ class PersistentGoalExecutiveCoordinator(
     }
 
     fun current(): PersistentGoalExecutiveCheckpoint? = store.load()
+
+    private fun markPortfolioCompleted(
+        checkpoint: PersistentGoalExecutiveCheckpoint,
+        completedAtEpochMs: Long
+    ) {
+        val goalPortfolio = portfolio ?: return
+        goalPortfolio.observe(
+            candidates = listOf(
+                DurableGoalCandidate(
+                    sourceGoalId = checkpoint.sourceGoalId,
+                    objective = checkpoint.objective,
+                    priority = checkpoint.priority
+                )
+            ),
+            observedAtEpochMs = completedAtEpochMs
+        )
+        goalPortfolio.markCompleted(
+            sourceGoalId = checkpoint.sourceGoalId,
+            completedAtEpochMs = completedAtEpochMs
+        )
+    }
 
     private fun terminalFailureCode(statuses: List<PlanStepStatus>): String {
         val material = statuses
