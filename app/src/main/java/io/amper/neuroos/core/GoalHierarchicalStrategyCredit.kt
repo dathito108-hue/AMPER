@@ -311,7 +311,7 @@ class MemoryBackedGoalHierarchicalStrategyCreditModel(
     ): GoalStrategyCreditStats {
         val coveredSteps = plan.steps
             .sortedBy { it.index }
-            .take(component.coveredStepCount)
+            .filter { it.index in component.coveredStepIndices }
         val allExecuted = coveredSteps.all { it.status == PlanStepStatus.EXECUTED }
         val executionBad = coveredSteps.any {
             it.status == PlanStepStatus.FAILED ||
@@ -428,7 +428,7 @@ class MemoryBackedGoalHierarchicalStrategyCreditModel(
                 kind = GoalStrategyCreditComponentKind.STEP,
                 index = zeroIndex + 1,
                 strategy = StrategySignature(listOf(step.capability)),
-                coveredStepCount = zeroIndex + 1
+                coveredStepIndices = setOf(step.index)
             )
         }
         if (ordered.size > 1) {
@@ -439,7 +439,7 @@ class MemoryBackedGoalHierarchicalStrategyCreditModel(
                     strategy = StrategySignature(
                         ordered.take(count).map { it.capability }
                     ),
-                    coveredStepCount = count
+                    coveredStepIndices = ordered.take(count).mapTo(linkedSetOf()) { it.index }
                 )
             }
         }
@@ -447,7 +447,7 @@ class MemoryBackedGoalHierarchicalStrategyCreditModel(
             kind = GoalStrategyCreditComponentKind.SEQUENCE,
             index = ordered.size,
             strategy = StrategySignature(ordered.map { it.capability }),
-            coveredStepCount = ordered.size
+            coveredStepIndices = ordered.mapTo(linkedSetOf()) { it.index }
         )
         return result
     }
@@ -623,8 +623,12 @@ class MemoryBackedGoalHierarchicalStrategyCreditModel(
         val kind: GoalStrategyCreditComponentKind,
         val index: Int,
         val strategy: StrategySignature,
-        val coveredStepCount: Int
-    )
+        val coveredStepIndices: Set<Int>
+    ) {
+        init {
+            require(coveredStepIndices.isNotEmpty())
+        }
+    }
 
     private data class WeightedCredit(
         val stats: GoalStrategyCreditStats,
