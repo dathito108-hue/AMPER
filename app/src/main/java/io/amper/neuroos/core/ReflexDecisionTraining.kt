@@ -121,7 +121,8 @@ data class ReflexDecisionTrainingSpec(
     val minTrainingPerClass: Int = 2,
     val minHoldoutPerClass: Int = 1,
     val limit: Int = 256,
-    val selectedExampleIds: List<ReflexExperienceExampleId>? = null
+    val selectedExampleIds: List<ReflexExperienceExampleId>? = null,
+    val replayExampleIds: List<ReflexExperienceExampleId> = emptyList()
 ) {
     init {
         require(trainingShardId != holdoutShardId)
@@ -141,7 +142,13 @@ data class ReflexDecisionTrainingSpec(
             require(ids.isNotEmpty())
             require(ids.size <= limit)
             require(ids.distinct().size == ids.size)
+            require(replayExampleIds.none { it in ids })
         }
+        require(replayExampleIds.distinct().size == replayExampleIds.size)
+        require(
+            (selectedExampleIds?.size ?: 0) + replayExampleIds.size <=
+                MemoryBackedReflexExperienceDatasetStore.MAX_SHARD_EXAMPLES
+        )
     }
 
     val authorityBearing: Boolean
@@ -196,7 +203,8 @@ class CanonicalReflexDecisionTrainingCoordinator(
             minTrainingPerClass = spec.minTrainingPerClass,
             minHoldoutPerClass = spec.minHoldoutPerClass,
             limit = spec.limit,
-            selectedExampleIds = spec.selectedExampleIds
+            selectedExampleIds = spec.selectedExampleIds,
+            replayExampleIds = spec.replayExampleIds
         )
         val bundle = curriculum.synthesize(
             shardId = partition.trainingShard.manifest.id,
