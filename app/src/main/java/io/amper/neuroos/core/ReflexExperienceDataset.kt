@@ -107,7 +107,8 @@ interface ReflexExperienceDatasetStore {
     fun materializeShardFromExamples(
         id: NativeDatasetShardId,
         exampleIds: List<ReflexExperienceExampleId>
-    ): ReflexExperienceDatasetShard
+    ): ReflexExperienceDatasetShard =
+        error("explicit reflex-experience shard selection is unavailable")
 
     fun getShard(id: NativeDatasetShardId): ReflexExperienceDatasetShard?
 }
