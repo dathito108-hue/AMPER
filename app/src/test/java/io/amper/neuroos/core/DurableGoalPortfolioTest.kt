@@ -105,16 +105,6 @@ class DurableGoalPortfolioTest {
         val runtime = AmperRuntime.reference()
         val plan = executedPlan("phase314-plan")
         runtime.plans.save(plan)
-        runtime.goalPortfolio.observe(
-            listOf(
-                DurableGoalCandidate(
-                    sourceGoalId = "phase314-goal",
-                    objective = plan.goal,
-                    priority = 0.91
-                )
-            ),
-            observedAtEpochMs = 5L
-        )
         runtime.persistentGoalExecutiveStore.save(
             PersistentGoalExecutiveCheckpoint(
                 sourceGoalId = "phase314-goal",
