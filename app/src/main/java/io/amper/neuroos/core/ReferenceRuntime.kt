@@ -178,6 +178,8 @@ class AmperRuntime private constructor(
     val autonomousLearning: AutonomousLearningModel,
     val perceptualGrounding: PerceptualGroundingSource,
     val integratedCognition: IntegratedCognitiveStateSource,
+    val nativeSystem2WorkingState: NativeSystem2WorkingStateStore,
+    val nativeSystem2: NativeSystem2Core,
     val autonomousEvolution: AutonomousEvolutionModel,
     val autonomousEvolutionPromotionExecutor: AutonomousEvolutionPromotionExecutor,
     val nativeModelFoundation: NativeModelFoundation,
@@ -493,6 +495,12 @@ class AmperRuntime private constructor(
                 autonomousLearning = autonomousLearning,
                 perceptualGrounding = perceptualGrounding
             )
+            val nativeSystem2WorkingState =
+                MemoryBackedNativeSystem2WorkingStateStore(memory)
+            val nativeSystem2 = CanonicalNativeSystem2Core(
+                stateSource = integratedCognition,
+                workingStateStore = nativeSystem2WorkingState
+            )
             val conversations = SovereignConversationCoordinator(
                 memory = memory,
                 workspace = workspace,
@@ -547,6 +555,8 @@ class AmperRuntime private constructor(
                 autonomousLearning = autonomousLearning,
                 perceptualGrounding = perceptualGrounding,
                 integratedCognition = integratedCognition,
+                nativeSystem2WorkingState = nativeSystem2WorkingState,
+                nativeSystem2 = nativeSystem2,
                 autonomousEvolution = autonomousEvolution,
                 autonomousEvolutionPromotionExecutor = autonomousEvolutionPromotionExecutor,
                 nativeModelFoundation = nativeModelFoundation,
