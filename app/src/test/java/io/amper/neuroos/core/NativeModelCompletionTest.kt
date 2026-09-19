@@ -49,6 +49,9 @@ class NativeModelCompletionTest {
             source = adapterSource,
             kinds = setOf(InferenceAttachmentKind.IMAGE),
             evaluation = NativeMultimodalAdapterEvaluation(
+                checkpointId = fixture.checkpointId,
+                projectorSha256 = sha256(adapterBytes),
+                evaluatedKinds = setOf(InferenceAttachmentKind.IMAGE),
                 passRate = 0.97,
                 samples = 64
             )
@@ -84,10 +87,11 @@ class NativeModelCompletionTest {
             fixture.checkpointId,
             fixture.modelSource
         ).getOrThrow()
+        val weakBytes = GgufTestFixtures.validArtifact(
+            payload = "weak-projector".toByteArray()
+        )
         val source = TestDescriptorBoundSource(
-            bytes = GgufTestFixtures.validArtifact(
-                payload = "weak-projector".toByteArray()
-            ),
+            bytes = weakBytes,
             displayName = "weak-mmproj.gguf",
             locator = "memory://weak-mmproj.gguf"
         )
@@ -97,6 +101,9 @@ class NativeModelCompletionTest {
             source = source,
             kinds = setOf(InferenceAttachmentKind.IMAGE),
             evaluation = NativeMultimodalAdapterEvaluation(
+                checkpointId = fixture.checkpointId,
+                projectorSha256 = sha256(weakBytes),
+                evaluatedKinds = setOf(InferenceAttachmentKind.IMAGE),
                 passRate = 0.80,
                 samples = 64
             )
@@ -121,10 +128,11 @@ class NativeModelCompletionTest {
             fixture.checkpointId,
             fixture.modelSource
         ).getOrThrow()
+        val forbiddenBytes = GgufTestFixtures.validArtifact(
+            payload = "forbidden-vision".toByteArray()
+        )
         val source = TestDescriptorBoundSource(
-            bytes = GgufTestFixtures.validArtifact(
-                payload = "forbidden-vision".toByteArray()
-            ),
+            bytes = forbiddenBytes,
             displayName = "forbidden-mmproj.gguf",
             locator = "memory://forbidden-mmproj.gguf"
         )
@@ -134,6 +142,9 @@ class NativeModelCompletionTest {
             source = source,
             kinds = setOf(InferenceAttachmentKind.IMAGE),
             evaluation = NativeMultimodalAdapterEvaluation(
+                checkpointId = fixture.checkpointId,
+                projectorSha256 = sha256(forbiddenBytes),
+                evaluatedKinds = setOf(InferenceAttachmentKind.IMAGE),
                 passRate = 1.0,
                 samples = 64
             )
@@ -142,6 +153,76 @@ class NativeModelCompletionTest {
         assertTrue(result.isFailure)
         assertTrue(
             result.exceptionOrNull()?.message?.contains("exceed") == true
+        )
+    }
+
+    @Test
+    fun adapterEvidenceFromDifferentProjectorCannotBeReused() {
+        val fixture = fixture("evidence-binding")
+        val activation = fixture.promotion.activate(
+            fixture.checkpointId,
+            fixture.modelSource
+        ).getOrThrow()
+        val actualBytes = GgufTestFixtures.validArtifact(
+            payload = "actual-projector".toByteArray()
+        )
+        val source = TestDescriptorBoundSource(
+            bytes = actualBytes,
+            displayName = "actual-mmproj.gguf",
+            locator = "memory://actual-mmproj.gguf"
+        )
+
+        val result = fixture.adapters.activate(
+            checkpointId = fixture.checkpointId,
+            source = source,
+            kinds = setOf(InferenceAttachmentKind.IMAGE),
+            evaluation = NativeMultimodalAdapterEvaluation(
+                checkpointId = fixture.checkpointId,
+                projectorSha256 = "7".repeat(64),
+                evaluatedKinds = setOf(InferenceAttachmentKind.IMAGE),
+                passRate = 1.0,
+                samples = 64
+            )
+        )
+
+        assertTrue(result.isFailure)
+        assertFalse(
+            vision in requireNotNull(
+                fixture.catalog.get(activation.modelId)
+            ).descriptor.capabilities
+        )
+        assertNull(fixture.projectors.get(activation.modelId))
+    }
+
+    @Test
+    fun manualCapabilityReclassificationCannotBypassNativeAdmission() {
+        val descriptor = ModelDescriptor(
+            id = ModelId("amper-native-manual-bypass"),
+            format = "gguf",
+            capabilities = setOf(reasoning),
+            local = true
+        )
+        val installed = installed(
+            descriptor = descriptor,
+            locator = "memory://native-manual.gguf"
+        )
+        val catalog = InMemoryInstalledModelCatalog().also { it.put(installed) }
+        val registry = InMemoryModelRegistry().also { it.register(descriptor) }
+        val service = InstalledModelCapabilityService(catalog, registry)
+
+        val result = service.reclassify(
+            descriptor.id,
+            ModelCapabilityProfile(vision = true)
+        )
+
+        assertTrue(result.isFailure)
+        assertEquals(
+            setOf(reasoning),
+            requireNotNull(catalog.get(descriptor.id)).descriptor.capabilities
+        )
+        assertEquals(
+            setOf(reasoning),
+            requireNotNull(registry.route(setOf(reasoning))).capabilities
         )
     }
 
