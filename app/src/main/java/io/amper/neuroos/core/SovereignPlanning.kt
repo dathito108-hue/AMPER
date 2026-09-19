@@ -358,7 +358,7 @@ class SovereignPlanCoordinator(
         )
         val response = inference.infer(
             InferenceRequest(
-                prompt = planningPrompt.prompt,
+                prompt = prompt,
                 requiredCapabilities = baselineCapabilities,
                 maxOutputTokens = minOf(maxOutputTokens, 256),
                 temperature = 0.2,
@@ -821,7 +821,7 @@ class SovereignPlanCoordinator(
         )
         val response = critic.infer(
             InferenceRequest(
-                prompt = planningPrompt.prompt,
+                prompt = prompt,
                 requiredCapabilities = baselineCapabilities,
                 maxOutputTokens = metacognitiveControl.criticMaxOutputTokens,
                 temperature = metacognitiveControl.criticTemperature,
