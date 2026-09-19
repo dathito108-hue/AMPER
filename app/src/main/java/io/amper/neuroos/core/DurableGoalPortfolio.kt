@@ -18,7 +18,8 @@ data class DurableGoalCandidate(
 
 enum class DurableGoalStatus {
     PENDING,
-    COMPLETED
+    COMPLETED,
+    SUPERSEDED
 }
 
 enum class DurableGoalDecompositionState {
@@ -52,7 +53,25 @@ data class DurableGoalDecompositionApplication(
         require(parent.decompositionState == DurableGoalDecompositionState.DECOMPOSED)
         require(children.size in 2..DurableGoalRecord.MAX_DECOMPOSITION_CHILDREN)
         require(children.all { it.decompositionDepth == parent.decompositionDepth + 1 })
+        require(children.all { it.parentGoalId == parent.sourceGoalId })
         require(parent.dependsOnGoalIds.containsAll(children.map { it.sourceGoalId }))
+    }
+
+    val authorityBearing: Boolean
+        get() = false
+}
+
+data class DurableGoalBranchReplacement(
+    val parentGoalId: String,
+    val superseded: DurableGoalRecord,
+    val replacements: List<DurableGoalRecord>
+) {
+    init {
+        require(parentGoalId.isNotBlank())
+        require(superseded.status == DurableGoalStatus.SUPERSEDED)
+        require(replacements.size in 1..DurableGoalRecord.MAX_ADAPTIVE_REPLACEMENTS)
+        require(replacements.all { it.status == DurableGoalStatus.PENDING })
+        require(replacements.all { it.parentGoalId == parentGoalId })
     }
 
     val authorityBearing: Boolean
@@ -72,7 +91,11 @@ data class DurableGoalRecord(
     val dependsOnGoalIds: Set<String> = emptySet(),
     val deadlineEpochMs: Long? = null,
     val decompositionState: DurableGoalDecompositionState = DurableGoalDecompositionState.NONE,
-    val decompositionDepth: Int = 0
+    val decompositionDepth: Int = 0,
+    val parentGoalId: String? = null,
+    val supersededAtEpochMs: Long? = null,
+    val replanGeneration: Int = 0,
+    val adaptiveReplanAttemptedAtEpochMs: Long? = null
 ) {
     init {
         require(sourceGoalId.isNotBlank() && sourceGoalId.length <= MAX_GOAL_ID_CHARS)
@@ -98,10 +121,29 @@ data class DurableGoalRecord(
         require(decompositionDepth in 0..MAX_DECOMPOSITION_DEPTH) {
             "durable goal decomposition depth exceeds bound"
         }
+        parentGoalId?.let {
+            require(it.isNotBlank() && it.length <= MAX_GOAL_ID_CHARS)
+            require(it != sourceGoalId) { "durable goal cannot be its own hierarchy parent" }
+        }
+        require(replanGeneration in 0..MAX_ADAPTIVE_REPLAN_GENERATIONS) {
+            "durable goal adaptive replan generation exceeds bound"
+        }
+        adaptiveReplanAttemptedAtEpochMs?.let {
+            require(it >= firstSeenAtEpochMs) { "adaptive replan attempt predates first observation" }
+        }
         require((status == DurableGoalStatus.COMPLETED) == (completedAtEpochMs != null)) {
             "completed durable goal requires completion timestamp"
         }
+        require((status == DurableGoalStatus.SUPERSEDED) == (supersededAtEpochMs != null)) {
+            "superseded durable goal requires superseded timestamp"
+        }
+        require(completedAtEpochMs == null || supersededAtEpochMs == null) {
+            "durable goal cannot be both completed and superseded"
+        }
         completedAtEpochMs?.let {
+            require(it >= firstSeenAtEpochMs)
+        }
+        supersededAtEpochMs?.let {
             require(it >= firstSeenAtEpochMs)
         }
     }
@@ -112,6 +154,8 @@ data class DurableGoalRecord(
         const val MAX_DEPENDENCIES = 8
         const val MAX_DECOMPOSITION_CHILDREN = 4
         const val MAX_DECOMPOSITION_DEPTH = 2
+        const val MAX_ADAPTIVE_REPLACEMENTS = 3
+        const val MAX_ADAPTIVE_REPLAN_GENERATIONS = 2
     }
 }
 
@@ -156,6 +200,17 @@ interface DurableGoalPortfolio {
         updatedAtEpochMs: Long = System.currentTimeMillis()
     ): DurableGoalDecompositionApplication?
 
+    fun markAdaptiveReplanAttempt(
+        sourceGoalId: String,
+        attemptedAtEpochMs: Long = System.currentTimeMillis()
+    ): DurableGoalRecord?
+
+    fun replacePendingLeaf(
+        sourceGoalId: String,
+        specs: List<DurableGoalDecompositionSpec>,
+        updatedAtEpochMs: Long = System.currentTimeMillis()
+    ): DurableGoalBranchReplacement?
+
     fun get(sourceGoalId: String): DurableGoalRecord?
 
     fun snapshot(): List<DurableGoalRecord>
@@ -186,7 +241,7 @@ class MemoryBackedDurableGoalPortfolio(
             .forEach { candidate ->
                 val existing = records[candidate.sourceGoalId]
                 records[candidate.sourceGoalId] = when {
-                    existing?.status == DurableGoalStatus.COMPLETED -> existing
+                    existing != null && existing.status != DurableGoalStatus.PENDING -> existing
                     existing != null -> existing.copy(
                         objective = candidate.objective,
                         priority = candidate.priority,
@@ -255,6 +310,9 @@ class MemoryBackedDurableGoalPortfolio(
         require(completedAtEpochMs >= 0L)
         val records = loadMutable()
         val existing = records[sourceGoalId] ?: return null
+        require(existing.status != DurableGoalStatus.SUPERSEDED) {
+            "superseded durable goal cannot be completed by a late result"
+        }
         val completed = if (existing.status == DurableGoalStatus.COMPLETED) {
             existing
         } else {
@@ -414,7 +472,9 @@ class MemoryBackedDurableGoalPortfolio(
                     .toSortedSet(),
                 deadlineEpochMs = parent.deadlineEpochMs,
                 decompositionState = DurableGoalDecompositionState.NONE,
-                decompositionDepth = childDepth
+                decompositionDepth = childDepth,
+                parentGoalId = parent.sourceGoalId,
+                replanGeneration = parent.replanGeneration
             )
         }
         val parentDependencies = (parent.dependsOnGoalIds + children.map { it.sourceGoalId })
@@ -443,6 +503,190 @@ class MemoryBackedDurableGoalPortfolio(
             parent = requireNotNull(bounded.singleOrNull { it.sourceGoalId == sourceGoalId }),
             children = children.map { child ->
                 requireNotNull(bounded.singleOrNull { it.sourceGoalId == child.sourceGoalId })
+            }
+        )
+    }
+
+    @Synchronized
+    override fun markAdaptiveReplanAttempt(
+        sourceGoalId: String,
+        attemptedAtEpochMs: Long
+    ): DurableGoalRecord? {
+        require(sourceGoalId.isNotBlank())
+        require(attemptedAtEpochMs >= 0L)
+        val records = loadMutable()
+        val existing = records[sourceGoalId] ?: return null
+        require(existing.status == DurableGoalStatus.PENDING) {
+            "adaptive replanning requires a pending durable goal"
+        }
+        require(existing.parentGoalId != null) {
+            "adaptive replanning is limited to hierarchical subgoals"
+        }
+        require(existing.decompositionState != DurableGoalDecompositionState.DECOMPOSED) {
+            "adaptive replanning may replace only a leaf subgoal"
+        }
+        require(existing.replanGeneration < DurableGoalRecord.MAX_ADAPTIVE_REPLAN_GENERATIONS) {
+            "adaptive replanning reached the bounded lineage limit"
+        }
+        require(existing.adaptiveReplanAttemptedAtEpochMs == null) {
+            "adaptive replanning may be attempted only once per leaf"
+        }
+        require(records.values.none { it.parentGoalId == sourceGoalId }) {
+            "adaptive replanning may replace only a hierarchy leaf"
+        }
+
+        val marked = existing.copy(
+            adaptiveReplanAttemptedAtEpochMs =
+                maxOf(existing.firstSeenAtEpochMs, attemptedAtEpochMs),
+            updatedAtEpochMs = maxOf(existing.updatedAtEpochMs, attemptedAtEpochMs)
+        )
+        records[sourceGoalId] = marked
+        persist(bounded(records.values))
+        return marked
+    }
+
+    @Synchronized
+    override fun replacePendingLeaf(
+        sourceGoalId: String,
+        specs: List<DurableGoalDecompositionSpec>,
+        updatedAtEpochMs: Long
+    ): DurableGoalBranchReplacement? {
+        require(sourceGoalId.isNotBlank())
+        require(updatedAtEpochMs >= 0L)
+        require(specs.size in 1..DurableGoalRecord.MAX_ADAPTIVE_REPLACEMENTS)
+        require(specs.map { it.index } == (1..specs.size).toList()) {
+            "adaptive replacement indices must be contiguous from 1"
+        }
+
+        val records = loadMutable()
+        val source = records[sourceGoalId] ?: return null
+        require(source.status == DurableGoalStatus.PENDING) {
+            "adaptive replacement requires a pending durable goal"
+        }
+        val parentGoalId = requireNotNull(source.parentGoalId) {
+            "adaptive replacement is limited to hierarchical subgoals"
+        }
+        require(source.decompositionState != DurableGoalDecompositionState.DECOMPOSED) {
+            "adaptive replacement may replace only a leaf subgoal"
+        }
+        require(source.replanGeneration < DurableGoalRecord.MAX_ADAPTIVE_REPLAN_GENERATIONS) {
+            "adaptive replacement reached the bounded lineage limit"
+        }
+        require(source.adaptiveReplanAttemptedAtEpochMs != null) {
+            "adaptive replacement requires a persisted replan-attempt marker"
+        }
+        require(records.values.none { it.parentGoalId == sourceGoalId }) {
+            "adaptive replacement may replace only a hierarchy leaf"
+        }
+        val parent = requireNotNull(records[parentGoalId]) {
+            "adaptive replacement hierarchy parent is unavailable"
+        }
+        require(
+            parent.status == DurableGoalStatus.PENDING &&
+                parent.decompositionState == DurableGoalDecompositionState.DECOMPOSED
+        ) {
+            "adaptive replacement hierarchy parent is not active"
+        }
+        require(
+            records.values.none {
+                it.status == DurableGoalStatus.COMPLETED &&
+                    sourceGoalId in it.dependsOnGoalIds
+            }
+        ) {
+            "adaptive replacement cannot rewrite dependencies of completed evidence"
+        }
+
+        val pendingCount = records.values.count { it.status == DurableGoalStatus.PENDING }
+        require(pendingCount - 1 + specs.size <= MAX_PENDING) {
+            "adaptive replacement would exceed pending portfolio capacity"
+        }
+
+        val nextGeneration = source.replanGeneration + 1
+        val idsByIndex = specs.associate { spec ->
+            spec.index to replacementGoalId(
+                sourceGoalId = source.sourceGoalId,
+                generation = nextGeneration,
+                index = spec.index,
+                objective = spec.objective
+            )
+        }
+        require(idsByIndex.values.toSet().size == specs.size) {
+            "adaptive replacement produced duplicate durable goal ids"
+        }
+        require(idsByIndex.values.none(records::containsKey)) {
+            "adaptive replacement durable goal id already exists"
+        }
+        val replacementIds = idsByIndex.values.toSortedSet()
+        val replacements = specs.map { spec ->
+            val dependencies = (
+                source.dependsOnGoalIds +
+                    spec.dependsOnIndices.map(idsByIndex::getValue)
+                ).toSortedSet()
+            require(dependencies.size <= DurableGoalRecord.MAX_DEPENDENCIES) {
+                "adaptive replacement would exceed child dependency bound"
+            }
+            DurableGoalRecord(
+                sourceGoalId = idsByIndex.getValue(spec.index),
+                objective = spec.objective,
+                priority = minOf(parent.priority, source.priority, spec.priority),
+                status = DurableGoalStatus.PENDING,
+                firstSeenAtEpochMs = updatedAtEpochMs,
+                updatedAtEpochMs = updatedAtEpochMs,
+                dependsOnGoalIds = dependencies,
+                deadlineEpochMs = source.deadlineEpochMs,
+                decompositionState = DurableGoalDecompositionState.NONE,
+                decompositionDepth = source.decompositionDepth,
+                parentGoalId = parentGoalId,
+                replanGeneration = nextGeneration
+            )
+        }
+
+        val rewired = records.values
+            .asSequence()
+            .filter {
+                it.status == DurableGoalStatus.PENDING &&
+                    it.sourceGoalId != sourceGoalId &&
+                    sourceGoalId in it.dependsOnGoalIds
+            }
+            .associate { dependent ->
+                val dependencies =
+                    (dependent.dependsOnGoalIds - sourceGoalId + replacementIds).toSortedSet()
+                require(dependencies.size <= DurableGoalRecord.MAX_DEPENDENCIES) {
+                    "adaptive replacement would exceed dependent goal dependency bound"
+                }
+                dependent.sourceGoalId to dependent.copy(
+                    dependsOnGoalIds = dependencies,
+                    updatedAtEpochMs = maxOf(dependent.updatedAtEpochMs, updatedAtEpochMs)
+                )
+            }
+
+        rewired.forEach { (id, record) -> records[id] = record }
+        val superseded = source.copy(
+            status = DurableGoalStatus.SUPERSEDED,
+            supersededAtEpochMs = maxOf(source.firstSeenAtEpochMs, updatedAtEpochMs),
+            updatedAtEpochMs = maxOf(source.updatedAtEpochMs, updatedAtEpochMs)
+        )
+        records[sourceGoalId] = superseded
+        replacements.forEach { records[it.sourceGoalId] = it }
+
+        require(!hasDependencyCycle(records.values)) {
+            "adaptive replacement must preserve an acyclic dependency graph"
+        }
+        val bounded = bounded(records.values)
+        require(bounded.any { it.sourceGoalId == sourceGoalId && it.status == DurableGoalStatus.SUPERSEDED }) {
+            "bounded portfolio unexpectedly dropped adaptive-replan tombstone"
+        }
+        require(replacements.all { replacement ->
+            bounded.any { it.sourceGoalId == replacement.sourceGoalId }
+        }) {
+            "bounded portfolio unexpectedly pruned adaptive replacements"
+        }
+        persist(bounded)
+        return DurableGoalBranchReplacement(
+            parentGoalId = parentGoalId,
+            superseded = superseded,
+            replacements = replacements.map { replacement ->
+                requireNotNull(bounded.singleOrNull { it.sourceGoalId == replacement.sourceGoalId })
             }
         )
     }
@@ -501,6 +745,22 @@ class MemoryBackedDurableGoalPortfolio(
         return parentGoalId.take(prefixBudget.coerceAtLeast(1)) + suffix
     }
 
+    private fun replacementGoalId(
+        sourceGoalId: String,
+        generation: Int,
+        index: Int,
+        objective: String
+    ): String {
+        val material = "$sourceGoalId\n$generation\n$index\n$objective"
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(material.toByteArray(StandardCharsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+            .take(24)
+        val suffix = "::replan:$generation:$index:$digest"
+        val prefixBudget = DurableGoalRecord.MAX_GOAL_ID_CHARS - suffix.length
+        return sourceGoalId.take(prefixBudget.coerceAtLeast(1)) + suffix
+    }
+
     private fun bounded(records: Collection<DurableGoalRecord>): List<DurableGoalRecord> {
         val pending = records
             .asSequence()
@@ -512,17 +772,19 @@ class MemoryBackedDurableGoalPortfolio(
             )
             .take(MAX_PENDING)
             .toList()
-        val completed = records
+        val terminal = records
             .asSequence()
-            .filter { it.status == DurableGoalStatus.COMPLETED }
+            .filter { it.status != DurableGoalStatus.PENDING }
             .sortedWith(
-                compareByDescending<DurableGoalRecord> { it.completedAtEpochMs ?: 0L }
+                compareByDescending<DurableGoalRecord> {
+                    it.completedAtEpochMs ?: it.supersededAtEpochMs ?: 0L
+                }
                     .thenByDescending { it.updatedAtEpochMs }
                     .thenBy { it.sourceGoalId }
             )
             .take(MAX_COMPLETED_HISTORY)
             .toList()
-        return pending + completed
+        return pending + terminal
     }
 
     private fun persist(records: List<DurableGoalRecord>) {
@@ -554,7 +816,8 @@ internal object DurableGoalPortfolioCodec {
     private const val VERSION_V1 = "AMPER_DURABLE_GOAL_PORTFOLIO_V1"
     private const val VERSION_V2 = "AMPER_DURABLE_GOAL_PORTFOLIO_V2"
     private const val VERSION_V3 = "AMPER_DURABLE_GOAL_PORTFOLIO_V3"
-    private const val VERSION = "AMPER_DURABLE_GOAL_PORTFOLIO_V4"
+    private const val VERSION_V4 = "AMPER_DURABLE_GOAL_PORTFOLIO_V4"
+    private const val VERSION = "AMPER_DURABLE_GOAL_PORTFOLIO_V5"
 
     fun encode(records: List<DurableGoalRecord>): String = buildString {
         appendLine(VERSION)
@@ -578,7 +841,11 @@ internal object DurableGoalPortfolioCodec {
             ).append('\t')
             append(record.deadlineEpochMs?.toString() ?: "~").append('\t')
             append(record.decompositionState.name).append('\t')
-            append(record.decompositionDepth)
+            append(record.decompositionDepth).append('\t')
+            append(record.parentGoalId?.let(::enc) ?: "~").append('\t')
+            append(record.supersededAtEpochMs?.toString() ?: "~").append('\t')
+            append(record.replanGeneration).append('\t')
+            append(record.adaptiveReplanAttemptedAtEpochMs?.toString() ?: "~")
             appendLine()
         }
     }.trimEnd()
@@ -588,6 +855,7 @@ internal object DurableGoalPortfolioCodec {
         val version = lines.firstOrNull()
         require(
             version == VERSION ||
+                version == VERSION_V4 ||
                 version == VERSION_V3 ||
                 version == VERSION_V2 ||
                 version == VERSION_V1
@@ -599,6 +867,35 @@ internal object DurableGoalPortfolioCodec {
             require(parts[0] == "GOAL") { "invalid durable goal portfolio record" }
             when (version) {
                 VERSION -> {
+                    require(parts.size == 18) { "invalid V5 durable goal portfolio record" }
+                    DurableGoalRecord(
+                        sourceGoalId = dec(parts[1]),
+                        objective = dec(parts[2]),
+                        priority = parts[3].toDouble(),
+                        status = DurableGoalStatus.valueOf(parts[4]),
+                        firstSeenAtEpochMs = parts[5].toLong(),
+                        updatedAtEpochMs = parts[6].toLong(),
+                        completedAtEpochMs = parts[7].takeUnless { it == "~" }?.toLong(),
+                        selectionCount = parts[8].toInt(),
+                        lastSelectedAtEpochMs = parts[9].takeUnless { it == "~" }?.toLong(),
+                        dependsOnGoalIds = parts[10]
+                            .takeUnless { it == "~" }
+                            ?.let(::dec)
+                            ?.lineSequence()
+                            ?.filter { it.isNotBlank() }
+                            ?.toSet()
+                            .orEmpty(),
+                        deadlineEpochMs = parts[11].takeUnless { it == "~" }?.toLong(),
+                        decompositionState = DurableGoalDecompositionState.valueOf(parts[12]),
+                        decompositionDepth = parts[13].toInt(),
+                        parentGoalId = parts[14].takeUnless { it == "~" }?.let(::dec),
+                        supersededAtEpochMs = parts[15].takeUnless { it == "~" }?.toLong(),
+                        replanGeneration = parts[16].toInt(),
+                        adaptiveReplanAttemptedAtEpochMs =
+                            parts[17].takeUnless { it == "~" }?.toLong()
+                    )
+                }
+                VERSION_V4 -> {
                     require(parts.size == 14) { "invalid V4 durable goal portfolio record" }
                     DurableGoalRecord(
                         sourceGoalId = dec(parts[1]),
@@ -673,14 +970,35 @@ internal object DurableGoalPortfolioCodec {
                 else -> error("unsupported durable goal portfolio version")
             }
         }
-        require(records.map { it.sourceGoalId }.toSet().size == records.size) {
+        val migrated = if (version == VERSION_V4) inferV4HierarchyParents(records) else records
+        require(migrated.map { it.sourceGoalId }.toSet().size == migrated.size) {
             "durable goal portfolio ids must be unique"
         }
-        require(records.count { it.status == DurableGoalStatus.PENDING } <=
+        require(migrated.count { it.status == DurableGoalStatus.PENDING } <=
             MemoryBackedDurableGoalPortfolio.MAX_PENDING)
-        require(records.count { it.status == DurableGoalStatus.COMPLETED } <=
+        require(migrated.count { it.status != DurableGoalStatus.PENDING } <=
             MemoryBackedDurableGoalPortfolio.MAX_COMPLETED_HISTORY)
-        records
+        migrated
+    }
+
+    private fun inferV4HierarchyParents(
+        records: List<DurableGoalRecord>
+    ): List<DurableGoalRecord> {
+        val parents = records.filter {
+            it.decompositionState == DurableGoalDecompositionState.DECOMPOSED
+        }
+        return records.map { child ->
+            if (child.parentGoalId != null || child.decompositionDepth == 0) {
+                child
+            } else {
+                val candidate = parents.singleOrNull { parent ->
+                    child.decompositionDepth == parent.decompositionDepth + 1 &&
+                        child.sourceGoalId in parent.dependsOnGoalIds &&
+                        child.sourceGoalId.contains("::subgoal:${child.decompositionDepth}:")
+                }
+                if (candidate == null) child else child.copy(parentGoalId = candidate.sourceGoalId)
+            }
+        }
     }
 
     private fun enc(value: String): String =
