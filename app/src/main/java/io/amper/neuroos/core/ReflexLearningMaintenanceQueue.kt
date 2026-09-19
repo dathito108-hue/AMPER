@@ -37,6 +37,27 @@ data class ReflexLearningMaintenanceTicket(
         get() = false
 }
 
+fun interface ReflexLearningMaintenanceScheduler {
+    fun reconcile(ticket: ReflexLearningMaintenanceTicket?): Boolean
+}
+
+object NoopReflexLearningMaintenanceScheduler : ReflexLearningMaintenanceScheduler {
+    override fun reconcile(ticket: ReflexLearningMaintenanceTicket?): Boolean = false
+}
+
+/**
+ * Process-wide gate shared by UI-triggered and OS-triggered Reflex maintenance.
+ *
+ * Android services and activities live in the same default process. The gate prevents two separately
+ * constructed lifecycle instances from entering training/queue mutation concurrently during a
+ * component handoff, while remaining platform-neutral for JVM/reference tests.
+ */
+object ReflexMaintenanceExecutionGate {
+    private val lock = Any()
+
+    fun <T> exclusive(block: () -> T): T = synchronized(lock) { block() }
+}
+
 interface ReflexLearningMaintenanceQueue {
     fun pending(): ReflexLearningMaintenanceTicket?
 
@@ -222,6 +243,8 @@ class ReflexBackgroundMaintenanceCoordinator(
     private val deviceStatusSource: DeviceStatusSource? = null,
     private val clock: () -> Long = System::currentTimeMillis
 ) {
+    fun pendingTicket(): ReflexLearningMaintenanceTicket? = queue.pending()
+
     fun tick(force: Boolean = false): Result<ReflexBackgroundMaintenanceResult> = runCatching {
         val ticket = queue.pending() ?: return@runCatching ReflexBackgroundMaintenanceResult(
             stage = ReflexBackgroundMaintenanceStage.IDLE,

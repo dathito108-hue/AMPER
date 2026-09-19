@@ -121,6 +121,11 @@ class ReflexRealModelTest {
         seed(runtime.reflexExperienceDatasets, "resource-resume-base")
         val artifacts = InMemoryReflexLinearArtifactStore()
         var allowTraining = true
+        var scheduledDigest: String? = null
+        val scheduler = ReflexLearningMaintenanceScheduler { ticket ->
+            scheduledDigest = ticket?.evidenceDigest
+            true
+        }
         val policy = ReflexLearningResourcePolicy {
             if (allowTraining) {
                 ReflexLearningResourceDecision(
@@ -147,7 +152,8 @@ class ReflexRealModelTest {
         val lifecycle = ReflexNativeModelLifecycle(
             runtime = runtime,
             artifacts = artifacts,
-            learningResourcePolicy = policy
+            learningResourcePolicy = policy,
+            maintenanceScheduler = scheduler
         )
 
         val initial = lifecycle.maintain().getOrThrow()
@@ -164,7 +170,8 @@ class ReflexRealModelTest {
         assertEquals(championId, runtime.reflexDecisionRuntime.active()?.checkpointId)
         assertEquals(1, runtime.reflexLearningCostModel.snapshot().samples)
 
-        assertTrue(runtime.reflexLearningMaintenanceQueue.pending() != null)
+        val pendingTicket = requireNotNull(runtime.reflexLearningMaintenanceQueue.pending())
+        assertEquals(pendingTicket.evidenceDigest, scheduledDigest)
 
         allowTraining = true
         val background = ReflexBackgroundMaintenanceCoordinator(
@@ -179,6 +186,7 @@ class ReflexRealModelTest {
         val active = requireNotNull(runtime.reflexDecisionRuntime.active())
         assertTrue(active.checkpointId != championId)
         assertNull(runtime.reflexLearningMaintenanceQueue.pending())
+        assertNull(scheduledDigest)
         val cost = runtime.reflexLearningCostModel.snapshot()
         assertEquals(2, cost.samples)
         assertTrue(requireNotNull(cost.durationEwmaMs) > 0.0)

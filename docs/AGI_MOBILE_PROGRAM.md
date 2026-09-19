@@ -1259,3 +1259,38 @@ evidence superseding stale work, background defer-then-resume and protected arti
 Fresh held-out admission, common-holdout champion comparison, historical anti-forgetting stability,
 verified replacement, ToolDescriptor binding, AuthorityGate, explicit approval and durable execution
 receipts remain unchanged.
+
+
+### Completion checkpoint — Phase526-530
+Phase526 introduces a platform-neutral deferred-learning job plan plus a maintenance-scheduler contract.
+A pending durable Reflex maintenance ticket becomes an OS scheduling intent with minimum latency bound
+to the ticket's durable not-before time. The OS-native path is intentionally conservative and requires
+charging, device-idle, battery-not-low and storage-not-low conditions; the process-resident loop keeps
+handling faster opportunistic maintenance while the app is alive.
+
+Phase527 wires queue mutation directly to scheduling reconciliation. Whenever ReflexNativeModelLifecycle
+creates/coalesces an actionable maintenance ticket, the Android scheduler can publish or update the
+corresponding OS job immediately; successful/rejected/stale work clears the ticket and cancels the OS
+job. A process-wide maintenance execution gate serializes UI-triggered and OS-triggered Reflex lifecycle
+execution so two lifecycle instances cannot train the same evidence concurrently during Android
+component handoff.
+
+Phase528 adds a native Android JobScheduler implementation and JobService without introducing another
+runtime dependency. The job is persisted across reboot and the manifest grants RECEIVE_BOOT_COMPLETED;
+the service itself is non-exported and protected by android.permission.BIND_JOB_SERVICE. JobScheduler
+applies charging, idle, battery and storage constraints before AMPER is awakened.
+
+Phase529 makes the JobService reuse the Activity's in-process maintenance coordinator whenever one is
+registered. If no UI runtime exists, the service restores the encrypted sovereign runtime and the same
+content-addressed Reflex artifact store, then runs the canonical maintenance coordinator. Scheduling
+reconciliation is temporarily suppressed while an OS job is executing to prevent the worker from
+cancelling itself; after jobFinished the remaining durable ticket is reconciled into the next job.
+Restore/execution failures request an OS retry instead of leaving the job unfinished.
+
+Phase530 closes restart/reboot continuity. Android startup reconciles any restored maintenance ticket,
+the OS worker can recreate the runtime from encrypted storage when the app UI is absent, and durable
+attempt/backoff metadata plus content-bound run/checkpoint identities keep retried work idempotent.
+Tests cover persistent constrained job planning and lifecycle-to-scheduler reconciliation. The worker
+has no tool authority and cannot weaken fresh holdout admission, champion comparison, historical
+anti-forgetting stability, verified replacement, ToolDescriptor binding, AuthorityGate, explicit
+approval or durable execution receipts.
