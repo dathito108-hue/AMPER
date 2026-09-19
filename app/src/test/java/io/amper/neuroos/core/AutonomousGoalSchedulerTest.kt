@@ -212,6 +212,33 @@ class AutonomousGoalSchedulerTest {
     }
 
     @Test
+    fun replannedGoalUsesActiveRetryWithoutPretendingAPlanExists() {
+        var calls = 0
+        val scheduler = AutonomousGoalScheduler(
+            runGoal = {
+                calls += 1
+                Result.success(
+                    PersistentGoalExecutiveResult.Replanned(
+                        parentGoalId = "phase334-parent",
+                        supersededGoalId = "phase334-old-leaf",
+                        replacementGoalIds = listOf("phase334-new-leaf")
+                    )
+                )
+            },
+            resourceAllowed = { true },
+            clock = { 28_000L }
+        )
+
+        val tick = scheduler.tick(conversationId)
+
+        assertEquals(AutonomousGoalSchedulerStage.REPLANNED, tick.stage)
+        assertEquals(AutonomousGoalScheduler.ACTIVE_RETRY_MS, tick.nextDelayMs)
+        assertEquals(null, tick.planId)
+        assertEquals(null, tick.checkpointStage)
+        assertEquals(1, calls)
+    }
+
+    @Test
     fun overlappingTickReturnsBusyInsteadOfStartingCompetingCognition() {
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
