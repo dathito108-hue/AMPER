@@ -127,8 +127,12 @@ data class ReflexDecisionRuntimeActivation(
 
 interface ReflexDecisionRuntimeController : ReflexDecisionCortex {
     fun activate(port: NativeReflexDecisionPort): Result<ReflexDecisionRuntimeActivation>
+    fun recover(
+        resolver: NativeReflexDecisionPortResolver
+    ): Result<ReflexDecisionRuntimeActivation?>
     fun rollback(): ReflexDecisionRuntimeActivation?
     fun active(): ReflexDecisionRuntimeActivation?
+    fun persistedIntent(): ReflexRuntimeActivationIntent?
 }
 
 /**
@@ -144,6 +148,8 @@ class CanonicalReflexDecisionRuntimeController(
     private val activationGate: ReflexDecisionRuntimeActivationGate,
     private val fallback: ReflexDecisionCortex = DeterministicReflexDecisionCortex,
     private val binder: ReflexActionArgumentBinder = CanonicalReflexActionArgumentBinder,
+    private val activationStore: ReflexDecisionRuntimeActivationStore =
+        VolatileReflexDecisionRuntimeActivationStore(),
     private val clock: () -> Long = System::currentTimeMillis
 ) : ReflexDecisionRuntimeController {
     @Volatile
@@ -156,25 +162,63 @@ class CanonicalReflexDecisionRuntimeController(
     override fun activate(port: NativeReflexDecisionPort): Result<ReflexDecisionRuntimeActivation> =
         runCatching {
             activationGate.validate(port).getOrThrow()
+            val activatedAt = clock()
             val next = ReflexDecisionRuntimeActivation(
                 checkpointId = port.checkpointId,
                 weightArtifactSha256 = port.weightArtifactSha256,
-                activatedAtEpochMs = clock()
+                activatedAtEpochMs = activatedAt
             )
+            activationStore.persistActive(next, activatedAt)
             activePort = port
             activation = next
             next
         }
 
     @Synchronized
+    override fun recover(
+        resolver: NativeReflexDecisionPortResolver
+    ): Result<ReflexDecisionRuntimeActivation?> = runCatching {
+        val intent = activationStore.load() ?: return@runCatching null
+        if (intent.status == ReflexRuntimeActivationIntentStatus.DISABLED) {
+            activePort = null
+            activation = null
+            return@runCatching null
+        }
+
+        val checkpointId = requireNotNull(intent.checkpointId)
+        val weightDigest = requireNotNull(intent.weightArtifactSha256)
+        val port = resolver.resolve(checkpointId, weightDigest).getOrThrow()
+        require(port.checkpointId == checkpointId) {
+            "recovered Reflex runtime port checkpoint identity mismatch"
+        }
+        require(port.weightArtifactSha256 == weightDigest) {
+            "recovered Reflex runtime port weight identity mismatch"
+        }
+        activationGate.validate(port).getOrThrow()
+
+        val restored = ReflexDecisionRuntimeActivation(
+            checkpointId = checkpointId,
+            weightArtifactSha256 = weightDigest,
+            activatedAtEpochMs = requireNotNull(intent.activatedAtEpochMs)
+        )
+        activePort = port
+        activation = restored
+        restored
+    }
+
+    @Synchronized
     override fun rollback(): ReflexDecisionRuntimeActivation? {
         val previous = activation
+        val now = clock()
+        activationStore.persistDisabled(now)
         activePort = null
         activation = null
         return previous
     }
 
     override fun active(): ReflexDecisionRuntimeActivation? = activation
+
+    override fun persistedIntent(): ReflexRuntimeActivationIntent? = activationStore.load()
 
     override fun decide(request: ReflexDecisionRequest): ReflexDecision {
         val port = activePort ?: return fallback.decide(request)
