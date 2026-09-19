@@ -38,6 +38,14 @@ interface NativeReflexDecisionPort {
     fun predict(input: NativeReflexDecisionInput): Result<NativeReflexDecisionPrediction>
 }
 
+/**
+ * Optional mobile residency hook. Failure to release transient resources is telemetry only and never
+ * changes a prediction result or tool authority.
+ */
+interface NativeReflexResidencyAwarePort : NativeReflexDecisionPort {
+    fun releaseTransientResources(): Result<Unit>
+}
+
 fun interface ReflexDecisionRuntimeActivationGate {
     fun validate(port: NativeReflexDecisionPort): Result<Unit>
 }
@@ -102,7 +110,14 @@ data class ReflexRuntimeHealthSnapshot(
     val resourceSkips: Long = 0L,
     val lastResourceMode: ReflexRuntimeResourceMode = ReflexRuntimeResourceMode.NORMAL,
     val lastResourceMemoryMb: Int = 0,
-    val lastResourceThermalClass: Int = 0
+    val lastResourceThermalClass: Int = 0,
+    val lastResourceBatteryPercent: Int? = null,
+    val lastResourceCharging: Boolean? = null,
+    val throttleSkips: Long = 0L,
+    val residencyReleases: Long = 0L,
+    val residencyReleaseFailures: Long = 0L,
+    val lastWorkCostScore: Double = 0.0,
+    val workCostEwma: Double? = null
 ) {
     init {
         require(totalPredictions >= 0L)
@@ -115,6 +130,12 @@ data class ReflexRuntimeHealthSnapshot(
         require(automaticRollbacks >= 0L)
         require(resourceSkips >= 0L)
         require(lastResourceMemoryMb >= 0)
+        require(lastResourceBatteryPercent == null || lastResourceBatteryPercent in 0..100)
+        require(throttleSkips >= 0L)
+        require(residencyReleases >= 0L)
+        require(residencyReleaseFailures >= 0L)
+        require(lastWorkCostScore >= 0.0 && lastWorkCostScore.isFinite())
+        require(workCostEwma == null || (workCostEwma >= 0.0 && workCostEwma.isFinite()))
     }
 
     val authorityBearing: Boolean
@@ -258,6 +279,9 @@ class CanonicalReflexDecisionRuntimeController(
     @Volatile
     private var healthState = ReflexRuntimeHealthSnapshot(checkpointId = null)
 
+    @Volatile
+    private var lastLearnedInferenceAtEpochMs: Long? = null
+
     @Synchronized
     override fun activate(port: NativeReflexDecisionPort): Result<ReflexDecisionRuntimeActivation> =
         runCatching {
@@ -291,6 +315,7 @@ class CanonicalReflexDecisionRuntimeController(
             }
             activePort = port
             activation = next
+            lastLearnedInferenceAtEpochMs = null
             healthState = ReflexRuntimeHealthSnapshot(
                 checkpointId = next.checkpointId,
                 automaticRollbacks = healthState.automaticRollbacks
@@ -327,6 +352,7 @@ class CanonicalReflexDecisionRuntimeController(
         )
         activePort = port
         activation = restored
+        lastLearnedInferenceAtEpochMs = null
         standbyPort = null
         standbyActivation = null
         healthState = ReflexRuntimeHealthSnapshot(
@@ -343,6 +369,7 @@ class CanonicalReflexDecisionRuntimeController(
         activationStore.persistDisabled(now)
         activePort = null
         activation = null
+        lastLearnedInferenceAtEpochMs = null
         standbyPort = null
         standbyActivation = null
         healthState = ReflexRuntimeHealthSnapshot(
@@ -388,7 +415,22 @@ class CanonicalReflexDecisionRuntimeController(
         val resourceDecision = resourcePolicy.evaluate(currentAdaptivePolicy)
         recordResourceDecision(port, resourceDecision)
         if (!resourceDecision.allowLearnedInference) {
+            applyResidencyHint(port, resourceDecision)
             return fallback.decide(request)
+        }
+        if (resourceDecision.minInterInferenceMs > 0L) {
+            val now = clock()
+            val previous = lastLearnedInferenceAtEpochMs
+            if (
+                previous != null &&
+                now >= previous &&
+                now - previous < resourceDecision.minInterInferenceMs
+            ) {
+                recordThrottleSkip(port, resourceDecision)
+                applyResidencyHint(port, resourceDecision)
+                return fallback.decide(request)
+            }
+            lastLearnedInferenceAtEpochMs = now
         }
 
         val available = request.descriptors
@@ -406,6 +448,8 @@ class CanonicalReflexDecisionRuntimeController(
         )
         val elapsedNanos = (monotonicNanos() - startedAtNanos).coerceAtLeast(0L)
         val latencyMs = elapsedNanos.toDouble() / 1_000_000.0
+        recordWorkCost(port, resourceDecision, latencyMs)
+        applyResidencyHint(port, resourceDecision)
 
         val prediction = predictionResult.getOrElse {
             val policy = calibration.policy(port.checkpointId)
@@ -478,7 +522,78 @@ class CanonicalReflexDecisionRuntimeController(
                 if (decision.allowLearnedInference) 0L else 1L,
             lastResourceMode = decision.mode,
             lastResourceMemoryMb = decision.memoryBudgetMb,
-            lastResourceThermalClass = decision.thermalClass
+            lastResourceThermalClass = decision.thermalClass,
+            lastResourceBatteryPercent = decision.batteryPercent,
+            lastResourceCharging = decision.charging
+        )
+    }
+
+    @Synchronized
+    private fun recordThrottleSkip(
+        port: NativeReflexDecisionPort,
+        decision: ReflexRuntimeResourceDecision
+    ) {
+        if (activePort !== port) return
+        val previous = healthState
+        healthState = previous.copy(
+            checkpointId = port.checkpointId,
+            resourceSkips = previous.resourceSkips + 1L,
+            throttleSkips = previous.throttleSkips + 1L,
+            lastResourceMode = decision.mode,
+            lastResourceMemoryMb = decision.memoryBudgetMb,
+            lastResourceThermalClass = decision.thermalClass,
+            lastResourceBatteryPercent = decision.batteryPercent,
+            lastResourceCharging = decision.charging
+        )
+    }
+
+    @Synchronized
+    private fun recordWorkCost(
+        port: NativeReflexDecisionPort,
+        decision: ReflexRuntimeResourceDecision,
+        latencyMs: Double
+    ) {
+        if (activePort !== port) return
+        val modeMultiplier = when (decision.mode) {
+            ReflexRuntimeResourceMode.NORMAL -> 1.0
+            ReflexRuntimeResourceMode.PRESSURED -> 1.25
+            ReflexRuntimeResourceMode.BLOCKED -> 1.5
+        }
+        val thermalMultiplier = 1.0 + decision.thermalClass.coerceAtLeast(0) * 0.05
+        val batteryMultiplier = if (
+            decision.charging != true &&
+            decision.batteryPercent != null &&
+            decision.batteryPercent <= ResourceGovernorReflexRuntimeResourcePolicy.CONSERVE_BATTERY_PERCENT
+        ) {
+            1.25
+        } else {
+            1.0
+        }
+        val score = latencyMs * modeMultiplier * thermalMultiplier * batteryMultiplier
+        val previous = healthState
+        val ewma = previous.workCostEwma?.let { it + 0.125 * (score - it) } ?: score
+        healthState = previous.copy(
+            checkpointId = port.checkpointId,
+            lastWorkCostScore = score,
+            workCostEwma = ewma
+        )
+    }
+
+    @Synchronized
+    private fun applyResidencyHint(
+        port: NativeReflexDecisionPort,
+        decision: ReflexRuntimeResourceDecision
+    ) {
+        if (decision.residencyHint != ReflexRuntimeResidencyHint.RELEASE_AFTER_DECISION) return
+        val residencyPort = port as? NativeReflexResidencyAwarePort ?: return
+        if (activePort !== port) return
+        val previous = healthState
+        val result = residencyPort.releaseTransientResources()
+        healthState = previous.copy(
+            checkpointId = port.checkpointId,
+            residencyReleases = previous.residencyReleases + if (result.isSuccess) 1L else 0L,
+            residencyReleaseFailures =
+                previous.residencyReleaseFailures + if (result.isFailure) 1L else 0L
         )
     }
 
@@ -527,6 +642,7 @@ class CanonicalReflexDecisionRuntimeController(
             activationStore.persistActive(previousActivation, now)
             activePort = previousPort
             activation = previousActivation
+            lastLearnedInferenceAtEpochMs = null
             standbyPort = null
             standbyActivation = null
             healthState = ReflexRuntimeHealthSnapshot(
@@ -537,6 +653,7 @@ class CanonicalReflexDecisionRuntimeController(
             activationStore.persistDisabled(now)
             activePort = null
             activation = null
+            lastLearnedInferenceAtEpochMs = null
             standbyPort = null
             standbyActivation = null
             healthState = ReflexRuntimeHealthSnapshot(

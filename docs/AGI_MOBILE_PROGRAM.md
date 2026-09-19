@@ -928,3 +928,23 @@ not persisted as model-failure evidence and cannot trigger champion demotion by 
 ResourceGovernorReflexRuntimeResourcePolicy into AmperRuntime, so AndroidResourceGovernor's existing
 live RAM/thermal signals now directly shape System-1 scheduling without duplicating device monitoring.
 No resource policy can grant tool authority, bypass approval, or change safe argument binding.
+
+
+### Implemented checkpoint — Phase471-475
+Phase471 extends the existing Reflex resource policy with battery/charging awareness using an optional
+shared DeviceStatusSource; Android creates one AndroidDeviceStatusSource and reuses the same instance
+for both the device-status tool and System-1 scheduling, avoiding duplicate BatteryManager/memory
+sampling infrastructure. Phase472 adds bounded battery conservation: <=8% and not charging blocks
+learned Reflex, <=15% permits only checkpoints with calibrated latency <=120 ms and imposes a 2 s burst
+interval, while <=30% uses a 750 ms interval and 180 ms latency ceiling. Charging removes battery-only
+restrictions but never bypasses thermal/RAM gates. Phase473 adds optional
+NativeReflexResidencyAwarePort.releaseTransientResources(); pressured battery/thermal decisions request
+transient release after prediction, while unsupported backends safely ignore the hint. Residency
+release failure is telemetry only and cannot invalidate a prediction or alter authority. Phase474 adds
+burst throttling and an explicitly non-physical work-cost score derived from measured latency plus
+thermal/battery pressure. Cost EWMA, throttle skips and residency counters stay in the existing
+in-memory ReflexRuntimeHealthSnapshot; they are not represented as Joules and are not used as synthetic
+training success. Phase475 wires DeviceStatusSource through the existing AmperRuntime Android
+constructor into ResourceGovernorReflexRuntimeResourcePolicy. Battery/resource shaping is per-turn,
+does not demote a checkpoint by itself, and cannot bypass safe argument binding, ToolDescriptor,
+AuthorityGate or explicit approval.
