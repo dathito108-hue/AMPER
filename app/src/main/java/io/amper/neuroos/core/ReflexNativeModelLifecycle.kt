@@ -25,8 +25,7 @@ data class ReflexNativeLifecycleReport(
 
 class ReflexNativeModelLifecycle(
     private val runtime: AmperRuntime,
-    artifacts: ReflexLinearArtifactStore,
-    private val clock: () -> Long = System::currentTimeMillis
+    artifacts: ReflexLinearArtifactStore
 ) {
     private val trainer = ReflexLinearNativeTrainer(artifacts)
     private val resolver = ReflexLinearDecisionPortResolver(
