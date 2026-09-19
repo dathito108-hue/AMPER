@@ -156,6 +156,17 @@ becoming a hard pin. Native model or adapter state never grants tool/device auth
 Self-benchmarking, candidate code/model generation, sandbox tournaments, automated promotion,
 rollback and architecture evolution.
 
+### Implemented checkpoint — Phase231-235
+Phase231 freezes bounded normalized benchmark suites and an exact sampled canonical baseline.
+Phase232 accepts content-addressed MODEL/CODE/STRATEGY/ARCHITECTURE candidates whose benchmark result
+is bound to the same artifact digest. Phase233 evaluates only supplied sandbox/test/benchmark evidence
+and has no ToolFabric or AuthorityGate execution path. Phase234 requires per-metric sample floors,
+candidate score floors, regression tolerances and positive weighted aggregate improvement, then passes
+the candidate through the existing CanonicalEvolutionGate for sovereign invariants and rollback
+capability. Phase235 deterministically selects the objectively strongest eligible candidate and emits
+a non-authoritative, non-live promotion proposal. Actual deployment/promotion execution remains
+Phase236+.
+
 ### 251+ — Open-ended mobile intelligence
 Integrate model, world state, memory, skills, multimodal perception and self-evolution; measure
 progress by capability/generalization benchmarks rather than phase count.
