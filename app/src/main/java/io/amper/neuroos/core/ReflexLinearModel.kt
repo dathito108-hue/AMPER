@@ -25,6 +25,10 @@ data class StoredReflexLinearArtifact(
 interface ReflexLinearArtifactStore {
     fun put(bytes: ByteArray): StoredReflexLinearArtifact
     fun load(sha256: String): ByteArray?
+
+    fun prune(protectedSha256: Set<String>, maxDelete: Int = 8): Int = 0
+
+    fun storedDigests(): Set<String> = emptySet()
 }
 
 class InMemoryReflexLinearArtifactStore : ReflexLinearArtifactStore {
@@ -49,6 +53,22 @@ class InMemoryReflexLinearArtifactStore : ReflexLinearArtifactStore {
         require(sha256.matches(Regex("[0-9a-f]{64}")))
         return artifacts[sha256]?.copyOf()
     }
+
+    @Synchronized
+    override fun prune(protectedSha256: Set<String>, maxDelete: Int): Int {
+        require(protectedSha256.all { it.matches(Regex("[0-9a-f]{64}")) })
+        require(maxDelete >= 0)
+        if (maxDelete == 0) return 0
+        val victims = artifacts.keys
+            .filterNot { it in protectedSha256 }
+            .sorted()
+            .take(maxDelete)
+        victims.forEach(artifacts::remove)
+        return victims.size
+    }
+
+    @Synchronized
+    override fun storedDigests(): Set<String> = artifacts.keys.toSet()
 
     @Synchronized
     fun size(): Int = artifacts.size
@@ -109,6 +129,41 @@ class FileReflexLinearArtifactStore(
             "Reflex artifact SHA-256 mismatch"
         }
         return bytes
+    }
+
+    @Synchronized
+    override fun prune(protectedSha256: Set<String>, maxDelete: Int): Int {
+        require(protectedSha256.all { it.matches(Regex("[0-9a-f]{64}")) })
+        require(maxDelete >= 0)
+        if (maxDelete == 0) return 0
+        val victims = artifactFiles()
+            .filterNot { it.first in protectedSha256 }
+            .sortedBy { it.first }
+            .take(maxDelete)
+        victims.forEach { (_, file) ->
+            require(file.delete() || !file.exists()) {
+                "unable to prune obsolete Reflex artifact"
+            }
+        }
+        return victims.size
+    }
+
+    @Synchronized
+    override fun storedDigests(): Set<String> =
+        artifactFiles().map { it.first }.toSet()
+
+    private fun artifactFiles(): List<Pair<String, File>> {
+        val suffix = "." + ReflexLinearModelCodec.FILE_EXTENSION
+        return rootDir.listFiles()
+            .orEmpty()
+            .asSequence()
+            .filter { it.isFile && it.name.endsWith(suffix) }
+            .mapNotNull { file ->
+                val digest = file.name.removeSuffix(suffix)
+                digest.takeIf { it.matches(Regex("[0-9a-f]{64}")) }
+                    ?.let { it to file }
+            }
+            .toList()
     }
 
     private fun artifactFile(sha256: String): File =
