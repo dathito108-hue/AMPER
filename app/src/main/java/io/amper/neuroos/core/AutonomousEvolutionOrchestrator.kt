@@ -174,7 +174,7 @@ class AutonomousEvolutionOrchestrator(
             val campaignId = EvolutionCampaignId(
                 "autonomy-" + autonomySha256(id.value + "|" + index).take(24)
             )
-            val campaignResult = runCatching {
+            val campaignAttempt = runCatching {
                 campaign.run(
                     campaignId = campaignId,
                     baselineRevision = current.revision,
@@ -183,17 +183,21 @@ class AutonomousEvolutionOrchestrator(
                     allowedKinds = allowedKinds,
                     maxCandidates = maxCandidates
                 )
-            }.getOrElse { failure ->
+            }
+            if (campaignAttempt.isFailure) {
                 cycles += EvolutionAutonomyCycleResult(
                     index = index,
                     campaignId = campaignId,
                     baselineRevision = current.revision,
                     baselineArtifactDigest = artifactDigest,
                     stage = EvolutionAutonomyCycleStage.NO_CANDIDATE,
-                    failureCode = sanitizeAutonomyFailure(failure)
+                    failureCode = sanitizeAutonomyFailure(
+                        requireNotNull(campaignAttempt.exceptionOrNull())
+                    )
                 )
                 break
             }
+            val campaignResult = campaignAttempt.getOrThrow()
 
             val proposal = campaignResult.promotionProposal
             if (campaignResult.candidateIds.isEmpty()) {
@@ -277,12 +281,14 @@ class AutonomousEvolutionOrchestrator(
             val canarySnapshot = requireNotNull(recordingCanary.snapshot) {
                 "committed promotion is missing captured canary snapshot"
             }
-            val next = baseline.advance(
+            val advanceAttempt = baseline.advance(
                 expected = current,
                 proposal = proposal,
                 receipt = receipt,
                 canary = canarySnapshot
-            ).getOrElse { failure ->
+            )
+            if (advanceAttempt.isFailure) {
+                val failure = requireNotNull(advanceAttempt.exceptionOrNull())
                 promotion.rollbackCommitted(
                     id = committed.id,
                     proposal = proposal,
@@ -300,6 +306,7 @@ class AutonomousEvolutionOrchestrator(
                 )
                 break
             }
+            val next = advanceAttempt.getOrThrow()
 
             cycles += EvolutionAutonomyCycleResult(
                 index = index,
