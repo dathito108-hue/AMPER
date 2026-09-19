@@ -182,7 +182,9 @@ class AutonomousGoalScheduler(
                     AutonomousGovernedPlanRunStage.STEP_LIMIT -> PLAN_PROGRESS_RETRY_MS
                     AutonomousGovernedPlanRunStage.CONTEXT_REFRESHED,
                     AutonomousGovernedPlanRunStage.COMPLETED,
+                    AutonomousGovernedPlanRunStage.FOLLOW_UP_QUEUED,
                     AutonomousGovernedPlanRunStage.TERMINAL_RECOVERY -> ACTIVE_RETRY_MS
+                    AutonomousGovernedPlanRunStage.FOLLOW_UP_EXHAUSTED -> BLOCKED_RETRY_MS
                 }
                 scheduleFrom(now, delay)
                 AutonomousGoalSchedulerTick(
@@ -215,18 +217,21 @@ class AutonomousGoalScheduler(
         PersistentGoalExecutiveStage.LEARNING_PAUSED,
         PersistentGoalExecutiveStage.EVOLUTION_PAUSED,
         PersistentGoalExecutiveStage.RECOVERY_QUEUED,
+        PersistentGoalExecutiveStage.FOLLOW_UP_QUEUED,
         PersistentGoalExecutiveStage.QUEUED -> ACTIVE_RETRY_MS
         PersistentGoalExecutiveStage.PLANNED -> PLANNED_RETRY_MS
         PersistentGoalExecutiveStage.COMPLETED -> ACTIVE_RETRY_MS
         PersistentGoalExecutiveStage.RECOVERY_BLOCKED,
         PersistentGoalExecutiveStage.EXECUTION_PAUSED,
         PersistentGoalExecutiveStage.PARTIAL_EXECUTION_BLOCKED,
-        PersistentGoalExecutiveStage.RECOVERY_EXHAUSTED -> BLOCKED_RETRY_MS
+        PersistentGoalExecutiveStage.RECOVERY_EXHAUSTED,
+        PersistentGoalExecutiveStage.FOLLOW_UP_EXHAUSTED -> BLOCKED_RETRY_MS
     }
 
     private fun deferredDelay(stage: PersistentGoalExecutiveStage): Long = when (stage) {
         PersistentGoalExecutiveStage.WAITING_OBSERVATION -> OBSERVATION_RETRY_MS
         PersistentGoalExecutiveStage.RECOVERY_QUEUED,
+        PersistentGoalExecutiveStage.FOLLOW_UP_QUEUED,
         PersistentGoalExecutiveStage.QUEUED,
         PersistentGoalExecutiveStage.LEARNING_PAUSED,
         PersistentGoalExecutiveStage.EVOLUTION_PAUSED -> ACTIVE_RETRY_MS
@@ -235,7 +240,8 @@ class AutonomousGoalScheduler(
         PersistentGoalExecutiveStage.RECOVERY_BLOCKED,
         PersistentGoalExecutiveStage.EXECUTION_PAUSED,
         PersistentGoalExecutiveStage.PARTIAL_EXECUTION_BLOCKED,
-        PersistentGoalExecutiveStage.RECOVERY_EXHAUSTED -> BLOCKED_RETRY_MS
+        PersistentGoalExecutiveStage.RECOVERY_EXHAUSTED,
+        PersistentGoalExecutiveStage.FOLLOW_UP_EXHAUSTED -> BLOCKED_RETRY_MS
     }
 
     private fun scheduleFrom(now: Long, delay: Long) {

@@ -13,6 +13,8 @@ enum class PersistentGoalExecutiveStage {
     EXECUTION_PAUSED,
     PARTIAL_EXECUTION_BLOCKED,
     RECOVERY_EXHAUSTED,
+    FOLLOW_UP_QUEUED,
+    FOLLOW_UP_EXHAUSTED,
     PLANNED,
     COMPLETED
 }
@@ -29,7 +31,11 @@ data class PersistentGoalExecutiveCheckpoint(
     val lastExecutionContextDigest: String? = null,
     val plannedPlanId: PlanId? = null,
     val recoveryCount: Int = 0,
+    val followUpCount: Int = 0,
     val lastFailureCode: String? = null,
+    val lastVerificationVerdict: GoalSatisfactionVerdict? = null,
+    val lastVerificationConfidence: Double? = null,
+    val lastVerificationReason: String? = null,
     val updatedAtEpochMs: Long = System.currentTimeMillis()
 ) {
     init {
@@ -38,8 +44,21 @@ data class PersistentGoalExecutiveCheckpoint(
         require(priority in 0.0..1.0)
         require(attemptCount >= 0)
         require(recoveryCount in 0..MAX_RECOVERY_GENERATIONS)
+        require(followUpCount in 0..MAX_FOLLOW_UP_GENERATIONS)
         require(lastFailureCode == null || lastFailureCode.matches(FAILURE_CODE)) {
             "invalid persistent goal recovery failure code"
+        }
+        require(
+            (lastVerificationVerdict == null) == (lastVerificationConfidence == null) &&
+                (lastVerificationVerdict == null) == (lastVerificationReason == null)
+        ) { "verification checkpoint requires verdict/confidence/reason together" }
+        lastVerificationConfidence?.let {
+            require(it in 0.0..1.0) { "invalid goal verification confidence" }
+        }
+        lastVerificationReason?.let {
+            require(it.isNotBlank() && it.length <= 256) {
+                "invalid goal verification reason"
+            }
         }
         require(updatedAtEpochMs >= 0L)
         require((lastCognitiveStateDigest == null) == (lastExecutionContextDigest == null)) {
@@ -57,6 +76,7 @@ data class PersistentGoalExecutiveCheckpoint(
             PersistentGoalExecutiveStage.EXECUTION_PAUSED,
             PersistentGoalExecutiveStage.PARTIAL_EXECUTION_BLOCKED,
             PersistentGoalExecutiveStage.RECOVERY_EXHAUSTED,
+            PersistentGoalExecutiveStage.FOLLOW_UP_EXHAUSTED,
             PersistentGoalExecutiveStage.COMPLETED
         )
         if (stage in planBoundStages) {
@@ -77,6 +97,7 @@ data class PersistentGoalExecutiveCheckpoint(
         const val MAX_GOAL_ID_CHARS = 256
         const val MAX_OBJECTIVE_CHARS = 1024
         const val MAX_RECOVERY_GENERATIONS = 3
+        const val MAX_FOLLOW_UP_GENERATIONS = 3
         private val SHA256 = Regex("[0-9a-f]{64}")
         private val FAILURE_CODE = Regex("[A-Z0-9_:-]{1,128}")
     }
@@ -184,6 +205,8 @@ class PersistentGoalExecutiveCoordinator(
                         "goal recovery is blocked because part of the plan already executed"
                     PersistentGoalExecutiveStage.RECOVERY_EXHAUSTED ->
                         "goal recovery reached the bounded retry limit"
+                    PersistentGoalExecutiveStage.FOLLOW_UP_EXHAUSTED ->
+                        "goal satisfaction follow-up reached the bounded verification limit"
                     else -> error("unexpected blocked persistent goal stage")
                 }
             )
@@ -290,6 +313,62 @@ class PersistentGoalExecutiveCoordinator(
                 updatedAtEpochMs = clock().coerceAtLeast(current.updatedAtEpochMs)
             )
         )
+    }
+
+    @Synchronized
+    fun resolveVerifiedSuccess(
+        planId: PlanId,
+        assessment: GoalSatisfactionAssessment
+    ): Result<PersistentGoalExecutiveCheckpoint> = runCatching {
+        val current = requireNotNull(store.load()) {
+            "persistent goal executive has no active checkpoint"
+        }
+        require(current.stage == PersistentGoalExecutiveStage.PLANNED) {
+            "persistent goal executive is not awaiting verified plan completion"
+        }
+        require(current.plannedPlanId == planId && assessment.planId == planId) {
+            "goal verification does not match the exact persistent goal handoff"
+        }
+        val terminalPlan = requireNotNull(plans.load(planId)) {
+            "verified persistent goal plan is unavailable from plan store"
+        }
+        require(terminalPlan.complete && terminalPlan.steps.all { it.status == PlanStepStatus.EXECUTED }) {
+            "goal verification requires an all-executed terminal plan"
+        }
+
+        val now = clock().coerceAtLeast(current.updatedAtEpochMs)
+        val verified = current.copy(
+            lastVerificationVerdict = assessment.verdict,
+            lastVerificationConfidence = assessment.confidence,
+            lastVerificationReason = assessment.reason,
+            lastCognitiveStateDigest = assessment.cognitiveStateDigest,
+            lastExecutionContextDigest = assessment.executionContextDigest,
+            updatedAtEpochMs = now
+        )
+        val next = when (assessment.verdict) {
+            GoalSatisfactionVerdict.SATISFIED -> verified.copy(
+                stage = PersistentGoalExecutiveStage.COMPLETED,
+                lastFailureCode = null
+            )
+            GoalSatisfactionVerdict.FOLLOW_UP_REQUIRED -> {
+                if (current.followUpCount >=
+                    PersistentGoalExecutiveCheckpoint.MAX_FOLLOW_UP_GENERATIONS
+                ) {
+                    verified.copy(
+                        stage = PersistentGoalExecutiveStage.FOLLOW_UP_EXHAUSTED,
+                        lastFailureCode = "GOAL_FOLLOW_UP_LIMIT"
+                    )
+                } else {
+                    verified.copy(
+                        stage = PersistentGoalExecutiveStage.FOLLOW_UP_QUEUED,
+                        plannedPlanId = null,
+                        followUpCount = current.followUpCount + 1,
+                        lastFailureCode = null
+                    )
+                }
+            }
+        }
+        store.save(next)
     }
 
     @Synchronized
@@ -424,21 +503,24 @@ class PersistentGoalExecutiveCoordinator(
             PersistentGoalExecutiveStage.RECOVERY_BLOCKED,
             PersistentGoalExecutiveStage.EXECUTION_PAUSED,
             PersistentGoalExecutiveStage.PARTIAL_EXECUTION_BLOCKED,
-            PersistentGoalExecutiveStage.RECOVERY_EXHAUSTED
+            PersistentGoalExecutiveStage.RECOVERY_EXHAUSTED,
+            PersistentGoalExecutiveStage.FOLLOW_UP_EXHAUSTED
         )
         private val PLAN_RESOLUTION_STAGES = setOf(
             PersistentGoalExecutiveStage.PLANNED,
             PersistentGoalExecutiveStage.RECOVERY_BLOCKED,
             PersistentGoalExecutiveStage.EXECUTION_PAUSED,
             PersistentGoalExecutiveStage.PARTIAL_EXECUTION_BLOCKED,
-            PersistentGoalExecutiveStage.RECOVERY_EXHAUSTED
+            PersistentGoalExecutiveStage.RECOVERY_EXHAUSTED,
+            PersistentGoalExecutiveStage.FOLLOW_UP_EXHAUSTED
         )
     }
 }
 
 internal object PersistentGoalExecutiveCodec {
     private const val VERSION_V1 = "AMPER_PERSISTENT_GOAL_EXECUTIVE_V1"
-    private const val VERSION = "AMPER_PERSISTENT_GOAL_EXECUTIVE_V2"
+    private const val VERSION_V2 = "AMPER_PERSISTENT_GOAL_EXECUTIVE_V2"
+    private const val VERSION = "AMPER_PERSISTENT_GOAL_EXECUTIVE_V3"
 
     fun encode(checkpoint: PersistentGoalExecutiveCheckpoint): String = buildString {
         appendLine(VERSION)
@@ -453,14 +535,18 @@ internal object PersistentGoalExecutiveCodec {
         appendLine("EXECUTION_DIGEST\t" + (checkpoint.lastExecutionContextDigest ?: "~"))
         appendLine("PLAN_ID\t" + (checkpoint.plannedPlanId?.value?.let(::enc) ?: "~"))
         appendLine("RECOVERY_COUNT\t" + checkpoint.recoveryCount)
+        appendLine("FOLLOW_UP_COUNT\t" + checkpoint.followUpCount)
         appendLine("FAILURE_CODE\t" + (checkpoint.lastFailureCode ?: "~"))
+        appendLine("VERIFY_VERDICT\t" + (checkpoint.lastVerificationVerdict?.name ?: "~"))
+        appendLine("VERIFY_CONFIDENCE\t" + (checkpoint.lastVerificationConfidence?.toString() ?: "~"))
+        appendLine("VERIFY_REASON\t" + (checkpoint.lastVerificationReason?.let(::enc) ?: "~"))
         append("UPDATED\t" + checkpoint.updatedAtEpochMs)
     }
 
     fun decode(content: String): Result<PersistentGoalExecutiveCheckpoint> = runCatching {
         val lines = content.lineSequence().filter { it.isNotBlank() }.toList()
         val version = lines.firstOrNull()
-        require(version == VERSION || version == VERSION_V1) {
+        require(version == VERSION || version == VERSION_V2 || version == VERSION_V1) {
             "unsupported persistent goal executive state"
         }
         val fields = linkedMapOf<String, String>()
@@ -485,10 +571,22 @@ internal object PersistentGoalExecutiveCodec {
             "UPDATED"
         )
         require(fields.keys.containsAll(required)) { "persistent goal executive state is incomplete" }
-        if (version == VERSION) {
+        if (version == VERSION || version == VERSION_V2) {
             require(fields.keys.containsAll(setOf("RECOVERY_COUNT", "FAILURE_CODE"))) {
                 "persistent goal executive recovery state is incomplete"
             }
+        }
+        if (version == VERSION) {
+            require(
+                fields.keys.containsAll(
+                    setOf(
+                        "FOLLOW_UP_COUNT",
+                        "VERIFY_VERDICT",
+                        "VERIFY_CONFIDENCE",
+                        "VERIFY_REASON"
+                    )
+                )
+            ) { "persistent goal executive verification state is incomplete" }
         }
 
         PersistentGoalExecutiveCheckpoint(
@@ -510,7 +608,17 @@ internal object PersistentGoalExecutiveCodec {
                 ?.let(::dec)
                 ?.let(::PlanId),
             recoveryCount = fields["RECOVERY_COUNT"]?.toInt() ?: 0,
+            followUpCount = fields["FOLLOW_UP_COUNT"]?.toInt() ?: 0,
             lastFailureCode = fields["FAILURE_CODE"]?.takeUnless { it == "~" },
+            lastVerificationVerdict = fields["VERIFY_VERDICT"]
+                ?.takeUnless { it == "~" }
+                ?.let(GoalSatisfactionVerdict::valueOf),
+            lastVerificationConfidence = fields["VERIFY_CONFIDENCE"]
+                ?.takeUnless { it == "~" }
+                ?.toDouble(),
+            lastVerificationReason = fields["VERIFY_REASON"]
+                ?.takeUnless { it == "~" }
+                ?.let(::dec),
             updatedAtEpochMs = fields.getValue("UPDATED").toLong()
         )
     }
