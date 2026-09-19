@@ -102,14 +102,14 @@ object AutonomousCognitiveExecutivePolicy {
                 action = CognitiveExecutiveAction.EVOLVE
                 trigger = evolutionNeed.capability
                 rationale =
-                    "repeated governed execution weakness has sufficient evidence for one bounded evolution cycle"
+                    "governed execution or hierarchical strategy weakness has sufficient evidence for one bounded evolution cycle"
             }
             readiness.learningPressure >= PRACTICE_PRESSURE -> {
                 action = CognitiveExecutiveAction.PRACTICE
                 trigger = state.learningNeeds.maxByOrNull { it.severity }?.capability
                 rationale =
                     if (evolutionNeed != null && !evolutionAvailable) {
-                        "execution weakness is evidenced but evolution is unavailable; use bounded zero-tool practice"
+                        "governed execution/strategy weakness is evidenced but evolution is unavailable; use bounded zero-tool practice"
                     } else {
                         "current learning pressure warrants bounded zero-tool practice before goal planning"
                     }
