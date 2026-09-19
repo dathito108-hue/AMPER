@@ -184,7 +184,7 @@ class MemoryBackedGoalHierarchicalStrategyCreditModel(
         require(plan.complete)
         require(checkpoint.plannedPlanId == plan.id)
         require(plan.steps.isNotEmpty())
-        validateOutcome(plan, outcome)
+        GoalOutcomeSemantics.validate(plan, outcome)
 
         val markerId = markerId(plan.id)
         memory.get(markerId)
@@ -261,21 +261,8 @@ class MemoryBackedGoalHierarchicalStrategyCreditModel(
         portfolioRecords: Collection<DurableGoalRecord>,
         observedAtEpochMs: Long
     ): List<GoalStrategyCreditStats> {
-        require(plan.complete)
-        val statuses = plan.steps.map { it.status }
-        val outcome = when {
-            statuses.all { it == PlanStepStatus.EXECUTED } -> return emptyList()
-            statuses.any { it == PlanStepStatus.EXECUTED } ->
-                GoalOutcomeEvidenceKind.PARTIAL_EXECUTION_BLOCKED
-            statuses.any { it == PlanStepStatus.DENIED || it == PlanStepStatus.REJECTED } ->
-                GoalOutcomeEvidenceKind.AUTHORITY_BLOCKED
-            statuses.any {
-                it == PlanStepStatus.FAILED ||
-                    it == PlanStepStatus.MALFORMED ||
-                    it == PlanStepStatus.UNAVAILABLE
-            } -> GoalOutcomeEvidenceKind.EXECUTION_EXHAUSTED
-            else -> return emptyList()
-        }
+        val outcome = GoalOutcomeSemantics.classifyPreVerification(plan)
+            ?: return emptyList()
         return observe(
             checkpoint = checkpoint,
             plan = plan,
@@ -591,41 +578,6 @@ class MemoryBackedGoalHierarchicalStrategyCreditModel(
                     stats.strategy.capabilities
         GoalStrategyCreditComponentKind.SEQUENCE ->
             candidateCapabilities == stats.strategy.capabilities
-    }
-
-    private fun validateOutcome(
-        plan: SovereignPlan,
-        outcome: GoalOutcomeEvidenceKind
-    ) {
-        val statuses = plan.steps.map { it.status }
-        when (outcome) {
-            GoalOutcomeEvidenceKind.VERIFIED_SUCCESS ->
-                require(statuses.all { it == PlanStepStatus.EXECUTED }) {
-                    "hierarchical verified success requires an all-executed terminal plan"
-                }
-            GoalOutcomeEvidenceKind.EXECUTION_EXHAUSTED ->
-                require(statuses.all {
-                    it == PlanStepStatus.FAILED ||
-                        it == PlanStepStatus.MALFORMED ||
-                        it == PlanStepStatus.UNAVAILABLE
-                }) {
-                    "hierarchical execution failure requires zero executed/authority steps"
-                }
-            GoalOutcomeEvidenceKind.EVIDENCE_EXHAUSTED ->
-                require(statuses.all { it == PlanStepStatus.EXECUTED }) {
-                    "hierarchical evidence failure requires an all-executed terminal plan"
-                }
-            GoalOutcomeEvidenceKind.AUTHORITY_BLOCKED -> {
-                require(statuses.none { it == PlanStepStatus.EXECUTED })
-                require(statuses.any {
-                    it == PlanStepStatus.DENIED || it == PlanStepStatus.REJECTED
-                })
-            }
-            GoalOutcomeEvidenceKind.PARTIAL_EXECUTION_BLOCKED -> {
-                require(statuses.any { it == PlanStepStatus.EXECUTED })
-                require(statuses.any { it != PlanStepStatus.EXECUTED })
-            }
-        }
     }
 
     private fun saveStats(

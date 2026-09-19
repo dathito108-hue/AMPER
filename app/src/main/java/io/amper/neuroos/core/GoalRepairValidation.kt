@@ -307,7 +307,7 @@ class MemoryBackedGoalRepairValidationModel(
         outcome: GoalOutcomeEvidenceKind,
         observedAtEpochMs: Long
     ): List<GoalRepairRequalificationSnapshot> {
-        require(plan.complete)
+        GoalOutcomeSemantics.validate(plan, outcome)
         require(observedAtEpochMs >= 0L)
         if (
             outcome == GoalOutcomeEvidenceKind.AUTHORITY_BLOCKED ||
