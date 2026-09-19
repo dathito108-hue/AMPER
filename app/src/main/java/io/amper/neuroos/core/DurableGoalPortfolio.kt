@@ -27,7 +27,9 @@ data class DurableGoalRecord(
     val status: DurableGoalStatus,
     val firstSeenAtEpochMs: Long,
     val updatedAtEpochMs: Long,
-    val completedAtEpochMs: Long? = null
+    val completedAtEpochMs: Long? = null,
+    val dependsOnGoalIds: Set<String> = emptySet(),
+    val deadlineEpochMs: Long? = null
 ) {
     init {
         require(sourceGoalId.isNotBlank() && sourceGoalId.length <= MAX_GOAL_ID_CHARS)
@@ -41,11 +43,20 @@ data class DurableGoalRecord(
         completedAtEpochMs?.let {
             require(it >= firstSeenAtEpochMs)
         }
+        require(dependsOnGoalIds.size <= MAX_DEPENDENCIES) {
+            "durable goal dependency count exceeds bound"
+        }
+        dependsOnGoalIds.forEach { dependency ->
+            require(dependency.isNotBlank() && dependency.length <= MAX_GOAL_ID_CHARS)
+            require(dependency != sourceGoalId) { "durable goal cannot depend on itself" }
+        }
+        deadlineEpochMs?.let { require(it >= 0L) }
     }
 
     companion object {
         const val MAX_GOAL_ID_CHARS = 256
         const val MAX_OBJECTIVE_CHARS = 1_024
+        const val MAX_DEPENDENCIES = 8
     }
 }
 
@@ -60,6 +71,18 @@ interface DurableGoalPortfolio {
     fun markCompleted(
         sourceGoalId: String,
         completedAtEpochMs: Long = System.currentTimeMillis()
+    ): DurableGoalRecord?
+
+    fun setDependencies(
+        sourceGoalId: String,
+        dependsOnGoalIds: Set<String>,
+        updatedAtEpochMs: Long = System.currentTimeMillis()
+    ): DurableGoalRecord?
+
+    fun setDeadline(
+        sourceGoalId: String,
+        deadlineEpochMs: Long?,
+        updatedAtEpochMs: Long = System.currentTimeMillis()
     ): DurableGoalRecord?
 
     fun get(sourceGoalId: String): DurableGoalRecord?
@@ -153,6 +176,61 @@ class MemoryBackedDurableGoalPortfolio(
     }
 
     @Synchronized
+    override fun setDependencies(
+        sourceGoalId: String,
+        dependsOnGoalIds: Set<String>,
+        updatedAtEpochMs: Long
+    ): DurableGoalRecord? {
+        require(sourceGoalId.isNotBlank())
+        require(updatedAtEpochMs >= 0L)
+        require(dependsOnGoalIds.size <= DurableGoalRecord.MAX_DEPENDENCIES)
+        require(sourceGoalId !in dependsOnGoalIds)
+        val records = loadMutable()
+        val existing = records[sourceGoalId] ?: return null
+        require(existing.status == DurableGoalStatus.PENDING) {
+            "completed durable goal dependency metadata is immutable"
+        }
+        dependsOnGoalIds.forEach { dependency ->
+            require(records.containsKey(dependency)) {
+                "durable goal dependency is not present in portfolio: $dependency"
+            }
+        }
+        val updated = existing.copy(
+            dependsOnGoalIds = dependsOnGoalIds.toSortedSet(),
+            updatedAtEpochMs = maxOf(existing.updatedAtEpochMs, updatedAtEpochMs)
+        )
+        records[sourceGoalId] = updated
+        require(!hasDependencyCycle(records.values)) {
+            "durable goal dependency graph must remain acyclic"
+        }
+        persist(bounded(records.values))
+        return updated
+    }
+
+    @Synchronized
+    override fun setDeadline(
+        sourceGoalId: String,
+        deadlineEpochMs: Long?,
+        updatedAtEpochMs: Long
+    ): DurableGoalRecord? {
+        require(sourceGoalId.isNotBlank())
+        require(updatedAtEpochMs >= 0L)
+        deadlineEpochMs?.let { require(it >= 0L) }
+        val records = loadMutable()
+        val existing = records[sourceGoalId] ?: return null
+        require(existing.status == DurableGoalStatus.PENDING) {
+            "completed durable goal deadline metadata is immutable"
+        }
+        val updated = existing.copy(
+            deadlineEpochMs = deadlineEpochMs,
+            updatedAtEpochMs = maxOf(existing.updatedAtEpochMs, updatedAtEpochMs)
+        )
+        records[sourceGoalId] = updated
+        persist(bounded(records.values))
+        return updated
+    }
+
+    @Synchronized
     override fun get(sourceGoalId: String): DurableGoalRecord? =
         snapshot().singleOrNull { it.sourceGoalId == sourceGoalId }
 
@@ -192,6 +270,28 @@ class MemoryBackedDurableGoalPortfolio(
         return pending + completed
     }
 
+    private fun hasDependencyCycle(records: Collection<DurableGoalRecord>): Boolean {
+        val byId = records.associateBy { it.sourceGoalId }
+        val visiting = linkedSetOf<String>()
+        val visited = linkedSetOf<String>()
+
+        fun visit(id: String): Boolean {
+            if (id in visited) return false
+            if (!visiting.add(id)) return true
+            val record = byId[id]
+            if (record != null) {
+                record.dependsOnGoalIds.forEach { dependency ->
+                    if (dependency in byId && visit(dependency)) return true
+                }
+            }
+            visiting.remove(id)
+            visited.add(id)
+            return false
+        }
+
+        return byId.keys.any(::visit)
+    }
+
     private fun persist(records: List<DurableGoalRecord>) {
         memory.remember(
             MemoryRecord(
@@ -217,7 +317,8 @@ class MemoryBackedDurableGoalPortfolio(
 }
 
 internal object DurableGoalPortfolioCodec {
-    private const val VERSION = "AMPER_DURABLE_GOAL_PORTFOLIO_V1"
+    private const val VERSION_V1 = "AMPER_DURABLE_GOAL_PORTFOLIO_V1"
+    private const val VERSION = "AMPER_DURABLE_GOAL_PORTFOLIO_V2"
 
     fun encode(records: List<DurableGoalRecord>): String = buildString {
         appendLine(VERSION)
@@ -229,18 +330,32 @@ internal object DurableGoalPortfolioCodec {
             append(record.status.name).append('\t')
             append(record.firstSeenAtEpochMs).append('\t')
             append(record.updatedAtEpochMs).append('\t')
-            append(record.completedAtEpochMs?.toString() ?: "~")
+            append(record.completedAtEpochMs?.toString() ?: "~").append('\t')
+            append(
+                if (record.dependsOnGoalIds.isEmpty()) {
+                    "~"
+                } else {
+                    enc(record.dependsOnGoalIds.sorted().joinToString("\n"))
+                }
+            ).append('\t')
+            append(record.deadlineEpochMs?.toString() ?: "~")
             appendLine()
         }
     }.trimEnd()
 
     fun decode(content: String): Result<List<DurableGoalRecord>> = runCatching {
         val lines = content.lineSequence().filter { it.isNotBlank() }.toList()
-        require(lines.firstOrNull() == VERSION) { "unsupported durable goal portfolio state" }
+        val version = lines.firstOrNull()
+        require(version == VERSION || version == VERSION_V1) {
+            "unsupported durable goal portfolio state"
+        }
         val records = lines.drop(1).map { line ->
             val parts = line.split('\t')
-            require(parts.size == 8 && parts[0] == "GOAL") {
-                "invalid durable goal portfolio record"
+            require(parts[0] == "GOAL") { "invalid durable goal portfolio record" }
+            if (version == VERSION_V1) {
+                require(parts.size == 8) { "invalid durable goal portfolio V1 record" }
+            } else {
+                require(parts.size == 10) { "invalid durable goal portfolio V2 record" }
             }
             DurableGoalRecord(
                 sourceGoalId = dec(parts[1]),
@@ -249,7 +364,17 @@ internal object DurableGoalPortfolioCodec {
                 status = DurableGoalStatus.valueOf(parts[4]),
                 firstSeenAtEpochMs = parts[5].toLong(),
                 updatedAtEpochMs = parts[6].toLong(),
-                completedAtEpochMs = parts[7].takeUnless { it == "~" }?.toLong()
+                completedAtEpochMs = parts[7].takeUnless { it == "~" }?.toLong(),
+                dependsOnGoalIds = if (version == VERSION_V1 || parts[8] == "~") {
+                    emptySet()
+                } else {
+                    dec(parts[8]).lineSequence().filter { it.isNotBlank() }.toSet()
+                },
+                deadlineEpochMs = if (version == VERSION_V1) {
+                    null
+                } else {
+                    parts[9].takeUnless { it == "~" }?.toLong()
+                }
             )
         }
         require(records.map { it.sourceGoalId }.toSet().size == records.size) {
