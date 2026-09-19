@@ -1965,6 +1965,11 @@ class MainActivity : ComponentActivity() {
                                                             activePlan = advance.plan
                                                             planStatus = "Step ${advance.step.index} requires explicit approval"
                                                         }
+                                                        is PlanAdvanceResult.ContextChanged -> {
+                                                            activePlan = advance.plan
+                                                            planStatus =
+                                                                "Grounded context changed; replan is required before tool execution"
+                                                        }
                                                         is PlanAdvanceResult.Complete -> {
                                                             activePlan = advance.plan
                                                             planStatus = "Plan complete"

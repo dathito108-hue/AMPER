@@ -231,6 +231,7 @@ and critic to the same cognitive-state digest, so policy cannot drift between th
 Metacognitive state remains authority=false and cannot approve side effects, modify ToolDescriptors
 or widen device/external authority.
 
+
 ### Implemented checkpoint — Phase261-265
 Phase261 projects canonical perception.* world observations into typed bounded perceptual evidence.
 Phase262 preserves source/producer/confidence provenance and continues to exclude raw image/audio
@@ -241,6 +242,20 @@ contribute to world confidence and uncertainty. Phase265 gives the independent c
 percept snapshot/digest seen by planning, eliminating live-perception drift across a single decision.
 Perceptual evidence remains authority=false and cannot itself trigger capture, execute a tool or
 grant device/external permission.
+
+
+### Implemented checkpoint — Phase266-270
+Phase266 stores the exact integrated cognitive-state digest on each newly created/recovered plan for
+audit and reproducibility. Phase267 derives a second execution-context digest that includes sovereign
+identity/invariants, goal state, reconciled semantic/epistemic evidence, predictive world/causal state
+and freshness-aware perceptual grounding while intentionally excluding competence/skill/readiness
+signals that can legitimately change after each governed step. Phase268 recaptures this bounded context
+before every plan advance and returns CONTEXT_CHANGED instead of invoking ToolFabric when the plan is
+stale. Phase269 applies the same continuity check to approval binding and final approved execution so a
+previously valid side-effect approval path cannot outlive changed grounded context. Phase270 keeps
+legacy unbound plans on the pre-existing live ToolDescriptor/recovery revalidation path rather than
+inventing a historical digest. Continuity evidence is authority=false and never grants execution,
+approval or device authority.
 
 ## CI budget policy
 
