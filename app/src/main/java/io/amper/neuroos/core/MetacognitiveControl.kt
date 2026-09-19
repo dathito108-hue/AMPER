@@ -1,7 +1,6 @@
 package io.amper.neuroos.core
 
 import java.util.Locale
-import kotlin.math.roundToInt
 
 enum class MetacognitiveControlMode {
     DIRECT,
@@ -45,8 +44,8 @@ data class MetacognitiveControlDirective(
  * Phase256-260 metacognitive inference control.
  *
  * Phase256 classifies the current integrated cognitive state into DIRECT, DELIBERATE or CAUTIOUS.
- * Phase257 adapts inference budget and sampling downward/within the frozen user profile; it never
- * exceeds the user's bound token budget or temperature.
+ * Phase257 preserves the frozen user planning profile exactly while allocating a bounded,
+ * mode-sensitive critic budget inside that profile.
  * Phase258 exposes a bounded target deliberation depth and evidence caution to the planner.
  * Phase259 gives the independent critic a stricter budget/temperature under uncertainty.
  * Phase260 freezes one directive per decision and binds planner plus critic to the exact same
@@ -72,16 +71,6 @@ object MetacognitiveInferenceControlPolicy {
                 MetacognitiveControlMode.DELIBERATE
         }
 
-        val planningScale = when (mode) {
-            MetacognitiveControlMode.DIRECT -> 0.75
-            MetacognitiveControlMode.DELIBERATE -> 0.90
-            MetacognitiveControlMode.CAUTIOUS -> 1.00
-        }
-        val planningTemperatureCap = when (mode) {
-            MetacognitiveControlMode.DIRECT -> 0.65
-            MetacognitiveControlMode.DELIBERATE -> 0.40
-            MetacognitiveControlMode.CAUTIOUS -> 0.20
-        }
         val criticTokenCap = when (mode) {
             MetacognitiveControlMode.DIRECT -> 192
             MetacognitiveControlMode.DELIBERATE -> 256
@@ -113,11 +102,8 @@ object MetacognitiveInferenceControlPolicy {
             cognitiveStateDigest = state.canonicalDigest,
             mode = mode,
             requestedCandidateCount = requestedCandidates,
-            planningMaxOutputTokens = scaledTokens(
-                profile.maxOutputTokens,
-                planningScale
-            ),
-            planningTemperature = minOf(profile.temperature, planningTemperatureCap),
+            planningMaxOutputTokens = profile.maxOutputTokens,
+            planningTemperature = profile.temperature,
             criticMaxOutputTokens = minOf(profile.maxOutputTokens, criticTokenCap),
             criticTemperature = minOf(profile.temperature, criticTemperatureCap),
             evidenceCaution = evidenceCaution,
@@ -126,10 +112,6 @@ object MetacognitiveInferenceControlPolicy {
         )
     }
 
-    private fun scaledTokens(maxTokens: Int, scale: Double): Int =
-        (maxTokens * scale)
-            .roundToInt()
-            .coerceIn(1, maxTokens)
 }
 
 object MetacognitiveControlRenderer {
