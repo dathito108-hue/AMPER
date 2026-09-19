@@ -1330,3 +1330,37 @@ background-maintenance feedback. The self-tuner remains scheduling-only: it cann
 training targets, model authority, held-out admission, common-holdout comparison, historical
 anti-forgetting stability, verified replacement, ToolDescriptor binding, AuthorityGate, explicit
 approval or durable execution receipts.
+
+
+### Roadmap correction — Phase536-540: AMPER Native System-2 Core
+Phase536 restores the accelerated AGI-Mobile roadmap after the Reflex-support detour and introduces
+one canonical AMPER-native System-2 deliberation layer. It is deliberately built on top of the
+existing IntegratedCognitiveStateSource rather than creating parallel memory, world-model, skill or
+planning architectures. A System-2 call binds one integrated cognitive packet and its execution
+context digest as the immutable reasoning state for that deliberation.
+
+Phase537 adds bounded reasoning decomposition. System-2 converts uncertainty in epistemic beliefs,
+structured world state and perceptual grounding into an ordered reasoning agenda, optionally adds
+counterfactual/world-model analysis and skill review, and always terminates with bounded plan
+synthesis plus verification. These are cognitive tasks only; they contain no tool arguments,
+provider handles, approval bits or execution authority.
+
+Phase538 adds evidence-grounded strategy deliberation across the existing direct-skill,
+skill-composition, cross-context transfer and generalized-chain stores. Candidates are accepted only
+when every capability is present on the current live descriptor surface. Confidence, goal relevance,
+precondition satisfaction, world confidence and uncertainty produce a deterministic bounded score.
+An OPEN_DELIBERATION candidate always exists, so weak historical skill evidence can never force
+execution reuse.
+
+Phase539 adds digest-only System-2 working continuity. For each normalized goal digest AMPER stores
+the cognitive-state digest, execution-context digest, selected strategy identity and deliberation
+mode in sovereign MemoryOs. Repeated reasoning over an unchanged execution context is STABLE;
+changed goals/world/epistemic grounding are detected as CONTEXT_CHANGED. The working snapshot stores
+no raw user request and is excluded from normal user-facing memory/context retrieval.
+
+Phase540 wires NativeSystem2Core into canonical AmperRuntime and adds regression coverage for strong
+governed-skill reuse, evidence-gathering under unresolved world state, stable/context-changed working
+continuity and runtime exposure. This phase does not yet replace the existing inference planner;
+Phase541-545 will connect Reflex escalation and assistant planning to this native System-2 core.
+ToolDescriptor binding, SovereignActionLoop, AuthorityGate, explicit side-effect approval, durable
+receipts, held-out model admission and rollback invariants are unchanged.
