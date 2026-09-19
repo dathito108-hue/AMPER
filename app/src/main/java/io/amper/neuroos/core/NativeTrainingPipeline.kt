@@ -719,6 +719,42 @@ class MemoryBackedNativeTrainingPipeline(
             }
         }
 
+        val candidateCheckpoint = requireNotNull(
+            foundation.getCheckpoint(candidateCheckpointId)
+        ) { "candidate checkpoint lineage is unavailable" }
+        val candidateContract = requireNotNull(
+            foundation.getContract(candidateCheckpoint.contractId)
+        ) { "candidate checkpoint contract is unavailable" }
+        val baselineCheckpoint = baselineCheckpointId?.let { id ->
+            requireNotNull(foundation.getCheckpoint(id)) {
+                "baseline checkpoint lineage is unavailable"
+            }
+        }
+        val baselineContract = baselineCheckpoint?.let { checkpoint ->
+            requireNotNull(foundation.getContract(checkpoint.contractId)) {
+                "baseline checkpoint contract is unavailable"
+            }
+        }
+        if (baselineContract != null) {
+            require(baselineContract.capabilities == candidateContract.capabilities) {
+                "checkpoint comparison requires identical capability profiles"
+            }
+            if (TitanCapabilities.REFLEX_DECISION in candidateContract.capabilities) {
+                val candidateReflex = requireNotNull(candidate.evaluation.reflexDecision) {
+                    "candidate reflex evaluation is unavailable"
+                }
+                val baselineReflex = requireNotNull(baseline?.evaluation?.reflexDecision) {
+                    "baseline reflex evaluation is unavailable"
+                }
+                require(
+                    candidateReflex.holdoutPayloadSha256 ==
+                        baselineReflex.holdoutPayloadSha256
+                ) {
+                    "reflex checkpoint comparison requires the same holdout payload"
+                }
+            }
+        }
+
         val reasons = mutableListOf<String>()
         if (!candidate.admission.admitted) {
             reasons += "candidate failed foundation admission"
@@ -726,7 +762,11 @@ class MemoryBackedNativeTrainingPipeline(
         val deltas = if (baseline == null) {
             emptyList()
         } else {
-            metricDeltas(candidate.evaluation, baseline.evaluation).also { values ->
+            metricDeltas(
+                candidate = candidate.evaluation,
+                baseline = baseline.evaluation,
+                capabilities = candidateContract.capabilities
+            ).also { values ->
                 if (values.any { it < -MAX_METRIC_REGRESSION }) {
                     reasons += "candidate has material held-out regression"
                 }
@@ -925,13 +965,37 @@ class MemoryBackedNativeTrainingPipeline(
 
     private fun metricDeltas(
         candidate: NativeCheckpointEvaluation,
-        baseline: NativeCheckpointEvaluation
-    ): List<Double> = listOf(
-        candidate.planningProtocolPassRate - baseline.planningProtocolPassRate,
-        candidate.toolContractPassRate - baseline.toolContractPassRate,
-        candidate.regressionPassRate - baseline.regressionPassRate,
-        candidate.heldoutGeneralizationPassRate - baseline.heldoutGeneralizationPassRate
-    )
+        baseline: NativeCheckpointEvaluation,
+        capabilities: Set<CapabilityId>
+    ): List<Double> = buildList {
+        if (capabilities.any { it != TitanCapabilities.REFLEX_DECISION }) {
+            add(candidate.planningProtocolPassRate - baseline.planningProtocolPassRate)
+            add(candidate.toolContractPassRate - baseline.toolContractPassRate)
+            add(candidate.regressionPassRate - baseline.regressionPassRate)
+            add(
+                candidate.heldoutGeneralizationPassRate -
+                    baseline.heldoutGeneralizationPassRate
+            )
+        }
+        if (TitanCapabilities.REFLEX_DECISION in capabilities) {
+            val candidateReflex = requireNotNull(candidate.reflexDecision)
+            val baselineReflex = requireNotNull(baseline.reflexDecision)
+            add(
+                candidateReflex.exactDecisionAccuracy -
+                    baselineReflex.exactDecisionAccuracy
+            )
+            add(candidateReflex.actionPrecision - baselineReflex.actionPrecision)
+            add(candidateReflex.escalationRecall - baselineReflex.escalationRecall)
+            add(
+                candidateReflex.capabilityAccuracy -
+                    baselineReflex.capabilityAccuracy
+            )
+            add(
+                baselineReflex.calibrationMeanAbsoluteError -
+                    candidateReflex.calibrationMeanAbsoluteError
+            )
+        }
+    }
 
     private fun sanitizeFailure(failure: Throwable): String {
         val raw = failure::class.java.simpleName.ifBlank { "TrainingFailure" }
@@ -1117,27 +1181,79 @@ private object NativeTrainingCodec {
                 NativeTrainingRunId(dec(requireNotNull(f["run"])))
         }.getOrNull()
 
-    fun encodeEvaluationRecord(value: NativeCheckpointEvaluationRecord): String = listOf(
-        "v=1",
-        "checkpoint=" + enc(value.checkpointId.value),
-        "planning_rate=" + enc(value.evaluation.planningProtocolPassRate.toString()),
-        "tool_rate=" + enc(value.evaluation.toolContractPassRate.toString()),
-        "regression_rate=" + enc(value.evaluation.regressionPassRate.toString()),
-        "generalization_rate=" + enc(value.evaluation.heldoutGeneralizationPassRate.toString()),
-        "planning_samples=" + value.evaluation.planningSamples,
-        "tool_samples=" + value.evaluation.toolContractSamples,
-        "regression_samples=" + value.evaluation.regressionSamples,
-        "generalization_samples=" + value.evaluation.heldoutGeneralizationSamples,
-        "admission_status=" + value.admission.status.name,
-        "admission_reasons=" + value.admission.reasons.joinToString(",") { enc(it) },
-        "admission_time=" + value.admission.evaluatedAtEpochMs,
-        "recorded=" + value.recordedAtEpochMs
-    ).joinToString(";")
+    fun encodeEvaluationRecord(value: NativeCheckpointEvaluationRecord): String {
+        val reflex = value.evaluation.reflexDecision
+        return listOf(
+            "v=2",
+            "checkpoint=" + enc(value.checkpointId.value),
+            "planning_rate=" + enc(value.evaluation.planningProtocolPassRate.toString()),
+            "tool_rate=" + enc(value.evaluation.toolContractPassRate.toString()),
+            "regression_rate=" + enc(value.evaluation.regressionPassRate.toString()),
+            "generalization_rate=" + enc(value.evaluation.heldoutGeneralizationPassRate.toString()),
+            "planning_samples=" + value.evaluation.planningSamples,
+            "tool_samples=" + value.evaluation.toolContractSamples,
+            "regression_samples=" + value.evaluation.regressionSamples,
+            "generalization_samples=" + value.evaluation.heldoutGeneralizationSamples,
+            "reflex_present=" + (reflex != null),
+            "reflex_holdout=" + (reflex?.holdoutShardId?.value?.let(::enc) ?: "~"),
+            "reflex_sha=" + (reflex?.holdoutPayloadSha256 ?: "~"),
+            "reflex_exact=" + (reflex?.exactDecisionAccuracy?.toString()?.let(::enc) ?: "~"),
+            "reflex_precision=" + (reflex?.actionPrecision?.toString()?.let(::enc) ?: "~"),
+            "reflex_escalation=" + (reflex?.escalationRecall?.toString()?.let(::enc) ?: "~"),
+            "reflex_capability=" + (reflex?.capabilityAccuracy?.toString()?.let(::enc) ?: "~"),
+            "reflex_calibration=" +
+                (reflex?.calibrationMeanAbsoluteError?.toString()?.let(::enc) ?: "~"),
+            "reflex_total_samples=" + (reflex?.totalSamples ?: -1),
+            "reflex_action_samples=" + (reflex?.actionSamples ?: -1),
+            "reflex_escalation_samples=" + (reflex?.escalationSamples ?: -1),
+            "admission_status=" + value.admission.status.name,
+            "admission_reasons=" + value.admission.reasons.joinToString(",") { enc(it) },
+            "admission_time=" + value.admission.evaluatedAtEpochMs,
+            "recorded=" + value.recordedAtEpochMs
+        ).joinToString(";")
+    }
 
     fun decodeEvaluationRecord(content: String): NativeCheckpointEvaluationRecord? = runCatching {
         val f = fields(content)
-        require(f["v"] == "1")
+        val version = requireNotNull(f["v"])
+        require(version == "1" || version == "2")
         val checkpointId = NativeCheckpointId(dec(requireNotNull(f["checkpoint"])))
+        val reflex = if (version == "2" && f["reflex_present"] == "true") {
+            ReflexDecisionHeldoutMetrics(
+                holdoutShardId = NativeDatasetShardId(
+                    dec(requireNotNull(f["reflex_holdout"]).takeUnless { it == "~" }
+                        ?: error("reflex holdout missing"))
+                ),
+                holdoutPayloadSha256 =
+                    requireNotNull(f["reflex_sha"]).takeUnless { it == "~" }
+                        ?: error("reflex sha missing"),
+                exactDecisionAccuracy = dec(
+                    requireNotNull(f["reflex_exact"]).takeUnless { it == "~" }
+                        ?: error("reflex exact missing")
+                ).toDouble(),
+                actionPrecision = dec(
+                    requireNotNull(f["reflex_precision"]).takeUnless { it == "~" }
+                        ?: error("reflex precision missing")
+                ).toDouble(),
+                escalationRecall = dec(
+                    requireNotNull(f["reflex_escalation"]).takeUnless { it == "~" }
+                        ?: error("reflex escalation missing")
+                ).toDouble(),
+                capabilityAccuracy = dec(
+                    requireNotNull(f["reflex_capability"]).takeUnless { it == "~" }
+                        ?: error("reflex capability missing")
+                ).toDouble(),
+                calibrationMeanAbsoluteError = dec(
+                    requireNotNull(f["reflex_calibration"]).takeUnless { it == "~" }
+                        ?: error("reflex calibration missing")
+                ).toDouble(),
+                totalSamples = requireNotNull(f["reflex_total_samples"]).toInt(),
+                actionSamples = requireNotNull(f["reflex_action_samples"]).toInt(),
+                escalationSamples = requireNotNull(f["reflex_escalation_samples"]).toInt()
+            )
+        } else {
+            null
+        }
         NativeCheckpointEvaluationRecord(
             checkpointId = checkpointId,
             evaluation = NativeCheckpointEvaluation(
@@ -1150,7 +1266,8 @@ private object NativeTrainingCodec {
                 toolContractSamples = requireNotNull(f["tool_samples"]).toInt(),
                 regressionSamples = requireNotNull(f["regression_samples"]).toInt(),
                 heldoutGeneralizationSamples =
-                    requireNotNull(f["generalization_samples"]).toInt()
+                    requireNotNull(f["generalization_samples"]).toInt(),
+                reflexDecision = reflex
             ),
             admission = NativeCheckpointAdmission(
                 checkpointId = checkpointId,
