@@ -374,6 +374,17 @@ class SovereignPlanCoordinator(
         maxOutputTokens = minOf(maxOutputTokens, 220)
     )
 
+    fun goalAdaptiveReplanner(
+        replanningInference: CognitiveInferencePort = criticInference ?: inference
+    ): GoalAdaptiveReplanner = InferenceGoalAdaptiveReplanner(
+        inference = replanningInference,
+        stateSource = runtime.integratedCognition,
+        allowedCapabilities = advertisedCapabilities,
+        descriptors = ::routedDescriptors,
+        maxPromptChars = minOf(maxPromptChars, 5_500),
+        maxOutputTokens = minOf(maxOutputTokens, 220)
+    )
+
     fun goalSatisfactionVerifier(
         verifierInference: CognitiveInferencePort = criticInference ?: inference
     ): GoalSatisfactionVerifier = InferenceGoalSatisfactionVerifier(
@@ -408,7 +419,8 @@ class SovereignPlanCoordinator(
         store = runtime.persistentGoalExecutiveStore,
         plans = runtime.plans,
         portfolio = runtime.goalPortfolio,
-        decomposer = goalDecomposer()
+        decomposer = goalDecomposer(),
+        adaptiveReplanner = goalAdaptiveReplanner()
     )
 
     fun create(
