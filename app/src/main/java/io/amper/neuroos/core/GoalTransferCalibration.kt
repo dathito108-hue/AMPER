@@ -131,36 +131,7 @@ class MemoryBackedGoalTransferCalibrationModel(
         observedAtEpochMs: Long
     ): GoalTransferCalibrationSnapshot? {
         if (plan.goalTransferBinding == null) return null
-        require(plan.complete)
-        val statuses = plan.steps.map { it.status }
-        when (outcome) {
-            GoalOutcomeEvidenceKind.VERIFIED_SUCCESS ->
-                require(statuses.all { it == PlanStepStatus.EXECUTED }) {
-                    "verified transfer success requires an all-executed terminal plan"
-                }
-            GoalOutcomeEvidenceKind.EXECUTION_EXHAUSTED ->
-                require(statuses.all {
-                    it == PlanStepStatus.FAILED ||
-                        it == PlanStepStatus.MALFORMED ||
-                        it == PlanStepStatus.UNAVAILABLE
-                }) {
-                    "execution-exhausted transfer calibration requires zero executed/authority steps"
-                }
-            GoalOutcomeEvidenceKind.EVIDENCE_EXHAUSTED ->
-                require(statuses.all { it == PlanStepStatus.EXECUTED }) {
-                    "evidence-exhausted transfer calibration requires an all-executed terminal plan"
-                }
-            GoalOutcomeEvidenceKind.AUTHORITY_BLOCKED -> {
-                require(statuses.none { it == PlanStepStatus.EXECUTED })
-                require(statuses.any {
-                    it == PlanStepStatus.DENIED || it == PlanStepStatus.REJECTED
-                })
-            }
-            GoalOutcomeEvidenceKind.PARTIAL_EXECUTION_BLOCKED -> {
-                require(statuses.any { it == PlanStepStatus.EXECUTED })
-                require(statuses.any { it != PlanStepStatus.EXECUTED })
-            }
-        }
+        GoalOutcomeSemantics.validate(plan, outcome)
         val calibrationOutcome = when (outcome) {
             GoalOutcomeEvidenceKind.VERIFIED_SUCCESS ->
                 GoalTransferCalibrationOutcome.VERIFIED_SUCCESS
@@ -185,23 +156,11 @@ class MemoryBackedGoalTransferCalibrationModel(
         plan: SovereignPlan,
         observedAtEpochMs: Long
     ): GoalTransferCalibrationSnapshot? {
-        val binding = plan.goalTransferBinding ?: return null
-        require(plan.complete)
-        val statuses = plan.steps.map { it.status }
-        val calibrationOutcome = when {
-            statuses.all { it == PlanStepStatus.EXECUTED } -> return null
-            statuses.any { it == PlanStepStatus.EXECUTED } ->
-                GoalTransferCalibrationOutcome.PARTIAL_NEUTRAL
-            statuses.any { it == PlanStepStatus.DENIED || it == PlanStepStatus.REJECTED } ->
-                GoalTransferCalibrationOutcome.AUTHORITY_NEUTRAL
-            statuses.any { it == PlanStepStatus.FAILED } ->
-                GoalTransferCalibrationOutcome.EXECUTION_FAILURE
-            else -> return null
-        }
-        require(binding.strategy == StrategySignature.from(plan))
-        return observeCalibration(
+        if (plan.goalTransferBinding == null) return null
+        val outcome = GoalOutcomeSemantics.classifyPreVerification(plan) ?: return null
+        return observe(
             plan = plan,
-            calibrationOutcome = calibrationOutcome,
+            outcome = outcome,
             observedAtEpochMs = observedAtEpochMs
         )
     }

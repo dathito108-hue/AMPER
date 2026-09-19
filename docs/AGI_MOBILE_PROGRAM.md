@@ -656,3 +656,17 @@ latter verifies persistent/root-goal satisfaction after an all-executed plan. Ph
 generic LearningConsolidation utility outside canonical runtime/planning; it must not become a second
 strategy-memory influence path without an explicit migration. No authority, tool admission, approval
 or execution semantics are widened by this cleanup.
+
+
+### Implemented checkpoint — Phase391-395
+Phase391 introduces GoalOutcomeSemantics as the single canonical definition of terminal
+outcome/status compatibility. Phase392 migrates transfer calibration and contextual strategy
+portfolio to the shared validator and pre-verification classifier. Phase393 migrates hierarchical
+strategy credit so malformed and unavailable terminal execution failures are classified identically
+across all learning layers. Phase394 applies the same contract to repair requalification, distilled
+repair strategy memory and root goal-outcome learning while preserving each layer's own stage,
+verification and binding invariants. Phase395 adds cross-layer regression coverage for all-executed,
+malformed, unavailable, authority-blocked and partial-execution terminal plans. All-executed plans
+remain unclassified before satisfaction verification; authority/user outcomes remain neutral where
+their owning learning policy specifies neutrality. This phase removes duplicated outcome semantics
+without adding a new planning influence layer.

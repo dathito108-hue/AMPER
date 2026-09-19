@@ -67,7 +67,7 @@ class MemoryBackedGoalRepairStrategyMemory(
         outcome: GoalOutcomeEvidenceKind,
         observedAtEpochMs: Long
     ): GoalRepairStrategyPattern? {
-        require(plan.complete)
+        GoalOutcomeSemantics.validate(plan, outcome)
         require(observedAtEpochMs >= 0L)
         if (
             outcome == GoalOutcomeEvidenceKind.AUTHORITY_BLOCKED ||

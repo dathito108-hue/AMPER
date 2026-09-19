@@ -296,18 +296,7 @@ class MemoryBackedGoalContextualStrategyPortfolio(
         observedAtEpochMs: Long
     ): GoalStrategyPortfolioStats? {
         if (decision(plan.id) == null) return null
-        require(plan.complete)
-        val statuses = plan.steps.map { it.status }
-        val outcome = when {
-            statuses.all { it == PlanStepStatus.EXECUTED } -> return null
-            statuses.any { it == PlanStepStatus.EXECUTED } ->
-                GoalOutcomeEvidenceKind.PARTIAL_EXECUTION_BLOCKED
-            statuses.any { it == PlanStepStatus.DENIED || it == PlanStepStatus.REJECTED } ->
-                GoalOutcomeEvidenceKind.AUTHORITY_BLOCKED
-            statuses.any { it == PlanStepStatus.FAILED } ->
-                GoalOutcomeEvidenceKind.EXECUTION_EXHAUSTED
-            else -> return null
-        }
+        val outcome = GoalOutcomeSemantics.classifyPreVerification(plan) ?: return null
         return observeOutcome(plan, outcome, observedAtEpochMs)
     }
 
@@ -318,38 +307,9 @@ class MemoryBackedGoalContextualStrategyPortfolio(
     ): GoalStrategyPortfolioStats? {
         require(observedAtEpochMs >= 0L)
         val decision = decision(plan.id) ?: return null
-        require(plan.complete)
+        GoalOutcomeSemantics.validate(plan, outcome)
         require(StrategySignature.from(plan) == decision.strategy) {
             "contextual portfolio terminal plan changed selected strategy"
-        }
-        val statuses = plan.steps.map { it.status }
-        when (outcome) {
-            GoalOutcomeEvidenceKind.VERIFIED_SUCCESS ->
-                require(statuses.all { it == PlanStepStatus.EXECUTED }) {
-                    "portfolio verified success requires an all-executed terminal plan"
-                }
-            GoalOutcomeEvidenceKind.EXECUTION_EXHAUSTED ->
-                require(statuses.all {
-                    it == PlanStepStatus.FAILED ||
-                        it == PlanStepStatus.MALFORMED ||
-                        it == PlanStepStatus.UNAVAILABLE
-                }) {
-                    "portfolio execution failure requires zero executed/authority steps"
-                }
-            GoalOutcomeEvidenceKind.EVIDENCE_EXHAUSTED ->
-                require(statuses.all { it == PlanStepStatus.EXECUTED }) {
-                    "portfolio evidence failure requires an all-executed terminal plan"
-                }
-            GoalOutcomeEvidenceKind.AUTHORITY_BLOCKED -> {
-                require(statuses.none { it == PlanStepStatus.EXECUTED })
-                require(statuses.any {
-                    it == PlanStepStatus.DENIED || it == PlanStepStatus.REJECTED
-                })
-            }
-            GoalOutcomeEvidenceKind.PARTIAL_EXECUTION_BLOCKED -> {
-                require(statuses.any { it == PlanStepStatus.EXECUTED })
-                require(statuses.any { it != PlanStepStatus.EXECUTED })
-            }
         }
 
         val marker = outcomeMarkerId(plan.id)
