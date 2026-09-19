@@ -188,11 +188,39 @@ class ReflexNativeModelLifecycle(
             championCheckpointId = champion.checkpointId,
             maxExamples = MAX_REPLAY_EXAMPLES
         )
+        val championPort = resolver.resolve(
+            checkpointId = champion.checkpointId,
+            weightArtifactSha256 = champion.weightArtifactSha256
+        ).getOrThrow()
+        val activeBatch = ReflexActiveLearningMiner.mine(
+            fresh = fresh,
+            champion = championPort,
+            seenActionCapabilities = replay.seenActionCapabilities,
+            minActionExamples = MIN_CONTINUAL_ACTION_EXAMPLES,
+            minEscalationExamples = MIN_CONTINUAL_ESCALATION_EXAMPLES,
+            maxExamples = MAX_ACTIVE_LEARNING_EXAMPLES
+        ) ?: return ReflexNativeLifecycleReport(
+            stage = if (recovered) {
+                ReflexNativeLifecycleStage.RECOVERED
+            } else {
+                ReflexNativeLifecycleStage.WAITING_FOR_FRESH_EVIDENCE
+            },
+            checkpointId = champion.checkpointId,
+            actionExamples = actionExamples,
+            escalationExamples = escalationExamples,
+            detail =
+                "champion active; waiting for enough high-quality governed evidence " +
+                    "(label_confidence >= " + ReflexActiveLearningMiner.MIN_LABEL_CONFIDENCE + ")"
+        )
         val drift = ReflexContinualDriftAnalyzer.analyze(
             fresh = fresh,
             replay = replay
         )
-        if (!drift.significant && fresh.size < MIN_LOW_DRIFT_RETRAIN_EXAMPLES) {
+        if (
+            !drift.significant &&
+            fresh.size < MIN_LOW_DRIFT_RETRAIN_EXAMPLES &&
+            !activeBatch.highValueSignal
+        ) {
             return ReflexNativeLifecycleReport(
                 stage = if (recovered) {
                     ReflexNativeLifecycleStage.RECOVERED
@@ -206,7 +234,9 @@ class ReflexNativeModelLifecycle(
                     "champion active; fresh evidence is stable and below the batched retrain floor " +
                         "$MIN_LOW_DRIFT_RETRAIN_EXAMPLES (capability_delta=" +
                         drift.actionCapabilityDistributionDelta +
-                        ", escalation_delta=" + drift.escalationShareDelta + ")"
+                        ", escalation_delta=" + drift.escalationShareDelta +
+                        ", hard=" + activeBatch.hardExamples +
+                        ", disagreements=" + activeBatch.disagreementExamples + ")"
             )
         }
 
@@ -214,7 +244,10 @@ class ReflexNativeModelLifecycle(
             listOf(
                 "AMPER_REFLEX_CONTINUAL_V2",
                 champion.checkpointId.value,
-                fresh.map { it.id.value }.sorted().joinToString(","),
+                activeBatch.selectedExampleIds
+                    .map { it.value }
+                    .sorted()
+                    .joinToString(","),
                 replay.exampleIds.map { it.value }.sorted().joinToString(",")
             ).joinToString("|")
         )
@@ -232,14 +265,14 @@ class ReflexNativeModelLifecycle(
         val spec = trainingSpec(
             tag = tag,
             parentCheckpointId = champion.checkpointId,
-            selectedExampleIds = fresh.map { it.id },
+            selectedExampleIds = activeBatch.selectedExampleIds,
             replayExampleIds = replay.exampleIds,
             continual = true
         )
         val checkpoint = trainCheckpoint(
             spec = spec,
-            actionExamples = actionExamples,
-            escalationExamples = escalationExamples
+            actionExamples = activeBatch.actionExamples,
+            escalationExamples = activeBatch.escalationExamples
         ) ?: run {
             lastRejectedEvidenceTag = tag
             return ReflexNativeLifecycleReport(
@@ -339,9 +372,13 @@ class ReflexNativeModelLifecycle(
             actionExamples = actionExamples,
             escalationExamples = escalationExamples,
             detail =
-                "fresh challenger passed common-holdout + historical stability gates, replayed " +
-                    replay.exampleIds.size + " prior examples, and replaced champion " +
-                    champion.checkpointId.value
+                "hard-example challenger passed fresh + historical stability gates; selected " +
+                    activeBatch.selectedExampleIds.size + "/" + activeBatch.eligibleExamples +
+                    " high-quality fresh examples (hard=" + activeBatch.hardExamples +
+                    ", disagreements=" + activeBatch.disagreementExamples +
+                    ", novel_capabilities=" + activeBatch.novelCapabilities.size +
+                    "), replayed " + replay.exampleIds.size +
+                    " prior examples, and replaced champion " + champion.checkpointId.value
         )
     }
 
@@ -527,6 +564,7 @@ class ReflexNativeModelLifecycle(
         const val MIN_CONTINUAL_HOLDOUT_PER_CLASS = 16
         const val MIN_LOW_DRIFT_RETRAIN_EXAMPLES = 96
         const val MAX_FRESH_CONTINUAL_EXAMPLES = 160
+        const val MAX_ACTIVE_LEARNING_EXAMPLES = 96
         const val MAX_REPLAY_EXAMPLES = 96
         const val MAX_STABILITY_EXAMPLES = 96
         const val MAX_SELECTED_EXAMPLES = 256
