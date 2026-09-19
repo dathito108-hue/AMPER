@@ -338,7 +338,8 @@ class MainActivity : ComponentActivity() {
                 AutonomousGovernedPlanRunner(
                     planner = planner,
                     plans = runtime.plans,
-                    goals = persistentGoalExecutive
+                    goals = persistentGoalExecutive,
+                    completionVerifier = planningCoordinator.goalSatisfactionVerifier()
                 )
             }
             val autonomousGoalScheduler = remember {
