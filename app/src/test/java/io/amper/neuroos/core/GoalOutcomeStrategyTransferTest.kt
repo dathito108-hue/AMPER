@@ -192,6 +192,22 @@ class GoalOutcomeStrategyTransferTest {
             verificationConfidence = 0.94,
             observedAtEpochMs = 1L
         )
+        repeat(6) { index ->
+            runtime.competence.observe(
+                ActionOutcome(
+                    status = ActionStatus.EXECUTED,
+                    proposal = ActionProposal(
+                        requestId = ActionRequestId("phase339-history-execution-" + index),
+                        capability = capability,
+                        reason = "historic governed execution evidence",
+                        input = "read"
+                    ),
+                    toolId = ToolId("phase336-provider"),
+                    sideEffect = ToolSideEffect.READ_ONLY,
+                    output = "ok"
+                )
+            )
+        }
 
         var executions = 0
         val registry = InMemoryToolRegistry().also {
@@ -237,8 +253,10 @@ class GoalOutcomeStrategyTransferTest {
         ).getOrThrow()
 
         val prompt = requests.single().prompt
-        assertTrue(prompt.contains("<GOAL_OUTCOME_STRATEGY_TRANSFER>"))
+        assertTrue(prompt.contains("<GOAL_OUTCOME_COUNTERFACTUAL_TRANSFER>"))
         assertTrue(prompt.contains("candidate.1.capabilities=phase336.read"))
+        assertTrue(prompt.contains("projected_support="))
+        assertTrue(prompt.contains("cognitive_state_digest="))
         assertTrue(prompt.contains("authority=false"))
         assertFalse(prompt.contains("phase339-history-goal"))
         assertFalse(prompt.contains("phase339-history-plan"))
