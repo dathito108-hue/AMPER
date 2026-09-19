@@ -750,11 +750,7 @@ class SovereignPlanCoordinator(
         charBudget: Int
     ): String {
         val base = TitanDeliberationProtocol.instructions(capabilities, emptyList())
-        val minimumCognitive = IntegratedCognitiveStateRenderer.render(
-            cognitiveState,
-            COGNITIVE_STATE_MIN_CHARS
-        )
-        require(base.length + 2 + minimumCognitive.length <= charBudget) {
+        require(base.length + 2 + COGNITIVE_STATE_MIN_CHARS <= charBudget) {
             "conversation prompt budget cannot preserve planning protocol and cognitive state"
         }
         val allowed = capabilities.toSet()
@@ -765,15 +761,17 @@ class SovereignPlanCoordinator(
             .sortedBy { it.capability.value }
             .forEach { descriptor ->
                 val candidate = TitanDeliberationProtocol.instructions(capabilities, selected + descriptor)
-                if (candidate.length + 2 + minimumCognitive.length <= charBudget) {
+                if (candidate.length + 2 + COGNITIVE_STATE_MIN_CHARS <= charBudget) {
                     selected += descriptor
                 }
             }
 
         val protocol = TitanDeliberationProtocol.instructions(capabilities, selected)
+        val cognitiveAvailable = charBudget - protocol.length - 2
+        require(cognitiveAvailable >= COGNITIVE_STATE_MIN_CHARS)
         val cognitiveBudget = minOf(
             COGNITIVE_STATE_MAX_CHARS,
-            (charBudget - protocol.length - 2).coerceAtLeast(COGNITIVE_STATE_MIN_CHARS)
+            cognitiveAvailable
         )
         val renderedCognitive = IntegratedCognitiveStateRenderer.render(
             cognitiveState,
