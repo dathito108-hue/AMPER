@@ -178,6 +178,23 @@ sealed interface PersistentGoalExecutiveResult {
             get() = false
     }
 
+    data class Replanned(
+        val parentGoalId: String,
+        val supersededGoalId: String,
+        val replacementGoalIds: List<String>
+    ) : PersistentGoalExecutiveResult {
+        init {
+            require(parentGoalId.isNotBlank())
+            require(supersededGoalId.isNotBlank())
+            require(replacementGoalIds.size in 1..DurableGoalRecord.MAX_ADAPTIVE_REPLACEMENTS)
+            require(replacementGoalIds.all { it.isNotBlank() })
+            require(replacementGoalIds.toSet().size == replacementGoalIds.size)
+        }
+
+        val authorityBearing: Boolean
+            get() = false
+    }
+
     data class Ran(
         val checkpoint: PersistentGoalExecutiveCheckpoint,
         val run: CognitiveExecutiveRunResult
@@ -201,6 +218,7 @@ class PersistentGoalExecutiveCoordinator(
     private val plans: SovereignPlanStore,
     private val portfolio: DurableGoalPortfolio? = null,
     private val decomposer: GoalDecomposer? = null,
+    private val adaptiveReplanner: GoalAdaptiveReplanner? = null,
     private val clock: () -> Long = System::currentTimeMillis
 ) {
     @Synchronized
@@ -209,6 +227,9 @@ class PersistentGoalExecutiveCoordinator(
     ): Result<PersistentGoalExecutiveResult> = runCatching {
         val existing = store.load()
         if (existing != null && existing.stage in BLOCKED_STAGES) {
+            maybeAdaptiveReplan(existing)?.let { replanned ->
+                return@runCatching replanned
+            }
             return@runCatching PersistentGoalExecutiveResult.Deferred(
                 checkpoint = existing,
                 reason = when (existing.stage) {
@@ -551,6 +572,74 @@ class PersistentGoalExecutiveCoordinator(
                 )
             }
         }
+    }
+
+    private fun maybeAdaptiveReplan(
+        checkpoint: PersistentGoalExecutiveCheckpoint
+    ): PersistentGoalExecutiveResult.Replanned? {
+        if (checkpoint.stage != PersistentGoalExecutiveStage.RECOVERY_EXHAUSTED) return null
+        val goalPortfolio = portfolio ?: return null
+        val replanner = adaptiveReplanner ?: return null
+        val records = goalPortfolio.snapshot()
+        val durable = records.singleOrNull {
+            it.sourceGoalId == checkpoint.sourceGoalId
+        } ?: return null
+        val planId = checkpoint.plannedPlanId ?: return null
+        val failedPlan = plans.load(planId) ?: return null
+
+        if (
+            !GoalAdaptiveReplanningEligibility.isEligible(
+                checkpoint = checkpoint,
+                failedPlan = failedPlan,
+                goal = durable,
+                records = records
+            )
+        ) {
+            return null
+        }
+        val unresolvedClaims = plans.receipts
+            ?.let { SovereignRecoveryState(it).hasUnresolvedClaims() }
+            ?: false
+        if (unresolvedClaims) return null
+
+        val now = clock().coerceAtLeast(checkpoint.updatedAtEpochMs)
+        val marked = requireNotNull(
+            goalPortfolio.markAdaptiveReplanAttempt(
+                sourceGoalId = durable.sourceGoalId,
+                attemptedAtEpochMs = now
+            )
+        ) { "adaptive-replan leaf disappeared before attempt persistence" }
+        val parentGoalId = requireNotNull(marked.parentGoalId)
+        val progress = DurableGoalHierarchyProgressPolicy.snapshot(
+            records = goalPortfolio.snapshot(),
+            rootGoalId = parentGoalId
+        )
+        val assessment = replanner.replan(
+            checkpoint = checkpoint,
+            failedPlan = failedPlan,
+            goal = marked,
+            progress = progress
+        ).getOrThrow()
+
+        if (assessment.verdict == GoalAdaptiveReplanVerdict.KEEP_BLOCKED) {
+            return null
+        }
+
+        val replacement = requireNotNull(
+            goalPortfolio.replacePendingLeaf(
+                sourceGoalId = marked.sourceGoalId,
+                specs = assessment.replacements,
+                updatedAtEpochMs = now
+            )
+        ) { "adaptive-replan leaf disappeared before replacement application" }
+        require(store.clear()) {
+            "adaptive-replanned leaf checkpoint could not be released"
+        }
+        return PersistentGoalExecutiveResult.Replanned(
+            parentGoalId = replacement.parentGoalId,
+            supersededGoalId = replacement.superseded.sourceGoalId,
+            replacementGoalIds = replacement.replacements.map { it.sourceGoalId }
+        )
     }
 
     private fun terminalFailureCode(statuses: List<PlanStepStatus>): String {
