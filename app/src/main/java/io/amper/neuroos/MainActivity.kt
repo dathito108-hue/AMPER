@@ -42,6 +42,7 @@ import io.amper.neuroos.core.AndroidShareTextToolProvider
 import io.amper.neuroos.core.AndroidTimerPrepareToolProvider
 import io.amper.neuroos.core.AndroidLiveAudioAttachmentCapture
 import io.amper.neuroos.core.AndroidModelImportService
+import io.amper.neuroos.core.AndroidAppPrivateModelArtifactResolver
 import io.amper.neuroos.core.AndroidMultimodalProjectorImportService
 import io.amper.neuroos.core.AndroidPerceptionCapture
 import io.amper.neuroos.core.AndroidResourceGovernor
@@ -61,11 +62,13 @@ import io.amper.neuroos.core.InferenceAttachment
 import io.amper.neuroos.core.InferenceAttachmentKind
 import io.amper.neuroos.core.InferenceBackendRegistry
 import io.amper.neuroos.core.LiveContextFusion
+import io.amper.neuroos.core.LocatorArtifactResolver
 import io.amper.neuroos.core.InstalledModelCapabilityService
 import io.amper.neuroos.core.InstalledModelDetachService
 import io.amper.neuroos.core.InstalledModelRegistryBootstrap
 import io.amper.neuroos.core.ModelCapabilityProfile
 import io.amper.neuroos.core.ModelId
+import io.amper.neuroos.core.NativeCheckpointRuntimePromotionService
 import io.amper.neuroos.core.LlamaNativeTextEngine
 import io.amper.neuroos.core.LlamaNativeTextInferenceBackend
 import io.amper.neuroos.core.MtmdNativeInferenceBackend
@@ -159,17 +162,42 @@ class MainActivity : ComponentActivity() {
                 }
             }
             val hasRuntimeBackend = backends.list().isNotEmpty()
+            val contentModelArtifacts = remember {
+                ContentUriArtifactResolver(contentResolver)
+            }
+            val nativeModelArtifacts = remember {
+                AndroidAppPrivateModelArtifactResolver(
+                    File(sovereignDir, "native-models")
+                )
+            }
+            val modelArtifacts = remember {
+                LocatorArtifactResolver(
+                    listOf(
+                        { model -> contentModelArtifacts.resolve(model) },
+                        { model -> nativeModelArtifacts.resolve(model) }
+                    )
+                )
+            }
             val titan = remember {
                 TitanCortexRuntime(
                     models = modelRegistry,
                     catalog = catalog,
-                    artifacts = ContentUriArtifactResolver(contentResolver),
+                    artifacts = modelArtifacts,
                     backends = backends,
                     governor = governor
                 )
             }
             val detachManager = remember {
                 InstalledModelDetachService(catalog, modelRegistry, titan::unload)
+            }
+            remember {
+                NativeCheckpointRuntimePromotionService(
+                    foundation = runtime.nativeModelFoundation,
+                    training = runtime.nativeTrainingPipeline,
+                    catalog = catalog,
+                    registry = modelRegistry,
+                    unloadRuntime = titan::unload
+                )
             }
             val modelRoutingPreferences = remember {
                 getSharedPreferences("amper-model-routing", Context.MODE_PRIVATE)
