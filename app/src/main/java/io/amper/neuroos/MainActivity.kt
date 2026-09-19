@@ -2036,6 +2036,32 @@ class MainActivity : ComponentActivity() {
                                         } else {
                                             null
                                         }
+                                        val reboundGoal = if (advance is PlanAdvanceResult.ContextChanged) {
+                                            refreshed?.getOrNull()?.let { replacement ->
+                                                if (
+                                                    persistentGoalExecutive.current()?.plannedPlanId ==
+                                                    advance.plan.id
+                                                ) {
+                                                    persistentGoalExecutive.rebindPlannedHandoff(
+                                                        previousPlanId = advance.plan.id,
+                                                        replacementPlanId = replacement.id
+                                                    )
+                                                } else {
+                                                    null
+                                                }
+                                            }
+                                        } else {
+                                            null
+                                        }
+                                        val resolvedGoal = if (
+                                            advance is PlanAdvanceResult.Complete &&
+                                            persistentGoalExecutive.current()?.plannedPlanId ==
+                                            advance.plan.id
+                                        ) {
+                                            persistentGoalExecutive.resolveTerminalPlan(advance.plan.id)
+                                        } else {
+                                            null
+                                        }
                                         runOnUiThread {
                                             if (
                                                 advance is PlanAdvanceResult.ContextChanged &&
@@ -2048,7 +2074,18 @@ class MainActivity : ComponentActivity() {
                                                         planStatus =
                                                             "Grounded context changed; fresh child plan " +
                                                                 replacement.id.value.take(8) +
-                                                                " created with zero tool execution"
+                                                                " created with zero tool execution" +
+                                                                when {
+                                                                    reboundGoal == null -> ""
+                                                                    reboundGoal.isSuccess ->
+                                                                        " · autonomous goal handoff rebound"
+                                                                    else ->
+                                                                        " · goal handoff rebind failed: " +
+                                                                            (
+                                                                                reboundGoal.exceptionOrNull()?.message
+                                                                                    ?: "unknown"
+                                                                                )
+                                                                }
                                                     },
                                                     onFailure = { error ->
                                                         activePlan = advance.plan
@@ -2078,7 +2115,21 @@ class MainActivity : ComponentActivity() {
                                                             }
                                                             is PlanAdvanceResult.Complete -> {
                                                                 activePlan = resolved.plan
-                                                                planStatus = "Plan complete"
+                                                                planStatus = when {
+                                                                    resolvedGoal == null ->
+                                                                        "Plan complete"
+                                                                    resolvedGoal.isSuccess ->
+                                                                        "Plan complete · autonomous goal → " +
+                                                                            requireNotNull(
+                                                                                resolvedGoal.getOrNull()
+                                                                            ).stage.name
+                                                                    else ->
+                                                                        "Plan complete · autonomous goal resolution failed: " +
+                                                                            (
+                                                                                resolvedGoal.exceptionOrNull()?.message
+                                                                                    ?: "unknown"
+                                                                                )
+                                                                }
                                                             }
                                                         }
                                                     },
