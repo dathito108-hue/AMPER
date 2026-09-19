@@ -178,7 +178,12 @@ class CanonicalReflexDecisionRuntimeController(
 
     override fun decide(request: ReflexDecisionRequest): ReflexDecision {
         val port = activePort ?: return fallback.decide(request)
-        val available = request.descriptors.mapTo(linkedSetOf()) { it.capability }
+        val available = request.descriptors
+            .map { it.capability }
+            .distinct()
+            .sortedBy { it.value }
+            .take(ReflexExperienceTrainingExample.MAX_AVAILABLE_CAPABILITIES)
+            .toCollection(linkedSetOf())
         val prediction = port.predict(
             NativeReflexDecisionInput(
                 featureHashes = ReflexDecisionFeatureEncoder.encode(request.userInput),
