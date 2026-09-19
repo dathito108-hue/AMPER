@@ -496,6 +496,27 @@ execution, transfers no old input/output/request/approval/tool-binding data, and
 still passes canonical live binding, AuthorityGate, continuity, confirmation and terminal
 goal-satisfaction verification.
 
+### Implemented checkpoint — Phase346-350
+Phase346 adds a restart-safe transfer-calibration model that records outcomes only for sovereign
+plans carrying an exact validated goal-transfer binding. The binding contains the selected structural
+strategy, exact planning cognitive-state digest, historical/context/projected support and no raw goal,
+tool input/output, request ID, approval or authority token. Phase347 adds recency decay for historical
+goal evidence and outcome-backed calibration multipliers; old evidence loses weight gradually rather
+than remaining permanently trusted, while three evidence-backed consecutive transfer failures can
+suppress that strategy until new successful evidence resets the streak. Authority/user blocks and
+partial-execution states are diagnostic-neutral and never reduce transfer competence. Phase348
+upgrades Plan OS to V7 while retaining V1-V6 decoding and persists transfer attribution across process
+restart only when the final post-critic plan signature exactly matches a transfer candidate that was
+actually rendered within the prompt budget. Phase349 calibrates a transfer-bound zero-executed FAILED
+terminal plan immediately instead of waiting for recovery exhaustion, but all-executed plans receive
+positive credit only after the existing independent goal-satisfaction verifier returns SATISFIED;
+goal-evidence exhaustion is negative transfer evidence and authority/partial outcomes remain neutral.
+Phase350 feeds the calibrated support back through counterfactual transfer validation so stale or
+repeatedly failing strategies are down-ranked/suppressed before future planning. Calibration performs
+zero inference and zero tool execution, cannot change live ToolDescriptors, AuthorityGate,
+confirmation, continuity checks or goal verification, and cannot convert historical success into
+execution permission.
+
 ## CI budget policy
 
 GitHub Actions is a scarce verification resource.
