@@ -180,6 +180,18 @@ bounded durable transaction index so restart recovery can roll back PREPARED/APP
 transactions instead of assuming partial evolution is safe. Promotion transaction state remains
 non-authoritative for tools/device actions.
 
+### Implemented checkpoint — Phase241-245
+Phase241 derives bounded benchmark-gap objectives directly from the current content-addressed baseline.
+Phase242 gives the cognitive model one bounded inference to emit data-only MODEL/CODE/STRATEGY/
+ARCHITECTURE blueprints through a strict Base64URL protocol; model output cannot assert artifact,
+build, test, benchmark, authority or deployment success. Phase243 sends each blueprint to an injected
+sandbox runner whose measured artifact digest, tests, invariant results and benchmark metrics become
+the only candidate evidence. Phase244 derives candidate identity from blueprint digest plus sandbox
+artifact digest, filters sandbox failures and automatically runs the surviving entries through the
+canonical tournament. Phase245 automatically requests a canonical promotion ticket for the winner
+while keeping live mutation exclusively inside the Phase236-240 promotion transaction path. Raw
+blueprint payloads are not persisted into sovereign planning memory.
+
 ### 251+ — Open-ended mobile intelligence
 Integrate model, world state, memory, skills, multimodal perception and self-evolution; measure
 progress by capability/generalization benchmarks rather than phase count.
