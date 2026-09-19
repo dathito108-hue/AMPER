@@ -1482,3 +1482,39 @@ probe packs against the Android artifact: Phase556-560 will cover System-1/Syste
 generalization evidence; subsequent blocks will cover long-horizon execution, memory/world-model,
 self-learning/evolution, resource stress, restart recovery and authority invariants. Only collected
 subject-bound probe evidence may advance the canonical qualification verdict.
+
+
+### Qualification checkpoint — Phase556-560: Real Cognitive Probe Pack
+Phase556 implements the first executable subject-bound qualification probe rather than another feature
+subsystem. The System-1 probe runs 64 real ReflexDecisionCortex decisions across explicit web-search,
+clipboard, file-browser, alarm, media and app-launch routes plus ambiguous requests that must escalate
+to System-2. It scores exact routing/fast-path behavior and records measured p95 decision latency with
+a 50 ms qualification assertion. The workload is synthetic and contains no user data.
+
+Phase557 adds 32 Native System-2 reasoning scenarios against the real CanonicalNativeSystem2Core.
+Controlled immutable cognitive packets exercise unresolved-world evidence gathering, high-confidence
+governed skill reuse and open deliberation. Every sample verifies the expected deliberation mode,
+bounded reasoning agenda ending in VERIFY_PLAN, live-capability containment, content-addressed working
+state and non-authoritative strategy output.
+
+Phase558 adds 32 held-out cross-context transfer probes against the real
+MemoryBackedSkillGeneralizationModel. Four governed successful training contexts first establish one
+GENERALIZED skill profile; the held-out goals then require novel-context guidance through a live
+ToolDescriptor. A negative control removes the descriptor and requires guidance to disappear, proving
+that historical transfer evidence cannot bypass the current capability surface.
+
+Phase559 binds all three probe outputs to the exact AgiMobileQualificationSubject revision/artifact
+digest and hashes only bounded result metadata into sourceEvidenceDigest. Raw probe prompts are not
+persisted in qualification records. Probe evidence created for one artifact remains unusable for a
+different artifact because the Phase551-555 qualification runner rejects subject-digest mismatch.
+
+Phase560 exposes AmperRuntime.agiMobileCognitiveQualificationProbes(...), adds deterministic regression
+coverage for the 64/32/32 sample packs, and proves that executing only this cognitive pack qualifies
+exactly SYSTEM1_FAST_PATH, NATIVE_SYSTEM2_REASONING and GENERALIZATION while the complete project
+verdict correctly remains INCOMPLETE with the other seven domains unmeasured.
+
+CI execution of these probes validates the canonical Kotlin cognition implementation, but it is not
+a substitute for physical-device qualification. The next qualification block must add subject-bound
+long-horizon execution plus memory/world-model probes, followed by self-learning/evolution, Android
+resource stress, process/reboot recovery and authority-invariant probe packs. Only after all ten
+canonical domains have real evidence can amper-agi-mobile-v1 return QUALIFIED.
