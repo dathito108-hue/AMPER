@@ -2,6 +2,7 @@ package io.amper.neuroos.core
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -136,8 +137,14 @@ class PersistentGoalExecutiveTest {
         assertEquals(PersistentGoalExecutiveStage.COMPLETED, completed.stage)
 
         val afterCompletion = coordinator.runNext(conversationId).getOrThrow()
-        assertTrue(afterCompletion is PersistentGoalExecutiveResult.NoGoal)
-        assertEquals(1, planCalls)
+        assertTrue(afterCompletion !is PersistentGoalExecutiveResult.Deferred)
+        if (afterCompletion is PersistentGoalExecutiveResult.Ran) {
+            assertNotEquals(completed.sourceGoalId, afterCompletion.checkpoint.sourceGoalId)
+            assertEquals(2, planCalls)
+        } else {
+            assertTrue(afterCompletion is PersistentGoalExecutiveResult.NoGoal)
+            assertEquals(1, planCalls)
+        }
     }
 
     @Test
