@@ -194,6 +194,7 @@ class AmperRuntime private constructor(
     val reflexRuntimeCalibration: ReflexRuntimeCalibration,
     val reflexLearningCostModel: ReflexLearningCostModel,
     val reflexLearningResourcePolicy: ReflexLearningResourcePolicy,
+    val reflexLearningMaintenanceQueue: ReflexLearningMaintenanceQueue,
     val reflexDecisionActivationStore: ReflexDecisionRuntimeActivationStore,
     val reflexDecisionRuntime: ReflexDecisionRuntimeController,
     val reflexDecisionCortex: ReflexDecisionCortex,
@@ -427,6 +428,8 @@ class AmperRuntime private constructor(
                 }
             )
             val reflexLearningCostModel = MemoryBackedReflexLearningCostModel(memory)
+            val reflexLearningMaintenanceQueue =
+                MemoryBackedReflexLearningMaintenanceQueue(memory)
             val reflexLearningResourcePolicy =
                 ResourceGovernorReflexLearningResourcePolicy(
                     governor = governor,
@@ -556,6 +559,7 @@ class AmperRuntime private constructor(
                 reflexRuntimeCalibration = reflexRuntimeCalibration,
                 reflexLearningCostModel = reflexLearningCostModel,
                 reflexLearningResourcePolicy = reflexLearningResourcePolicy,
+                reflexLearningMaintenanceQueue = reflexLearningMaintenanceQueue,
                 reflexDecisionActivationStore = reflexDecisionActivationStore,
                 reflexDecisionRuntime = reflexDecisionRuntime,
                 reflexDecisionCortex = reflexDecisionCortex,
