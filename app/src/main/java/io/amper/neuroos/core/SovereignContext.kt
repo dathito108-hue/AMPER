@@ -132,7 +132,9 @@ class CanonicalSovereignContextSource(
             MemoryBackedReflexRuntimeCalibration.BINDING_KIND,
             MemoryBackedReflexDecisionRuntimeActivationStore.KIND,
             MemoryBackedNativeSystem2WorkingStateStore.KIND,
-            MemoryBackedClosedLoopEvolutionLedger.KIND
+            MemoryBackedClosedLoopEvolutionLedger.KIND,
+            MemoryBackedAgiMobileQualificationStore.REPORT_KIND,
+            MemoryBackedAgiMobileQualificationStore.LATEST_KIND
         )
         val seedScanLimit = if (memoryLimit == 0) 0 else (memoryLimit * 6).coerceAtLeast(memoryLimit)
         val seeds = memory.recall(query, seedScanLimit)

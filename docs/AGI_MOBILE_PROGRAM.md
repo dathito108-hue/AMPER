@@ -1441,3 +1441,44 @@ ARCHITECTURE candidates become live only through a concrete EvolutionDeploymentI
 sandbox, exact artifact identity, rollback checkpoint and canary satisfy the existing verified
 promotion transaction. The next roadmap step is AGI-Mobile Qualification rather than another Reflex
 or scheduler expansion.
+
+
+### Qualification checkpoint — Phase551-555: AGI-Mobile Qualification Gate
+Phase551 freezes the first project-level AGI-Mobile qualification contract instead of adding another
+capability subsystem. The canonical matrix contains ten required domains: System-1 fast path,
+Native System-2 reasoning, cross-context generalization, long-horizon execution, memory/world model,
+self-learning retention, self-evolution, mobile resource resilience, restart recovery and authority
+invariants. Each domain has an explicit probe id, score floor, sample floor and weight. Self-evolution,
+mobile resource resilience, restart recovery and authority invariants are also hard blockers.
+
+Phase552 makes qualification evidence subject-bound and content-addressed. Every probe observation is
+bound to the exact revision + artifact SHA-256 being tested and to a SHA-256 of its immutable source
+report/log bundle. The qualification layer persists only scores, counts, digests and verdict metadata;
+raw prompts, tool arguments, user content and benchmark traces remain outside sovereign qualification
+records. Evidence generated for another build cannot qualify the current build.
+
+Phase553 introduces a fail-closed canonical verdict. Missing evidence is UNMEASURED, assertion
+failures and insufficient samples are FAILED, and no weighted aggregate can override a failed hard
+blocker. The project verdict is QUALIFIED only when every required domain meets its own score/sample
+floor and every probe assertion passes. Known failures produce NOT_QUALIFIED even when other evidence
+is incomplete. This prevents an average score from hiding a broken authority, recovery or resource
+invariant.
+
+Phase554 persists immutable qualification reports in sovereign MemoryOs and exposes
+AmperRuntime.agiMobileQualificationRunner(...). A latest-report pointer is maintained for restart
+continuity, while qualification records are explicitly excluded from normal user-facing context
+retrieval. Re-reading a report verifies its canonical digest before it is accepted as the latest
+qualification state.
+
+Phase555 adds regression coverage for all-domain qualification, missing critical evidence,
+authority-assertion failure despite a near-perfect aggregate score, cross-artifact evidence rejection,
+long-horizon sample floors and canonical-runtime persistence. These tests validate the qualification
+gate itself; they do not claim that the current Android build has already passed the real ten-domain
+device benchmark.
+
+The thresholds in amper-agi-mobile-v1 are project acceptance thresholds, not a scientific definition
+or proof of general AGI. The next qualification block must implement and execute the real canonical
+probe packs against the Android artifact: Phase556-560 will cover System-1/System-2/reasoning and
+generalization evidence; subsequent blocks will cover long-horizon execution, memory/world-model,
+self-learning/evolution, resource stress, restart recovery and authority invariants. Only collected
+subject-bound probe evidence may advance the canonical qualification verdict.
