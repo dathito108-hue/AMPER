@@ -363,6 +363,17 @@ class SovereignPlanCoordinator(
         )
     }
 
+    fun goalSatisfactionVerifier(
+        verifierInference: CognitiveInferencePort = criticInference ?: inference
+    ): GoalSatisfactionVerifier = InferenceGoalSatisfactionVerifier(
+        inference = verifierInference,
+        stateSource = runtime.integratedCognition,
+        allowedCapabilities = advertisedCapabilities,
+        descriptors = ::routedDescriptors,
+        maxPromptChars = minOf(maxPromptChars, 6_000),
+        maxOutputTokens = minOf(maxOutputTokens, 160)
+    )
+
     fun autonomousExecutive(
         evolution: CognitiveExecutiveEvolutionPort? = null,
         observation: CognitiveExecutiveObservationPort? = null
