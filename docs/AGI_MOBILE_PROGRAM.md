@@ -311,6 +311,23 @@ codec to V2 while retaining V1 decoding, so recovery lineage survives restart an
 remain readable. Goal recovery still performs planning/cognitive work only and owns no ToolFabric or
 AuthorityGate path.
 
+
+### Implemented checkpoint — Phase291-295
+Phase291 adds a bounded active-perception acquisition contract bound to the current cognitive-state
+and execution-context digests. Phase292 lets an OBSERVE executive cycle request exactly one targeted
+fresh modality, publish a returned reduced Percept into the canonical PerceptionBus, recapture
+cognition and continue within the existing four-cycle executive cap. Failed acquisition remains a
+terminal OBSERVE result and consumes no planning, practice or evolution work. Phase293 provides an
+Android adapter over the existing live-perception paths: SENSOR uses available device sensors, AUDIO
+requires an already-granted RECORD_AUDIO permission, and SCREEN consumes only a fresh frame from an
+already-active user-approved MediaProjection session; CAMERA and new permission/consent flows remain
+UI-driven. Raw audio/screen media stays ephemeral and only reduced bounded percept summaries enter the
+world model. Phase294 exposes the observation port through SovereignPlanCoordinator and the persistent
+goal executive. Phase295 wires the Android UI to run bounded autonomous goal cycles, rebinds a
+persistent goal checkpoint when context-refresh creates a direct child plan, and resolves the exact
+goal handoff when that plan later becomes terminal. Active perception cannot grant tool/device
+authority or bypass Android permission/MediaProjection consent.
+
 ## CI budget policy
 
 GitHub Actions is a scarce verification resource.

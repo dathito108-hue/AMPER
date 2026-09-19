@@ -43,6 +43,7 @@ import io.amper.neuroos.core.AndroidTimerPrepareToolProvider
 import io.amper.neuroos.core.AndroidLiveAudioAttachmentCapture
 import io.amper.neuroos.core.AndroidModelImportService
 import io.amper.neuroos.core.AndroidAppPrivateModelArtifactResolver
+import io.amper.neuroos.core.AndroidActivePerceptionPort
 import io.amper.neuroos.core.AndroidMultimodalProjectorImportService
 import io.amper.neuroos.core.AndroidPerceptionCapture
 import io.amper.neuroos.core.AndroidResourceGovernor
@@ -51,6 +52,7 @@ import io.amper.neuroos.core.AndroidVoiceConversationSession
 import io.amper.neuroos.core.AuditedToolFabric
 import io.amper.neuroos.core.ContentUriArtifactResolver
 import io.amper.neuroos.core.ContentUriProjectorArtifactResolver
+import io.amper.neuroos.core.CognitiveExecutiveCycleResult
 import io.amper.neuroos.core.DenyByDefaultAuthorityGate
 import io.amper.neuroos.core.DeviceStatusToolProvider
 import io.amper.neuroos.core.FileInstalledModelCatalog
@@ -81,6 +83,7 @@ import io.amper.neuroos.core.OptionalBackendPackLoader
 import io.amper.neuroos.core.OptionalMtmdNativeEngineLoader
 import io.amper.neuroos.core.PersistentSovereignPlanCoordinator
 import io.amper.neuroos.core.PerceptionModality
+import io.amper.neuroos.core.PersistentGoalExecutiveResult
 import io.amper.neuroos.core.PlanAdvanceResult
 import io.amper.neuroos.core.PreferredModelInferencePort
 import io.amper.neuroos.core.RuntimeSovereignStatusSource
@@ -304,17 +307,28 @@ class MainActivity : ComponentActivity() {
                     maxOutputTokens = 256
                 )
             }
+            val planningCoordinator = remember {
+                SovereignPlanCoordinator(
+                    runtime = runtime,
+                    inference = inferencePort,
+                    actions = actionLoop,
+                    advertisedCapabilities = assistantCapabilities,
+                    maxOutputTokens = 256,
+                    criticInference = inferencePort
+                )
+            }
             val planner = remember {
                 PersistentSovereignPlanCoordinator(
-                    delegate = SovereignPlanCoordinator(
-                        runtime = runtime,
-                        inference = inferencePort,
-                        actions = actionLoop,
-                        advertisedCapabilities = assistantCapabilities,
-                        maxOutputTokens = 256,
-                        criticInference = inferencePort
-                    ),
+                    delegate = planningCoordinator,
                     store = runtime.plans
+                )
+            }
+            val activePerceptionPort = remember {
+                AndroidActivePerceptionPort(applicationContext, runtime.perception)
+            }
+            val persistentGoalExecutive = remember {
+                planningCoordinator.persistentGoalExecutive(
+                    observation = activePerceptionPort
                 )
             }
             val planHistory = remember { SovereignPlanHistory(runtime.plans) }
@@ -1918,6 +1932,69 @@ class MainActivity : ComponentActivity() {
                             Text("Create governed plan")
                         }
                         Button(
+                            enabled = hasModel && hasRuntimeBackend,
+                            onClick = {
+                                val thread = conversationId
+                                planStatus =
+                                    "Running one bounded persistent-goal cognitive cycle..."
+                                executor.execute {
+                                    val result = persistentGoalExecutive.runNext(thread)
+                                    runOnUiThread {
+                                        routeObservation = titan.latestRouteObservation()
+                                        result.fold(
+                                            onSuccess = { outcome ->
+                                                when (outcome) {
+                                                    is PersistentGoalExecutiveResult.NoGoal -> {
+                                                        planStatus =
+                                                            "No eligible active sovereign goal is waiting"
+                                                    }
+                                                    is PersistentGoalExecutiveResult.Deferred -> {
+                                                        planStatus =
+                                                            "Autonomous goal " +
+                                                                outcome.checkpoint.sourceGoalId.take(8) +
+                                                                " deferred: " + outcome.reason
+                                                    }
+                                                    is PersistentGoalExecutiveResult.Ran -> {
+                                                        val last = outcome.run.cycles.lastOrNull()
+                                                        val planned =
+                                                            last as? CognitiveExecutiveCycleResult.Planned
+                                                        if (planned != null) {
+                                                            activePlan = planned.plan
+                                                            conversationId = planned.plan.conversationId
+                                                        }
+                                                        val observation =
+                                                            last as? CognitiveExecutiveCycleResult.ObservationRequired
+                                                        val observationDetail = when {
+                                                            observation?.refreshed == true ->
+                                                                " · perception refreshed"
+                                                            observation?.acquisitionFailureCode != null ->
+                                                                " · perception=" +
+                                                                    observation.acquisitionFailureCode
+                                                            else -> ""
+                                                        }
+                                                        planStatus =
+                                                            "Autonomous goal " +
+                                                                outcome.checkpoint.sourceGoalId.take(8) +
+                                                                " → " + outcome.checkpoint.stage.name +
+                                                                " · cycles=" + outcome.run.cycles.size +
+                                                                observationDetail
+                                                    }
+                                                }
+                                            },
+                                            onFailure = { error ->
+                                                planStatus =
+                                                    "Autonomous goal cycle failed: " +
+                                                        (error.message
+                                                            ?: error::class.java.simpleName)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        ) {
+                            Text("Run autonomous goal cycle")
+                        }
+                        Button(
                             onClick = {
                                 val restored = planner.latest()
                                 activePlan = restored
@@ -1959,6 +2036,32 @@ class MainActivity : ComponentActivity() {
                                         } else {
                                             null
                                         }
+                                        val reboundGoal = if (advance is PlanAdvanceResult.ContextChanged) {
+                                            refreshed?.getOrNull()?.let { replacement ->
+                                                if (
+                                                    persistentGoalExecutive.current()?.plannedPlanId ==
+                                                    advance.plan.id
+                                                ) {
+                                                    persistentGoalExecutive.rebindPlannedHandoff(
+                                                        previousPlanId = advance.plan.id,
+                                                        replacementPlanId = replacement.id
+                                                    )
+                                                } else {
+                                                    null
+                                                }
+                                            }
+                                        } else {
+                                            null
+                                        }
+                                        val resolvedGoal = if (
+                                            advance is PlanAdvanceResult.Complete &&
+                                            persistentGoalExecutive.current()?.plannedPlanId ==
+                                            advance.plan.id
+                                        ) {
+                                            persistentGoalExecutive.resolveTerminalPlan(advance.plan.id)
+                                        } else {
+                                            null
+                                        }
                                         runOnUiThread {
                                             if (
                                                 advance is PlanAdvanceResult.ContextChanged &&
@@ -1971,7 +2074,18 @@ class MainActivity : ComponentActivity() {
                                                         planStatus =
                                                             "Grounded context changed; fresh child plan " +
                                                                 replacement.id.value.take(8) +
-                                                                " created with zero tool execution"
+                                                                " created with zero tool execution" +
+                                                                when {
+                                                                    reboundGoal == null -> ""
+                                                                    reboundGoal.isSuccess ->
+                                                                        " · autonomous goal handoff rebound"
+                                                                    else ->
+                                                                        " · goal handoff rebind failed: " +
+                                                                            (
+                                                                                reboundGoal.exceptionOrNull()?.message
+                                                                                    ?: "unknown"
+                                                                                )
+                                                                }
                                                     },
                                                     onFailure = { error ->
                                                         activePlan = advance.plan
@@ -2001,7 +2115,21 @@ class MainActivity : ComponentActivity() {
                                                             }
                                                             is PlanAdvanceResult.Complete -> {
                                                                 activePlan = resolved.plan
-                                                                planStatus = "Plan complete"
+                                                                planStatus = when {
+                                                                    resolvedGoal == null ->
+                                                                        "Plan complete"
+                                                                    resolvedGoal.isSuccess ->
+                                                                        "Plan complete · autonomous goal → " +
+                                                                            requireNotNull(
+                                                                                resolvedGoal.getOrNull()
+                                                                            ).stage.name
+                                                                    else ->
+                                                                        "Plan complete · autonomous goal resolution failed: " +
+                                                                            (
+                                                                                resolvedGoal.exceptionOrNull()?.message
+                                                                                    ?: "unknown"
+                                                                                )
+                                                                }
                                                             }
                                                         }
                                                     },

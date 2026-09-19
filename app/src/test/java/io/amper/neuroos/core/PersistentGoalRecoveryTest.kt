@@ -206,6 +206,68 @@ class PersistentGoalRecoveryTest {
         assertEquals(PlanId("phase290-v1-plan"), restored.plannedPlanId)
     }
 
+    @Test
+    fun contextRefreshChildRebindsExactPersistentGoalHandoff() {
+        val runtime = AmperRuntime.reference()
+        val oldPlan = SovereignPlan(
+            id = PlanId("phase295-parent-plan"),
+            conversationId = ConversationId("phase286-conversation"),
+            goal = "Recover the bounded persistent goal",
+            steps = listOf(
+                SovereignPlanStep(
+                    index = 1,
+                    requestId = ActionRequestId("phase295-parent-request"),
+                    capability = capability,
+                    reason = "Parent plan before grounded context refresh",
+                    input = "read",
+                    boundToolId = descriptor().id,
+                    boundSideEffect = ToolSideEffect.READ_ONLY
+                )
+            ),
+            planningBackendId = "phase295-parent"
+        )
+        val childPlan = SovereignPlan(
+            id = PlanId("phase295-child-plan"),
+            conversationId = oldPlan.conversationId,
+            goal = oldPlan.goal,
+            steps = listOf(
+                SovereignPlanStep(
+                    index = 1,
+                    requestId = ActionRequestId("phase295-child-request"),
+                    capability = capability,
+                    reason = "Fresh child plan after grounded context refresh",
+                    input = "read",
+                    boundToolId = descriptor().id,
+                    boundSideEffect = ToolSideEffect.READ_ONLY
+                )
+            ),
+            planningBackendId = "phase295-child",
+            parentPlanId = oldPlan.id,
+            recoveryDepth = 1
+        )
+        runtime.plans.save(oldPlan)
+        runtime.plans.save(childPlan)
+        runtime.persistentGoalExecutiveStore.save(checkpoint(oldPlan.id))
+
+        val coordinator = coordinator(
+            runtime = runtime,
+            state = { readyState(runtime) },
+            createPlan = { _, _ ->
+                Result.failure(IllegalStateException("handoff rebind must not create a plan"))
+            }
+        )
+
+        val rebound = coordinator.rebindPlannedHandoff(
+            previousPlanId = oldPlan.id,
+            replacementPlanId = childPlan.id
+        ).getOrThrow()
+
+        assertEquals(PersistentGoalExecutiveStage.PLANNED, rebound.stage)
+        assertEquals(childPlan.id, rebound.plannedPlanId)
+        assertEquals(0, rebound.recoveryCount)
+        assertEquals(childPlan.id, coordinator.current()?.plannedPlanId)
+    }
+
     private fun checkpoint(
         planId: PlanId,
         recoveryCount: Int = 0

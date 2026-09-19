@@ -224,6 +224,38 @@ class PersistentGoalExecutiveCoordinator(
     }
 
     @Synchronized
+    fun rebindPlannedHandoff(
+        previousPlanId: PlanId,
+        replacementPlanId: PlanId
+    ): Result<PersistentGoalExecutiveCheckpoint> = runCatching {
+        val current = requireNotNull(store.load()) {
+            "persistent goal executive has no active checkpoint"
+        }
+        require(current.stage == PersistentGoalExecutiveStage.PLANNED) {
+            "persistent goal executive is not awaiting a planned handoff"
+        }
+        require(current.plannedPlanId == previousPlanId) {
+            "replaced plan does not match persistent goal handoff"
+        }
+        val replacement = requireNotNull(plans.load(replacementPlanId)) {
+            "replacement persistent goal plan is unavailable from plan store"
+        }
+        require(replacement.parentPlanId == previousPlanId) {
+            "replacement plan is not a direct context-refresh child of the current handoff"
+        }
+        require(!replacement.complete) {
+            "replacement persistent goal plan is already terminal"
+        }
+
+        store.save(
+            current.copy(
+                plannedPlanId = replacementPlanId,
+                updatedAtEpochMs = clock().coerceAtLeast(current.updatedAtEpochMs)
+            )
+        )
+    }
+
+    @Synchronized
     fun resolveTerminalPlan(
         planId: PlanId
     ): Result<PersistentGoalExecutiveCheckpoint> = runCatching {
