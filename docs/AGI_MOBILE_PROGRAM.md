@@ -131,6 +131,16 @@ baseline with per-metric regression tolerance. Phase220 creates a non-authoritat
 candidate only after foundation admission plus objective comparison; it intentionally does not
 register the checkpoint into live ModelRegistry.
 
+### Implemented checkpoint — Phase221-225
+Phase221 recomputes checkpoint promotion eligibility from the held-out training pipeline instead of
+trusting caller-supplied promotion state. Phase222 requires an actual descriptor-bound GGUF artifact,
+runs structural admission, and requires its SHA-256 to match the immutable checkpoint weight digest.
+Phase223 derives live ModelDescriptor capabilities only from the AMPER-owned native model contract.
+Phase224 publishes the verified model through InstalledModelCatalog plus ModelRegistry with rollback
+if live registration fails, and Android Titan routing now resolves both user content-URI models and
+AMPER-owned app-private artifact locators. Phase225 reuses the governed unload/detach path for runtime
+rollback; live model availability never grants tool/device authority.
+
 ### Mega-Phase 231-250 — Autonomous Evolution
 Self-benchmarking, candidate code/model generation, sandbox tournaments, automated promotion,
 rollback and architecture evolution.
