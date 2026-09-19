@@ -240,8 +240,8 @@ object ReflexLinearModelCodec {
                 out.writeInt(value.size)
                 out.write(value)
             }
-            model.biases.forEach(out::writeFloat)
-            model.weights.forEach(out::writeFloat)
+            model.biases.forEach { out.writeFloat(it) }
+            model.weights.forEach { out.writeFloat(it) }
         }
         return bytes.toByteArray().also {
             require(it.size <= MAX_ARTIFACT_BYTES)
@@ -519,7 +519,7 @@ internal object ReflexLinearTrainingParser {
             .toCollection(linkedSetOf())
         require(features.isNotEmpty())
         require(features.size <= ReflexDecisionFeatureEncoder.MAX_FEATURES)
-        require(features.all(FEATURE::matches))
+        require(features.all { FEATURE.matches(it) })
 
         val available = requireNotNull(fields["available"])
             .split(',')
