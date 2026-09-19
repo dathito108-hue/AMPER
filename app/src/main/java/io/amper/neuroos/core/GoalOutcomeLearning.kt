@@ -59,7 +59,8 @@ data class GoalStrategyTransferCandidate(
     val evidenceConfidence: Double,
     val transferSupport: Double,
     val meanHierarchyCompletionRatio: Double,
-    val latestAnalogousObservedAtEpochMs: Long = 0L
+    val latestAnalogousObservedAtEpochMs: Long = 0L,
+    val latestSuccessfulObservedAtEpochMs: Long = 0L
 ) {
     init {
         require(analogousSuccesses > 0)
@@ -73,6 +74,11 @@ data class GoalStrategyTransferCandidate(
         require(transferSupport in 0.0..1.0)
         require(meanHierarchyCompletionRatio in 0.0..1.0)
         require(latestAnalogousObservedAtEpochMs >= 0L)
+        require(latestSuccessfulObservedAtEpochMs >= 0L)
+        require(
+            latestSuccessfulObservedAtEpochMs == 0L ||
+                latestSuccessfulObservedAtEpochMs <= latestAnalogousObservedAtEpochMs
+        )
     }
 
     val comparableAttempts: Int
@@ -407,7 +413,13 @@ object GoalOutcomeStrategyTransfer {
                     meanHierarchyCompletionRatio = hierarchyRatio,
                     latestAnalogousObservedAtEpochMs = group.maxOf {
                         it.evidence.observedAtEpochMs
-                    }
+                    },
+                    latestSuccessfulObservedAtEpochMs = group
+                        .filter {
+                            it.evidence.outcome == GoalOutcomeEvidenceKind.VERIFIED_SUCCESS
+                        }
+                        .maxOfOrNull { it.evidence.observedAtEpochMs }
+                        ?: 0L
                 )
             }
             .sortedWith(
@@ -447,6 +459,7 @@ object GoalOutcomeStrategyTransfer {
                         " hierarchy_completion=" + fmt(candidate.meanHierarchyCompletionRatio) +
                         " transfer_support=" + fmt(candidate.transferSupport) +
                         " latest_observed_ms=" + candidate.latestAnalogousObservedAtEpochMs +
+                        " latest_success_ms=" + candidate.latestSuccessfulObservedAtEpochMs +
                         " authority=false"
                 )
             }
