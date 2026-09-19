@@ -403,7 +403,9 @@ class MemoryBackedAutonomousEvolutionCampaignCoordinator(
 
         val decision = entries.takeIf { it.isNotEmpty() }?.let {
             evolution.runTournament(
-                id = EvolutionTournamentId("campaign-" + campaignId.value),
+                id = EvolutionTournamentId(
+                    "campaign-" + evolutionCampaignSha256(campaignId.value).take(24)
+                ),
                 baseline = baseline,
                 candidates = it
             )
