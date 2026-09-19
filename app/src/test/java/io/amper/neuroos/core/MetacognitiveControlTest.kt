@@ -79,24 +79,24 @@ class MetacognitiveControlTest {
 
         assertEquals(MetacognitiveControlMode.DIRECT, direct.mode)
         assertEquals(1, direct.requestedCandidateCount)
-        assertEquals(300, direct.planningMaxOutputTokens)
-        assertTrue(direct.planningTemperature <= 0.65)
+        assertEquals(400, direct.planningMaxOutputTokens)
+        assertEquals(1.1, direct.planningTemperature, 0.0)
 
         assertEquals(MetacognitiveControlMode.DELIBERATE, deliberate.mode)
         assertEquals(2, deliberate.requestedCandidateCount)
-        assertEquals(360, deliberate.planningMaxOutputTokens)
-        assertTrue(deliberate.planningTemperature <= 0.40)
+        assertEquals(400, deliberate.planningMaxOutputTokens)
+        assertEquals(1.1, deliberate.planningTemperature, 0.0)
 
         assertEquals(MetacognitiveControlMode.CAUTIOUS, cautious.mode)
         assertEquals(TitanDeliberationProtocol.MAX_CANDIDATES, cautious.requestedCandidateCount)
         assertEquals(400, cautious.planningMaxOutputTokens)
-        assertTrue(cautious.planningTemperature <= 0.20)
+        assertEquals(1.1, cautious.planningTemperature, 0.0)
         assertTrue(cautious.criticTemperature <= 0.10)
 
         listOf(direct, deliberate, cautious).forEach { directive ->
-            assertTrue(directive.planningMaxOutputTokens <= frozen.maxOutputTokens)
+            assertEquals(frozen.maxOutputTokens, directive.planningMaxOutputTokens)
+            assertEquals(frozen.temperature, directive.planningTemperature, 0.0)
             assertTrue(directive.criticMaxOutputTokens <= frozen.maxOutputTokens)
-            assertTrue(directive.planningTemperature <= frozen.temperature)
             assertTrue(directive.criticTemperature <= frozen.temperature)
             assertFalse(directive.authorityBearing)
         }
