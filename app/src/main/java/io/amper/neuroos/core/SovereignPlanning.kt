@@ -355,7 +355,7 @@ class SovereignPlanCoordinator(
         )
         val response = inference.infer(
             InferenceRequest(
-                prompt = prompt,
+                prompt = planningPrompt.prompt,
                 requiredCapabilities = baselineCapabilities,
                 maxOutputTokens = minOf(maxOutputTokens, 256),
                 temperature = 0.2,
@@ -460,7 +460,7 @@ class SovereignPlanCoordinator(
             state = cognitiveState,
             profile = boundInferenceProfile
         )
-        val prompt = buildPlanningPrompt(
+        val planningPrompt = buildPlanningPrompt(
             conversationId = conversationId,
             userGoal = userGoal,
             descriptors = descriptors,
@@ -470,7 +470,7 @@ class SovereignPlanCoordinator(
         )
         val response = inference.infer(
             InferenceRequest(
-                prompt = prompt,
+                prompt = planningPrompt.prompt,
                 requiredCapabilities = baselineCapabilities,
                 maxOutputTokens = metacognitiveControl.planningMaxOutputTokens,
                 temperature = metacognitiveControl.planningTemperature,
@@ -512,7 +512,12 @@ class SovereignPlanCoordinator(
             counterfactualViability = finalEvaluation.counterfactualViability,
             counterfactualConfidence = finalEvaluation.counterfactualConfidence,
             planningCognitiveStateDigest = continuityBinding.cognitiveStateDigest,
-            planningExecutionContextDigest = continuityBinding.executionContextDigest
+            planningExecutionContextDigest = continuityBinding.executionContextDigest,
+            goalTransferBinding = transferBindingForSelected(
+                signature = finalEvaluation.candidate.signature,
+                assessments = planningPrompt.transferCandidates,
+                boundAtEpochMs = cognitiveState.capturedAtEpochMs
+            )
         )
         runCatching {
             runtime.skills.begin(
@@ -567,7 +572,7 @@ class SovereignPlanCoordinator(
             state = cognitiveState,
             profile = boundInferenceProfile
         )
-        val prompt = buildPlanningPrompt(
+        val planningPrompt = buildPlanningPrompt(
             conversationId = plan.conversationId,
             userGoal = plan.goal,
             descriptors = descriptors,
@@ -578,7 +583,7 @@ class SovereignPlanCoordinator(
         )
         val response = inference.infer(
             InferenceRequest(
-                prompt = prompt,
+                prompt = planningPrompt.prompt,
                 requiredCapabilities = baselineCapabilities,
                 maxOutputTokens = metacognitiveControl.planningMaxOutputTokens,
                 temperature = metacognitiveControl.planningTemperature,
@@ -631,7 +636,12 @@ class SovereignPlanCoordinator(
             counterfactualViability = finalEvaluation.counterfactualViability,
             counterfactualConfidence = finalEvaluation.counterfactualConfidence,
             planningCognitiveStateDigest = continuityBinding.cognitiveStateDigest,
-            planningExecutionContextDigest = continuityBinding.executionContextDigest
+            planningExecutionContextDigest = continuityBinding.executionContextDigest,
+            goalTransferBinding = transferBindingForSelected(
+                signature = finalEvaluation.candidate.signature,
+                assessments = planningPrompt.transferCandidates,
+                boundAtEpochMs = cognitiveState.capturedAtEpochMs
+            )
         ).also { replacement ->
             runCatching {
                 runtime.skills.begin(
@@ -692,7 +702,7 @@ class SovereignPlanCoordinator(
             state = cognitiveState,
             profile = boundInferenceProfile
         )
-        val prompt = buildPlanningPrompt(
+        val planningPrompt = buildPlanningPrompt(
             conversationId = plan.conversationId,
             userGoal = plan.goal,
             descriptors = descriptors,
@@ -704,7 +714,7 @@ class SovereignPlanCoordinator(
         )
         val response = inference.infer(
             InferenceRequest(
-                prompt = prompt,
+                prompt = planningPrompt.prompt,
                 requiredCapabilities = baselineCapabilities,
                 maxOutputTokens = metacognitiveControl.planningMaxOutputTokens,
                 temperature = metacognitiveControl.planningTemperature,
@@ -749,7 +759,12 @@ class SovereignPlanCoordinator(
             counterfactualViability = finalEvaluation.counterfactualViability,
             counterfactualConfidence = finalEvaluation.counterfactualConfidence,
             planningCognitiveStateDigest = continuityBinding.cognitiveStateDigest,
-            planningExecutionContextDigest = continuityBinding.executionContextDigest
+            planningExecutionContextDigest = continuityBinding.executionContextDigest,
+            goalTransferBinding = transferBindingForSelected(
+                signature = finalEvaluation.candidate.signature,
+                assessments = planningPrompt.transferCandidates,
+                boundAtEpochMs = cognitiveState.capturedAtEpochMs
+            )
         ).also { replacement ->
             require(replacement.id != plan.id)
             replacement.steps.forEach { replacementStep ->
@@ -802,7 +817,7 @@ class SovereignPlanCoordinator(
         )
         val response = critic.infer(
             InferenceRequest(
-                prompt = prompt,
+                prompt = planningPrompt.prompt,
                 requiredCapabilities = baselineCapabilities,
                 maxOutputTokens = metacognitiveControl.criticMaxOutputTokens,
                 temperature = metacognitiveControl.criticTemperature,
@@ -941,6 +956,16 @@ class SovereignPlanCoordinator(
         }
     }
 
+    private data class PlanningPromptBundle(
+        val prompt: String,
+        val transferCandidates: List<GoalTransferCounterfactualAssessment>
+    )
+
+    private data class PlanningProtocolBundle(
+        val text: String,
+        val transferCandidates: List<GoalTransferCounterfactualAssessment>
+    )
+
     private fun buildPlanningPrompt(
         conversationId: ConversationId,
         userGoal: String,
@@ -951,7 +976,7 @@ class SovereignPlanCoordinator(
         recoveryDecision: StrategyRecoveryDecision? = null,
         contextRefreshPlan: SovereignPlan? = null,
         contextRefreshAssessment: CognitiveContinuityAssessment? = null
-    ): String {
+    ): PlanningPromptBundle {
         require(promptBudgetChars in ConversationInferenceProfile.MIN_PROMPT_CHARS..ConversationInferenceProfile.MAX_PROMPT_CHARS)
         val capabilities = advertisedCapabilities
             .sortedBy { it.value }
@@ -998,7 +1023,7 @@ class SovereignPlanCoordinator(
         val tail = buildString {
             appendLine()
             appendLine("<PLANNING_PROTOCOL>")
-            appendLine(protocol)
+            appendLine(protocol.text)
             appendLine("</PLANNING_PROTOCOL>")
             append(recoverySection)
             append(contextRefreshSection)
@@ -1013,7 +1038,10 @@ class SovereignPlanCoordinator(
             userPrompt = userGoal,
             charBudget = conversationBudget
         )
-        return grounded.take(conversationBudget) + tail
+        return PlanningPromptBundle(
+            prompt = grounded.take(conversationBudget) + tail,
+            transferCandidates = protocol.transferCandidates
+        )
     }
 
     private fun boundedPlanningProtocol(
@@ -1023,7 +1051,7 @@ class SovereignPlanCoordinator(
         cognitiveState: IntegratedCognitiveStatePacket,
         metacognitiveControl: MetacognitiveControlDirective,
         charBudget: Int
-    ): String {
+    ): PlanningProtocolBundle {
         require(metacognitiveControl.cognitiveStateDigest == cognitiveState.canonicalDigest) {
             "metacognitive control must bind the exact cognitive state"
         }
@@ -1143,6 +1171,7 @@ class SovereignPlanCoordinator(
             candidates = outcomeTransfer,
             state = cognitiveState,
             descriptors = selected,
+            calibration = runtime.goalTransferCalibration,
             limit = GoalTransferCounterfactualValidator.MAX_CANDIDATES
         )
         for (count in validatedTransfer.size downTo 1) {
@@ -1150,10 +1179,37 @@ class SovereignPlanCoordinator(
                 validatedTransfer.take(count)
             )
             val candidate = bounded + "\n\n" + rendered
-            if (candidate.length <= charBudget) return candidate
+            if (candidate.length <= charBudget) {
+                return PlanningProtocolBundle(
+                    text = candidate,
+                    transferCandidates = validatedTransfer.take(count)
+                )
+            }
         }
-        return bounded
+        return PlanningProtocolBundle(
+            text = bounded,
+            transferCandidates = emptyList()
+        )
     }
+
+    private fun transferBindingForSelected(
+        signature: StrategySignature,
+        assessments: List<GoalTransferCounterfactualAssessment>,
+        boundAtEpochMs: Long
+    ): GoalTransferPlanBinding? =
+        assessments.firstOrNull { it.candidate.strategy == signature }?.let { assessment ->
+            GoalTransferPlanBinding(
+                strategy = assessment.candidate.strategy,
+                cognitiveStateDigest = assessment.cognitiveStateDigest,
+                historicalSupport = assessment.candidate.transferSupport,
+                contextFit = assessment.contextFit,
+                projectedSupport = assessment.projectedSupport,
+                calibrationMultiplier = assessment.calibrationMultiplier,
+                calibratedSupport = assessment.calibratedSupport,
+                staleHistoricalEvidence = assessment.staleHistoricalEvidence,
+                boundAtEpochMs = boundAtEpochMs
+            )
+        }
 
     private fun routedDescriptors(): List<ToolDescriptor> = advertisedCapabilities
         .mapNotNull(actions::descriptorFor)
