@@ -420,7 +420,8 @@ class SovereignPlanCoordinator(
         plans = runtime.plans,
         portfolio = runtime.goalPortfolio,
         decomposer = goalDecomposer(),
-        adaptiveReplanner = goalAdaptiveReplanner()
+        adaptiveReplanner = goalAdaptiveReplanner(),
+        outcomeLearning = runtime.goalOutcomeLearning
     )
 
     fun create(
@@ -1113,6 +1114,20 @@ class SovereignPlanCoordinator(
 
         for (count in strategyGuidance.size downTo 1) {
             val rendered = EvidenceGroundedStrategyGuidance.render(strategyGuidance.take(count))
+            val candidate = bounded + "\n\n" + rendered
+            if (candidate.length <= charBudget) {
+                bounded = candidate
+                break
+            }
+        }
+
+        val outcomeTransfer = runtime.goalOutcomeLearning.transfer(
+            goal = userGoal,
+            allowedCapabilities = selectedCapabilities,
+            limit = GoalOutcomeStrategyTransfer.MAX_CANDIDATES
+        )
+        for (count in outcomeTransfer.size downTo 1) {
+            val rendered = GoalOutcomeStrategyTransfer.render(outcomeTransfer.take(count))
             val candidate = bounded + "\n\n" + rendered
             if (candidate.length <= charBudget) return candidate
         }

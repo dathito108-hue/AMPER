@@ -219,6 +219,7 @@ class PersistentGoalExecutiveCoordinator(
     private val portfolio: DurableGoalPortfolio? = null,
     private val decomposer: GoalDecomposer? = null,
     private val adaptiveReplanner: GoalAdaptiveReplanner? = null,
+    private val outcomeLearning: GoalOutcomeLearningModel? = null,
     private val clock: () -> Long = System::currentTimeMillis
 ) {
     @Synchronized
@@ -413,6 +414,21 @@ class PersistentGoalExecutiveCoordinator(
         val saved = store.save(next)
         if (saved.stage == PersistentGoalExecutiveStage.COMPLETED) {
             markPortfolioCompleted(saved, now)
+            observeGoalOutcome(
+                checkpoint = saved,
+                terminalPlan = terminalPlan,
+                outcome = GoalOutcomeEvidenceKind.VERIFIED_SUCCESS,
+                verificationConfidence = assessment.confidence,
+                observedAtEpochMs = now
+            )
+        } else if (saved.stage == PersistentGoalExecutiveStage.FOLLOW_UP_EXHAUSTED) {
+            observeGoalOutcome(
+                checkpoint = saved,
+                terminalPlan = terminalPlan,
+                outcome = GoalOutcomeEvidenceKind.EVIDENCE_EXHAUSTED,
+                verificationConfidence = assessment.confidence,
+                observedAtEpochMs = now
+            )
         }
         saved
     }
@@ -486,6 +502,29 @@ class PersistentGoalExecutiveCoordinator(
         val saved = store.save(next)
         if (saved.stage == PersistentGoalExecutiveStage.COMPLETED) {
             markPortfolioCompleted(saved, now)
+        } else {
+            val learnedOutcome = when (saved.stage) {
+                PersistentGoalExecutiveStage.RECOVERY_EXHAUSTED ->
+                    GoalOutcomeEvidenceKind.EXECUTION_EXHAUSTED
+                PersistentGoalExecutiveStage.PARTIAL_EXECUTION_BLOCKED ->
+                    GoalOutcomeEvidenceKind.PARTIAL_EXECUTION_BLOCKED
+                PersistentGoalExecutiveStage.RECOVERY_BLOCKED ->
+                    if (saved.lastFailureCode == "AUTHORITY_OR_USER_BLOCK") {
+                        GoalOutcomeEvidenceKind.AUTHORITY_BLOCKED
+                    } else {
+                        null
+                    }
+                else -> null
+            }
+            learnedOutcome?.let { outcome ->
+                observeGoalOutcome(
+                    checkpoint = saved,
+                    terminalPlan = terminalPlan,
+                    outcome = outcome,
+                    verificationConfidence = null,
+                    observedAtEpochMs = now
+                )
+            }
         }
         saved
     }
@@ -502,6 +541,50 @@ class PersistentGoalExecutiveCoordinator(
     }
 
     fun current(): PersistentGoalExecutiveCheckpoint? = store.load()
+
+    private fun observeGoalOutcome(
+        checkpoint: PersistentGoalExecutiveCheckpoint,
+        terminalPlan: SovereignPlan,
+        outcome: GoalOutcomeEvidenceKind,
+        verificationConfidence: Double?,
+        observedAtEpochMs: Long
+    ) {
+        val learner = outcomeLearning ?: return
+        val records = portfolio?.snapshot().orEmpty()
+        val durable = records.singleOrNull { it.sourceGoalId == checkpoint.sourceGoalId }
+        val hierarchy = durable?.let {
+            hierarchyRootId(records, it.sourceGoalId)?.let { rootId ->
+                runCatching {
+                    DurableGoalHierarchyProgressPolicy.snapshot(records, rootId)
+                }.getOrNull()
+            }
+        }
+        runCatching {
+            learner.observe(
+                checkpoint = checkpoint,
+                terminalPlan = terminalPlan,
+                outcome = outcome,
+                hierarchy = hierarchy,
+                hierarchyDepth = durable?.decompositionDepth ?: 0,
+                verificationConfidence = verificationConfidence,
+                observedAtEpochMs = observedAtEpochMs
+            )
+        }
+    }
+
+    private fun hierarchyRootId(
+        records: Collection<DurableGoalRecord>,
+        sourceGoalId: String
+    ): String? {
+        val byId = records.associateBy { it.sourceGoalId }
+        var current = byId[sourceGoalId] ?: return null
+        val visited = linkedSetOf<String>()
+        while (true) {
+            if (!visited.add(current.sourceGoalId)) return null
+            val parentId = current.parentGoalId ?: return current.sourceGoalId
+            current = byId[parentId] ?: return current.sourceGoalId
+        }
+    }
 
     private fun markPortfolioCompleted(
         checkpoint: PersistentGoalExecutiveCheckpoint,
