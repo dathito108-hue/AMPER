@@ -1045,18 +1045,20 @@ new privacy-preserving Reflex examples. Retraining begins only after at least 24
 fresh ESCALATE examples exist. The candidate uses the active checkpoint as parent, preserving learned
 weights while applying a lower continual-learning rate.
 
-Phase493 keeps promotion statistically comparable. Each continual candidate reserves at least 16
-fresh examples per class for a common holdout that is disjoint from the full champion lineage.
-AMPER evaluates both candidate and champion on that exact holdout, uses the existing
-NativeTrainingPipeline promotion gate for no-material-regression plus aggregate improvement, then
-restores the champion's original persisted evaluation. A rejected challenger never replaces the live
-checkpoint, and identical rejected evidence is not retrained repeatedly during the same process.
+Phase493 keeps promotion statistically comparable without mutating historical evaluation records.
+Each continual candidate reserves at least 16 fresh examples per class for a common holdout that is
+disjoint from the full champion lineage. The candidate's admission evaluation remains immutable and
+persisted; the champion is scored ephemerally on that exact fresh holdout. The existing
+NativeTrainingPipeline metric/regression logic then builds a canonical promotion candidate against
+that supplied common-holdout baseline. A rejected challenger never replaces the live checkpoint, and
+identical rejected evidence is not retrained repeatedly during the same process.
 
-Phase494 activates only promotable challengers through the existing
-CanonicalReflexDecisionRuntimeController replacement gate. The former champion remains the runtime
-standby, so the existing health controller can automatically roll back after repeated failures or slow
-predictions. Candidate lineage records the champion as parent; no separate model authority path is
-introduced.
+Phase494 activates only promotable challengers through an explicit verified-replacement path on the
+existing CanonicalReflexDecisionRuntimeController. Its replacement gate revalidates candidate
+admission, checkpoint/baseline identity and the complete common-holdout comparison before swapping the
+live port. The former champion remains the runtime standby, so the existing health controller can
+automatically roll back after repeated failures or slow predictions. Candidate lineage records the
+champion as parent; no separate model authority path is introduced.
 
 Phase495 adds regression coverage for explicit fresh-evidence partition isolation and for a real
 parented challenger that learns a previously unseen mobile capability, wins the common holdout,
