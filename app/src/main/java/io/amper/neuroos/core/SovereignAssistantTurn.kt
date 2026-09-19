@@ -224,6 +224,7 @@ class SovereignAssistantTurnCoordinator(
         runtime.tick(userPrompt)
         if (
             attachments.isEmpty() &&
+            userPrompt.length <= ReflexDecisionRequest.MAX_INPUT_CHARS &&
             boundInferenceProfile.reflectionMode == ConversationReflectionMode.STANDARD
         ) {
             val reflexDecision = runtime.reflexDecisionCortex.decide(
