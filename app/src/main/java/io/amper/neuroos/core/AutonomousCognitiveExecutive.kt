@@ -15,9 +15,9 @@ data class CognitiveExecutiveDirective(
     val uncertainty: Double,
     val learningPressure: Double,
     val triggeringCapability: CapabilityId? = null,
+    val rationale: String,
     val triggeringNeedKind: LearningNeedKind? = null,
-    val triggeringEvidenceConfidence: Double? = null,
-    val rationale: String
+    val triggeringEvidenceConfidence: Double? = null
 ) {
     init {
         require(cognitiveStateDigest.matches(SHA256))
