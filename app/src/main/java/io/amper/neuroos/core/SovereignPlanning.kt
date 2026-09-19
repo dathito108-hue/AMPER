@@ -364,21 +364,25 @@ class SovereignPlanCoordinator(
     }
 
     fun autonomousExecutive(
-        evolution: CognitiveExecutiveEvolutionPort? = null
+        evolution: CognitiveExecutiveEvolutionPort? = null,
+        observation: CognitiveExecutiveObservationPort? = null
     ): AutonomousCognitiveExecutive = AutonomousCognitiveExecutive(
         stateSource = runtime.integratedCognition,
         allowedCapabilities = advertisedCapabilities,
         descriptors = ::routedDescriptors,
         createPlan = this::create,
         practiceOne = this::practiceOne,
-        evolution = evolution
+        evolution = evolution,
+        observation = observation,
+        perceptionBus = runtime.perception
     )
 
     fun persistentGoalExecutive(
-        evolution: CognitiveExecutiveEvolutionPort? = null
+        evolution: CognitiveExecutiveEvolutionPort? = null,
+        observation: CognitiveExecutiveObservationPort? = null
     ): PersistentGoalExecutiveCoordinator = PersistentGoalExecutiveCoordinator(
         context = runtime.context,
-        executive = autonomousExecutive(evolution),
+        executive = autonomousExecutive(evolution, observation),
         store = runtime.persistentGoalExecutiveStore,
         plans = runtime.plans
     )
