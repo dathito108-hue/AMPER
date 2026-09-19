@@ -182,6 +182,7 @@ class AmperRuntime private constructor(
     val nativeSystem2: NativeSystem2Core,
     val autonomousEvolution: AutonomousEvolutionModel,
     val autonomousEvolutionPromotionExecutor: AutonomousEvolutionPromotionExecutor,
+    val closedLoopEvolutionLedger: ClosedLoopEvolutionLedger,
     val nativeModelFoundation: NativeModelFoundation,
     val nativeExperienceDatasets: NativeExperienceDatasetStore,
     val nativeExperiencePartition: NativeExperiencePartitioner,
@@ -258,6 +259,36 @@ class AmperRuntime private constructor(
             baseline,
             deployment,
             canary
+        )
+
+    /**
+     * Outcome-driven closed-loop self-evolution port for the autonomous cognitive executive.
+     *
+     * Real capability weakness comes from this runtime's governed competence evidence. Candidate
+     * generation/sandbox/promotion/canary use the existing verified evolution transaction path.
+     */
+    fun closedLoopEvolutionExecutive(
+        inference: CognitiveInferencePort,
+        sandbox: EvolutionSandboxRunner,
+        deployment: EvolutionDeploymentIdentityPort,
+        canary: EvolutionCanaryEvaluator,
+        maxCandidates: Int = EvolutionCandidateGenerationRequest.MAX_CANDIDATES
+    ): CognitiveExecutiveEvolutionPort =
+        ClosedLoopSelfEvolutionExecutivePort(
+            competence = competence,
+            evolution = autonomousEvolution,
+            identity = deployment,
+            ledger = closedLoopEvolutionLedger,
+            orchestratorFactory = { baseline ->
+                evolutionAutonomy(
+                    inference = inference,
+                    sandbox = sandbox,
+                    baseline = baseline,
+                    deployment = deployment,
+                    canary = canary
+                )
+            },
+            maxCandidates = maxCandidates
         )
 
     /** Rewrap production encrypted memory under a new managed key alias. */
@@ -473,6 +504,8 @@ class AmperRuntime private constructor(
                     evolution = autonomousEvolution,
                     gate = evolutionGate
                 )
+            val closedLoopEvolutionLedger =
+                MemoryBackedClosedLoopEvolutionLedger(memory)
             val goals = CanonicalGoalSystem()
             val world = CanonicalWorldModel()
             val context = CanonicalSovereignContextSource(
@@ -559,6 +592,7 @@ class AmperRuntime private constructor(
                 nativeSystem2 = nativeSystem2,
                 autonomousEvolution = autonomousEvolution,
                 autonomousEvolutionPromotionExecutor = autonomousEvolutionPromotionExecutor,
+                closedLoopEvolutionLedger = closedLoopEvolutionLedger,
                 nativeModelFoundation = nativeModelFoundation,
                 nativeExperienceDatasets = nativeExperienceDatasets,
                 nativeExperiencePartition = nativeExperiencePartition,
