@@ -299,6 +299,18 @@ Phase285 requires explicit matching plan-completion acknowledgement before closi
 selecting a different active goal. The persistent goal executive owns no ToolFabric/AuthorityGate
 handle and cannot execute or approve a plan step.
 
+
+### Implemented checkpoint — Phase286-290
+Phase286 inspects the exact persisted terminal SovereignPlan before deciding whether a persistent goal
+may recover. Phase287 automatically requeues only terminal FAILED/MALFORMED/UNAVAILABLE plans with
+zero executed steps; DENIED/REJECTED plans remain blocked so autonomy cannot retry around authority or
+user rejection. Phase288 blocks recovery when any step already executed or when durable side-effect
+claims remain unresolved, preventing duplicate real-world effects. Phase289 persists a recovery
+generation counter and stops after three fresh recovery handoffs. Phase290 upgrades the checkpoint
+codec to V2 while retaining V1 decoding, so recovery lineage survives restart and older checkpoints
+remain readable. Goal recovery still performs planning/cognitive work only and owns no ToolFabric or
+AuthorityGate path.
+
 ## CI budget policy
 
 GitHub Actions is a scarce verification resource.
