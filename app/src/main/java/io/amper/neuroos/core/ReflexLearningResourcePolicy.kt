@@ -14,7 +14,10 @@ data class ReflexLearningDemand(
     val learningValue: Double,
     val hardExamples: Int,
     val disagreementExamples: Int,
-    val novelCapabilities: Int
+    val novelCapabilities: Int,
+    val predictedDurationMs: Long? = null,
+    val historicalCostSamples: Int = 0,
+    val historicalLearningValuePerSecond: Double? = null
 ) {
     init {
         require(freshCandidates >= 0)
@@ -23,6 +26,13 @@ data class ReflexLearningDemand(
         require(hardExamples in 0..freshCandidates)
         require(disagreementExamples in 0..freshCandidates)
         require(novelCapabilities >= 0)
+        require(predictedDurationMs == null || predictedDurationMs >= 0L)
+        require(historicalCostSamples >= 0)
+        require(
+            historicalLearningValuePerSecond == null ||
+                (historicalLearningValuePerSecond.isFinite() &&
+                    historicalLearningValuePerSecond >= 0.0)
+        )
     }
 
     val highValue: Boolean
@@ -107,6 +117,10 @@ class ResourceGovernorReflexLearningResourcePolicy(
     private val governor: ResourceGovernor,
     private val deviceStatusSource: DeviceStatusSource? = null
 ) : ReflexLearningResourcePolicy {
+    private var deferredState = false
+    private var recoveryHealthySamples = 0
+
+    @Synchronized
     override fun evaluate(demand: ReflexLearningDemand): ReflexLearningResourceDecision {
         val budget = governor.currentBudget()
         val device = runCatching { deviceStatusSource?.snapshot() }.getOrNull()
@@ -160,15 +174,40 @@ class ResourceGovernorReflexLearningResourcePolicy(
             memoryMb < CRITICAL_MEMORY_MB ||
             device?.lowMemory == true
         ) {
-            return deferred("training deferred by thermal or memory pressure")
+            return stabilize(deferred("training deferred by thermal or memory pressure"), demand)
         }
 
         if (storageFreeMb != null && storageFreeMb < MIN_STORAGE_FREE_MB) {
-            return deferred("training deferred to preserve app storage reserve")
+            return stabilize(deferred("training deferred to preserve app storage reserve"), demand)
         }
 
         if (charging != true && battery != null && battery <= MIN_BATTERY_PERCENT) {
-            return deferred("training deferred for battery conservation")
+            return stabilize(deferred("training deferred for battery conservation"), demand)
+        }
+
+        val predictedDurationMs = demand.predictedDurationMs
+        if (
+            charging != true &&
+            predictedDurationMs != null &&
+            predictedDurationMs > MAX_UNPLUGGED_PREDICTED_MS &&
+            demand.novelCapabilities == 0
+        ) {
+            return stabilize(
+                deferred("historical training cost exceeds unplugged learning budget"),
+                demand
+            )
+        }
+        if (
+            charging != true &&
+            demand.historicalCostSamples >= MIN_COST_SAMPLES &&
+            demand.historicalLearningValuePerSecond != null &&
+            demand.historicalLearningValuePerSecond < MIN_HISTORICAL_VALUE_PER_SECOND &&
+            !demand.highValue
+        ) {
+            return stabilize(
+                deferred("historical learning yield is too low for current mobile budget"),
+                demand
+            )
         }
 
         if (
@@ -179,15 +218,26 @@ class ResourceGovernorReflexLearningResourcePolicy(
             if (
                 !demand.highValue ||
                 thermal > LIGHT_THERMAL_CLASS ||
-                memoryMb < CONSERVE_MEMORY_MB
+                memoryMb < CONSERVE_MEMORY_MB ||
+                (
+                    predictedDurationMs != null &&
+                        predictedDurationMs > CONSERVE_MAX_PREDICTED_MS &&
+                        demand.novelCapabilities == 0
+                    )
             ) {
-                return deferred("training deferred until charging or higher-value evidence")
+                return stabilize(
+                    deferred("training deferred until charging or higher-value evidence"),
+                    demand
+                )
             }
-            return allowed(
-                mode = ReflexLearningResourceMode.LIMITED,
-                freshBudget = CONSERVE_FRESH_BUDGET,
-                replayBudget = CONSERVE_REPLAY_BUDGET,
-                reason = "high-value learning allowed under battery-conservation budget"
+            return stabilize(
+                allowed(
+                    mode = ReflexLearningResourceMode.LIMITED,
+                    freshBudget = CONSERVE_FRESH_BUDGET,
+                    replayBudget = CONSERVE_REPLAY_BUDGET,
+                    reason = "high-value learning allowed under battery-conservation budget"
+                ),
+                demand
             )
         }
 
@@ -197,29 +247,95 @@ class ResourceGovernorReflexLearningResourcePolicy(
             budget.maxConcurrentAgents <= 1
         ) {
             if (
-                demand.learningValue < PRESSURED_MIN_LEARNING_VALUE &&
+                (
+                    demand.learningValue < PRESSURED_MIN_LEARNING_VALUE ||
+                        (
+                            predictedDurationMs != null &&
+                                predictedDurationMs > PRESSURED_MAX_PREDICTED_MS
+                            )
+                    ) &&
                 demand.novelCapabilities == 0
             ) {
-                return deferred("training deferred under mobile pressure for low-value update")
+                return stabilize(
+                    deferred("training deferred under mobile pressure for low-value update"),
+                    demand
+                )
             }
-            return allowed(
-                mode = ReflexLearningResourceMode.LIMITED,
-                freshBudget = PRESSURED_FRESH_BUDGET,
-                replayBudget = PRESSURED_REPLAY_BUDGET,
-                reason = "resource pressure permits only a bounded high-value learning update"
+            return stabilize(
+                allowed(
+                    mode = ReflexLearningResourceMode.LIMITED,
+                    freshBudget = PRESSURED_FRESH_BUDGET,
+                    replayBudget = PRESSURED_REPLAY_BUDGET,
+                    reason = "resource pressure permits only a bounded high-value learning update"
+                ),
+                demand
             )
         }
 
-        return allowed(
-            mode = ReflexLearningResourceMode.READY,
-            freshBudget = NORMAL_FRESH_BUDGET,
-            replayBudget = NORMAL_REPLAY_BUDGET,
-            reason = if (charging == true) {
-                "charging and mobile resources permit full Reflex learning budget"
-            } else {
-                "mobile resources permit full Reflex learning budget"
-            }
+        if (
+            charging != true &&
+            predictedDurationMs != null &&
+            predictedDurationMs > NORMAL_TARGET_PREDICTED_MS
+        ) {
+            return stabilize(
+                allowed(
+                    mode = ReflexLearningResourceMode.LIMITED,
+                    freshBudget = PRESSURED_FRESH_BUDGET,
+                    replayBudget = PRESSURED_REPLAY_BUDGET,
+                    reason = "historical cost model limits this unplugged learning update"
+                ),
+                demand
+            )
+        }
+
+        return stabilize(
+            allowed(
+                mode = ReflexLearningResourceMode.READY,
+                freshBudget = NORMAL_FRESH_BUDGET,
+                replayBudget = NORMAL_REPLAY_BUDGET,
+                reason = if (charging == true) {
+                    "charging and mobile resources permit full Reflex learning budget"
+                } else {
+                    "mobile resources permit full Reflex learning budget"
+                }
+            ),
+            demand
         )
+    }
+
+    private fun stabilize(
+        decision: ReflexLearningResourceDecision,
+        demand: ReflexLearningDemand
+    ): ReflexLearningResourceDecision {
+        if (!decision.allowTraining) {
+            deferredState = true
+            recoveryHealthySamples = 0
+            return decision
+        }
+        if (!deferredState) return decision
+
+        if (decision.charging == true) {
+            deferredState = false
+            recoveryHealthySamples = 0
+            return decision
+        }
+
+        recoveryHealthySamples += 1
+        if (recoveryHealthySamples < RECOVERY_HEALTHY_CONFIRMATIONS) {
+            return decision.copy(
+                mode = ReflexLearningResourceMode.DEFERRED,
+                allowTraining = false,
+                maxFreshExamples = 0,
+                maxReplayExamples = 0,
+                reason =
+                    "resource recovery hysteresis waiting for another healthy sample; " +
+                        "pending_value=" + demand.learningValue
+            )
+        }
+
+        deferredState = false
+        recoveryHealthySamples = 0
+        return decision
     }
 
     companion object {
@@ -236,6 +352,14 @@ class ResourceGovernorReflexLearningResourcePolicy(
         const val CONSERVE_BATTERY_PERCENT = 35
 
         const val PRESSURED_MIN_LEARNING_VALUE = 0.50
+        const val MIN_COST_SAMPLES = 3
+        const val MIN_HISTORICAL_VALUE_PER_SECOND = 0.015
+
+        const val CONSERVE_MAX_PREDICTED_MS = 6_000L
+        const val PRESSURED_MAX_PREDICTED_MS = 10_000L
+        const val NORMAL_TARGET_PREDICTED_MS = 8_000L
+        const val MAX_UNPLUGGED_PREDICTED_MS = 20_000L
+        const val RECOVERY_HEALTHY_CONFIRMATIONS = 2
 
         const val NORMAL_FRESH_BUDGET = 96
         const val NORMAL_REPLAY_BUDGET = 96
