@@ -596,6 +596,8 @@ object GoalContextualStrategyPortfolioPolicy {
                         } +
                         " mode=" + item.mode.name +
                         " calibrated_support=" + fmt(item.assessment.calibratedSupport) +
+                        " context_fit=" + fmt(item.assessment.contextFit) +
+                        " projected_support=" + fmt(item.assessment.projectedSupport) +
                         " contextual_reward=" +
                         (item.contextualRewardRate?.let(::fmt) ?: "~") +
                         " contextual_confidence=" + fmt(item.contextualEvidenceConfidence) +
