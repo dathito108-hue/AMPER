@@ -519,7 +519,8 @@ class PersistentGoalExecutiveCoordinator(
 
 internal object PersistentGoalExecutiveCodec {
     private const val VERSION_V1 = "AMPER_PERSISTENT_GOAL_EXECUTIVE_V1"
-    private const val VERSION = "AMPER_PERSISTENT_GOAL_EXECUTIVE_V2"
+    private const val VERSION_V2 = "AMPER_PERSISTENT_GOAL_EXECUTIVE_V2"
+    private const val VERSION = "AMPER_PERSISTENT_GOAL_EXECUTIVE_V3"
 
     fun encode(checkpoint: PersistentGoalExecutiveCheckpoint): String = buildString {
         appendLine(VERSION)
@@ -534,14 +535,18 @@ internal object PersistentGoalExecutiveCodec {
         appendLine("EXECUTION_DIGEST\t" + (checkpoint.lastExecutionContextDigest ?: "~"))
         appendLine("PLAN_ID\t" + (checkpoint.plannedPlanId?.value?.let(::enc) ?: "~"))
         appendLine("RECOVERY_COUNT\t" + checkpoint.recoveryCount)
+        appendLine("FOLLOW_UP_COUNT\t" + checkpoint.followUpCount)
         appendLine("FAILURE_CODE\t" + (checkpoint.lastFailureCode ?: "~"))
+        appendLine("VERIFY_VERDICT\t" + (checkpoint.lastVerificationVerdict?.name ?: "~"))
+        appendLine("VERIFY_CONFIDENCE\t" + (checkpoint.lastVerificationConfidence?.toString() ?: "~"))
+        appendLine("VERIFY_REASON\t" + (checkpoint.lastVerificationReason?.let(::enc) ?: "~"))
         append("UPDATED\t" + checkpoint.updatedAtEpochMs)
     }
 
     fun decode(content: String): Result<PersistentGoalExecutiveCheckpoint> = runCatching {
         val lines = content.lineSequence().filter { it.isNotBlank() }.toList()
         val version = lines.firstOrNull()
-        require(version == VERSION || version == VERSION_V1) {
+        require(version == VERSION || version == VERSION_V2 || version == VERSION_V1) {
             "unsupported persistent goal executive state"
         }
         val fields = linkedMapOf<String, String>()
@@ -566,10 +571,22 @@ internal object PersistentGoalExecutiveCodec {
             "UPDATED"
         )
         require(fields.keys.containsAll(required)) { "persistent goal executive state is incomplete" }
-        if (version == VERSION) {
+        if (version == VERSION || version == VERSION_V2) {
             require(fields.keys.containsAll(setOf("RECOVERY_COUNT", "FAILURE_CODE"))) {
                 "persistent goal executive recovery state is incomplete"
             }
+        }
+        if (version == VERSION) {
+            require(
+                fields.keys.containsAll(
+                    setOf(
+                        "FOLLOW_UP_COUNT",
+                        "VERIFY_VERDICT",
+                        "VERIFY_CONFIDENCE",
+                        "VERIFY_REASON"
+                    )
+                )
+            ) { "persistent goal executive verification state is incomplete" }
         }
 
         PersistentGoalExecutiveCheckpoint(
@@ -591,7 +608,17 @@ internal object PersistentGoalExecutiveCodec {
                 ?.let(::dec)
                 ?.let(::PlanId),
             recoveryCount = fields["RECOVERY_COUNT"]?.toInt() ?: 0,
+            followUpCount = fields["FOLLOW_UP_COUNT"]?.toInt() ?: 0,
             lastFailureCode = fields["FAILURE_CODE"]?.takeUnless { it == "~" },
+            lastVerificationVerdict = fields["VERIFY_VERDICT"]
+                ?.takeUnless { it == "~" }
+                ?.let(GoalSatisfactionVerdict::valueOf),
+            lastVerificationConfidence = fields["VERIFY_CONFIDENCE"]
+                ?.takeUnless { it == "~" }
+                ?.toDouble(),
+            lastVerificationReason = fields["VERIFY_REASON"]
+                ?.takeUnless { it == "~" }
+                ?.let(::dec),
             updatedAtEpochMs = fields.getValue("UPDATED").toLong()
         )
     }
