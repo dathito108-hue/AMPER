@@ -72,6 +72,11 @@ class ReflexRealModelTest {
         val first = lifecycle.maintain().getOrThrow()
         assertEquals(ReflexNativeLifecycleStage.ACTIVE, first.stage)
         val championId = requireNotNull(first.checkpointId)
+        val championTrainingIds = requireNotNull(
+            runtime.nativeModelFoundation.getCheckpoint(championId)
+        ).datasetShardIds.flatMap { shardId ->
+            requireNotNull(runtime.reflexExperienceDatasets.getShard(shardId)).exampleIds
+        }.toSet()
 
         seedFreshWebSearch(runtime.reflexExperienceDatasets, "continual-fresh")
         val replacement = lifecycle.maintain().getOrThrow()
@@ -80,10 +85,25 @@ class ReflexRealModelTest {
         val challengerId = requireNotNull(replacement.checkpointId)
         assertTrue(challengerId != championId)
         assertEquals(challengerId, runtime.reflexDecisionRuntime.active()?.checkpointId)
-        assertEquals(
-            championId,
-            runtime.nativeModelFoundation.getCheckpoint(challengerId)?.parentCheckpointId
+        val challenger = requireNotNull(
+            runtime.nativeModelFoundation.getCheckpoint(challengerId)
         )
+        assertEquals(championId, challenger.parentCheckpointId)
+        val challengerTrainingIds = challenger.datasetShardIds.flatMap { shardId ->
+            requireNotNull(runtime.reflexExperienceDatasets.getShard(shardId)).exampleIds
+        }.toSet()
+        assertTrue(
+            challengerTrainingIds.intersect(championTrainingIds).isNotEmpty()
+        )
+
+        val preservedDecision = runtime.reflexDecisionCortex.decide(
+            ReflexDecisionRequest(
+                userInput = "check battery and ram right now",
+                descriptors = listOf(deviceDescriptor())
+            )
+        )
+        assertEquals(ReflexDecisionSource.NATIVE_SYSTEM1, preservedDecision.source)
+        assertEquals(DeviceStatusToolContract.capability, preservedDecision.capability)
 
         val settled = lifecycle.maintain().getOrThrow()
         assertEquals(
@@ -92,6 +112,25 @@ class ReflexRealModelTest {
         )
         assertEquals(0, settled.actionExamples)
         assertEquals(0, settled.escalationExamples)
+    }
+
+    @Test
+    fun stableFreshEvidenceIsBatchedInsteadOfRetrainingEverySmallWindow() {
+        val runtime = AmperRuntime.reference()
+        seed(runtime.reflexExperienceDatasets, "batch-base")
+        val artifacts = InMemoryReflexLinearArtifactStore()
+        val lifecycle = ReflexNativeModelLifecycle(runtime, artifacts)
+
+        val first = lifecycle.maintain().getOrThrow()
+        val championId = requireNotNull(first.checkpointId)
+        seedFreshDeviceStatus(runtime.reflexExperienceDatasets, "batch-fresh")
+
+        val report = lifecycle.maintain().getOrThrow()
+
+        assertEquals(ReflexNativeLifecycleStage.WAITING_FOR_FRESH_EVIDENCE, report.stage)
+        assertEquals(championId, report.checkpointId)
+        assertEquals(championId, runtime.reflexDecisionRuntime.active()?.checkpointId)
+        assertTrue(report.detail.contains("batched retrain floor"))
     }
 
     @Test
@@ -162,6 +201,49 @@ class ReflexRealModelTest {
                 ),
                 labelConfidence = 0.90,
                 observedAtEpochMs = 2_000L + index
+            )
+        }
+    }
+
+    private fun seedFreshDeviceStatus(
+        store: ReflexExperienceDatasetStore,
+        prefix: String
+    ) {
+        val descriptor = deviceDescriptor()
+        repeat(24) { index ->
+            val proposal = ActionProposal(
+                requestId = ActionRequestId("$prefix-action-$index"),
+                capability = descriptor.capability,
+                reason = "read device status",
+                input = "summary"
+            )
+            store.observeExecuted(
+                userInput = "check battery and ram right now fresh sample $index",
+                descriptors = listOf(descriptor),
+                action = ActionOutcome(
+                    status = ActionStatus.EXECUTED,
+                    proposal = proposal,
+                    toolId = descriptor.id,
+                    sideEffect = descriptor.sideEffect,
+                    output = "battery_percent=55"
+                ),
+                source = ReflexExperienceSource.SYSTEM2_TEACHER,
+                labelConfidence = 0.99,
+                observedAtEpochMs = 5_000L + index
+            )
+        }
+        repeat(24) { index ->
+            store.observeEscalation(
+                conversationId = ConversationId("$prefix-thread-$index"),
+                userInput = "explain a difficult concept in detail fresh sample $index",
+                descriptors = listOf(descriptor),
+                response = InferenceResponse(
+                    modelId = ModelId("teacher"),
+                    backendId = "teacher-backend",
+                    text = "reasoned fresh answer $index"
+                ),
+                labelConfidence = 0.90,
+                observedAtEpochMs = 6_000L + index
             )
         }
     }
