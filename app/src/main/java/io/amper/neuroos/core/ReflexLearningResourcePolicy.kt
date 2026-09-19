@@ -115,7 +115,10 @@ object UnconstrainedReflexLearningResourcePolicy : ReflexLearningResourcePolicy 
  */
 class ResourceGovernorReflexLearningResourcePolicy(
     private val governor: ResourceGovernor,
-    private val deviceStatusSource: DeviceStatusSource? = null
+    private val deviceStatusSource: DeviceStatusSource? = null,
+    private val telemetry: ReflexLearningSchedulerTelemetry =
+        NoopReflexLearningSchedulerTelemetry,
+    private val clock: () -> Long = System::currentTimeMillis
 ) : ReflexLearningResourcePolicy {
     private var deferredState = false
     private var recoveryHealthySamples = 0
@@ -138,6 +141,18 @@ class ResourceGovernorReflexLearningResourcePolicy(
         val battery = device?.batteryPercent
         val charging = device?.charging
         val storageFreeMb = device?.appStorageFreeMb
+        val tuning = telemetry.tuningProfile()
+        val pressuredMinLearningValue = (
+            PRESSURED_MIN_LEARNING_VALUE + tuning.minimumLearningValueBoost
+            ).coerceAtMost(MAX_TUNED_PRESSURED_MIN_LEARNING_VALUE)
+        val conserveMaxPredictedMs =
+            tuning.scaleDuration(CONSERVE_MAX_PREDICTED_MS)
+        val pressuredMaxPredictedMs =
+            tuning.scaleDuration(PRESSURED_MAX_PREDICTED_MS)
+        val normalTargetPredictedMs =
+            tuning.scaleDuration(NORMAL_TARGET_PREDICTED_MS)
+        val maxUnpluggedPredictedMs =
+            tuning.scaleDuration(MAX_UNPLUGGED_PREDICTED_MS)
 
         fun deferred(reason: String) = ReflexLearningResourceDecision(
             mode = ReflexLearningResourceMode.DEFERRED,
@@ -189,7 +204,7 @@ class ResourceGovernorReflexLearningResourcePolicy(
         if (
             charging != true &&
             predictedDurationMs != null &&
-            predictedDurationMs > MAX_UNPLUGGED_PREDICTED_MS &&
+            predictedDurationMs > maxUnpluggedPredictedMs &&
             demand.novelCapabilities == 0
         ) {
             return stabilize(
@@ -221,7 +236,7 @@ class ResourceGovernorReflexLearningResourcePolicy(
                 memoryMb < CONSERVE_MEMORY_MB ||
                 (
                     predictedDurationMs != null &&
-                        predictedDurationMs > CONSERVE_MAX_PREDICTED_MS &&
+                        predictedDurationMs > conserveMaxPredictedMs &&
                         demand.novelCapabilities == 0
                     )
             ) {
@@ -233,8 +248,14 @@ class ResourceGovernorReflexLearningResourcePolicy(
             return stabilize(
                 allowed(
                     mode = ReflexLearningResourceMode.LIMITED,
-                    freshBudget = CONSERVE_FRESH_BUDGET,
-                    replayBudget = CONSERVE_REPLAY_BUDGET,
+                    freshBudget = tuning.scaleBudget(
+                        CONSERVE_FRESH_BUDGET,
+                        ReflexLearningResourceDecision.MIN_TRAINING_FRESH_BUDGET
+                    ),
+                    replayBudget = tuning.scaleBudget(
+                        CONSERVE_REPLAY_BUDGET,
+                        ReflexLearningResourceDecision.MIN_REPLAY_BUDGET
+                    ),
                     reason = "high-value learning allowed under battery-conservation budget"
                 ),
                 demand
@@ -248,10 +269,10 @@ class ResourceGovernorReflexLearningResourcePolicy(
         ) {
             if (
                 (
-                    demand.learningValue < PRESSURED_MIN_LEARNING_VALUE ||
+                    demand.learningValue < pressuredMinLearningValue ||
                         (
                             predictedDurationMs != null &&
-                                predictedDurationMs > PRESSURED_MAX_PREDICTED_MS
+                                predictedDurationMs > pressuredMaxPredictedMs
                             )
                     ) &&
                 demand.novelCapabilities == 0
@@ -264,8 +285,14 @@ class ResourceGovernorReflexLearningResourcePolicy(
             return stabilize(
                 allowed(
                     mode = ReflexLearningResourceMode.LIMITED,
-                    freshBudget = PRESSURED_FRESH_BUDGET,
-                    replayBudget = PRESSURED_REPLAY_BUDGET,
+                    freshBudget = tuning.scaleBudget(
+                        PRESSURED_FRESH_BUDGET,
+                        ReflexLearningResourceDecision.MIN_TRAINING_FRESH_BUDGET
+                    ),
+                    replayBudget = tuning.scaleBudget(
+                        PRESSURED_REPLAY_BUDGET,
+                        ReflexLearningResourceDecision.MIN_REPLAY_BUDGET
+                    ),
                     reason = "resource pressure permits only a bounded high-value learning update"
                 ),
                 demand
@@ -275,13 +302,19 @@ class ResourceGovernorReflexLearningResourcePolicy(
         if (
             charging != true &&
             predictedDurationMs != null &&
-            predictedDurationMs > NORMAL_TARGET_PREDICTED_MS
+            predictedDurationMs > normalTargetPredictedMs
         ) {
             return stabilize(
                 allowed(
                     mode = ReflexLearningResourceMode.LIMITED,
-                    freshBudget = PRESSURED_FRESH_BUDGET,
-                    replayBudget = PRESSURED_REPLAY_BUDGET,
+                    freshBudget = tuning.scaleBudget(
+                        PRESSURED_FRESH_BUDGET,
+                        ReflexLearningResourceDecision.MIN_TRAINING_FRESH_BUDGET
+                    ),
+                    replayBudget = tuning.scaleBudget(
+                        PRESSURED_REPLAY_BUDGET,
+                        ReflexLearningResourceDecision.MIN_REPLAY_BUDGET
+                    ),
                     reason = "historical cost model limits this unplugged learning update"
                 ),
                 demand
@@ -291,8 +324,14 @@ class ResourceGovernorReflexLearningResourcePolicy(
         return stabilize(
             allowed(
                 mode = ReflexLearningResourceMode.READY,
-                freshBudget = NORMAL_FRESH_BUDGET,
-                replayBudget = NORMAL_REPLAY_BUDGET,
+                freshBudget = tuning.scaleBudget(
+                    NORMAL_FRESH_BUDGET,
+                    ReflexLearningResourceDecision.MIN_TRAINING_FRESH_BUDGET
+                ),
+                replayBudget = tuning.scaleBudget(
+                    NORMAL_REPLAY_BUDGET,
+                    ReflexLearningResourceDecision.MIN_REPLAY_BUDGET
+                ),
                 reason = if (charging == true) {
                     "charging and mobile resources permit full Reflex learning budget"
                 } else {
@@ -307,35 +346,46 @@ class ResourceGovernorReflexLearningResourcePolicy(
         decision: ReflexLearningResourceDecision,
         demand: ReflexLearningDemand
     ): ReflexLearningResourceDecision {
-        if (!decision.allowTraining) {
-            deferredState = true
-            recoveryHealthySamples = 0
-            return decision
-        }
-        if (!deferredState) return decision
+        val stabilized = when {
+            !decision.allowTraining -> {
+                deferredState = true
+                recoveryHealthySamples = 0
+                decision
+            }
 
-        if (decision.charging == true || demand.highValue) {
-            deferredState = false
-            recoveryHealthySamples = 0
-            return decision
-        }
+            !deferredState -> decision
 
-        recoveryHealthySamples += 1
-        if (recoveryHealthySamples < RECOVERY_HEALTHY_CONFIRMATIONS) {
-            return decision.copy(
-                mode = ReflexLearningResourceMode.DEFERRED,
-                allowTraining = false,
-                maxFreshExamples = 0,
-                maxReplayExamples = 0,
-                reason =
-                    "resource recovery hysteresis waiting for another healthy sample; " +
-                        "pending_value=" + demand.learningValue
-            )
-        }
+            decision.charging == true || demand.highValue -> {
+                deferredState = false
+                recoveryHealthySamples = 0
+                decision
+            }
 
-        deferredState = false
-        recoveryHealthySamples = 0
-        return decision
+            else -> {
+                recoveryHealthySamples += 1
+                if (recoveryHealthySamples < RECOVERY_HEALTHY_CONFIRMATIONS) {
+                    decision.copy(
+                        mode = ReflexLearningResourceMode.DEFERRED,
+                        allowTraining = false,
+                        maxFreshExamples = 0,
+                        maxReplayExamples = 0,
+                        reason =
+                            "resource recovery hysteresis waiting for another healthy sample; " +
+                                "pending_value=" + demand.learningValue
+                    )
+                } else {
+                    deferredState = false
+                    recoveryHealthySamples = 0
+                    decision
+                }
+            }
+        }
+        telemetry.observeDecision(
+            demand = demand,
+            decision = stabilized,
+            observedAtEpochMs = clock().coerceAtLeast(0L)
+        )
+        return stabilized
     }
 
     companion object {
@@ -352,6 +402,7 @@ class ResourceGovernorReflexLearningResourcePolicy(
         const val CONSERVE_BATTERY_PERCENT = 35
 
         const val PRESSURED_MIN_LEARNING_VALUE = 0.50
+        const val MAX_TUNED_PRESSURED_MIN_LEARNING_VALUE = 0.65
         const val MIN_COST_SAMPLES = 3
         const val MIN_HISTORICAL_VALUE_PER_SECOND = 0.015
 

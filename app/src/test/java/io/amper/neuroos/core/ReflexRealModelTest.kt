@@ -177,6 +177,7 @@ class ReflexRealModelTest {
         val background = ReflexBackgroundMaintenanceCoordinator(
             lifecycle = lifecycle,
             queue = runtime.reflexLearningMaintenanceQueue,
+            telemetry = runtime.reflexLearningSchedulerTelemetry,
             clock = { 10_000L }
         )
         val resumed = background.tick(force = true).getOrThrow()
@@ -191,6 +192,10 @@ class ReflexRealModelTest {
         assertEquals(2, cost.samples)
         assertTrue(requireNotNull(cost.durationEwmaMs) > 0.0)
         assertTrue(requireNotNull(cost.examplesPerSecondEwma) > 0.0)
+        val schedulerTelemetry = runtime.reflexLearningSchedulerTelemetry.snapshot()
+        assertEquals(1, schedulerTelemetry.maintenanceAttempts)
+        assertEquals(1, schedulerTelemetry.maintenanceCompleted)
+        assertEquals(0, schedulerTelemetry.maintenanceFailed)
     }
 
     @Test

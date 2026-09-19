@@ -161,7 +161,8 @@ class MainActivity : ComponentActivity() {
                 ReflexBackgroundMaintenanceCoordinator(
                     lifecycle = reflexLifecycle,
                     queue = runtime.reflexLearningMaintenanceQueue,
-                    deviceStatusSource = deviceStatusSource
+                    deviceStatusSource = deviceStatusSource,
+                    telemetry = runtime.reflexLearningSchedulerTelemetry
                 )
             }
             val reflexMaintenanceLoop = remember {
