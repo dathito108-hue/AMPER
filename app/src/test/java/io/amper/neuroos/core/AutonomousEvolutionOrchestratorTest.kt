@@ -190,15 +190,20 @@ class AutonomousEvolutionOrchestratorTest {
                 )
             )
         )
-        val inference = CognitiveInferencePort {
-            Result.failure(IllegalStateException("factory-only"))
+        val inference = object : CognitiveInferencePort {
+            override fun infer(request: InferenceRequest): Result<InferenceResponse> =
+                Result.failure(IllegalStateException("factory-only"))
         }
         val sandbox = EvolutionSandboxRunner { _, _ ->
             Result.failure(IllegalStateException("factory-only"))
         }
         val deployment = FakeDeploymentPort("runtime-base")
-        val canary = EvolutionCanaryEvaluator { _, _ ->
-            Result.failure(IllegalStateException("factory-only"))
+        val canary = object : EvolutionCanaryEvaluator {
+            override fun evaluate(
+                proposal: EvolutionPromotionProposal,
+                receipt: EvolutionDeploymentReceipt
+            ): Result<EvolutionBenchmarkSnapshot> =
+                Result.failure(IllegalStateException("factory-only"))
         }
 
         val orchestrator = runtime.evolutionAutonomy(
@@ -279,18 +284,23 @@ class AutonomousEvolutionOrchestratorTest {
         fun canaryEvaluator(
             scores: () -> Pair<Double, Double>
         ): EvolutionCanaryEvaluator =
-            EvolutionCanaryEvaluator { proposal, receipt ->
-                val (planning, generalization) = scores()
-                Result.success(
-                    EvolutionBenchmarkSnapshot(
-                        subjectId = EvolutionBenchmarkSubjectId(proposal.candidateId.value),
-                        suiteId = suite.id,
-                        suiteDigest = suite.canonicalDigest,
-                        metrics = observations(planning, generalization, 64),
-                        artifactDigest = proposal.artifactDigest,
-                        observedAtEpochMs = receipt.appliedAtEpochMs + 1
+            object : EvolutionCanaryEvaluator {
+                override fun evaluate(
+                    proposal: EvolutionPromotionProposal,
+                    receipt: EvolutionDeploymentReceipt
+                ): Result<EvolutionBenchmarkSnapshot> {
+                    val (planning, generalization) = scores()
+                    return Result.success(
+                        EvolutionBenchmarkSnapshot(
+                            subjectId = EvolutionBenchmarkSubjectId(proposal.candidateId.value),
+                            suiteId = suite.id,
+                            suiteDigest = suite.canonicalDigest,
+                            metrics = observations(planning, generalization, 64),
+                            artifactDigest = proposal.artifactDigest,
+                            observedAtEpochMs = receipt.appliedAtEpochMs + 1
+                        )
                     )
-                )
+                }
             }
 
         fun orchestrator(
