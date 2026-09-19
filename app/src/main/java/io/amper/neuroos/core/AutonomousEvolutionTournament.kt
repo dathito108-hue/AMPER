@@ -135,6 +135,9 @@ data class EvolutionTournamentEntry(
 data class EvolutionTournamentOutcome(
     val candidateId: EvolutionId,
     val kind: AutonomousEvolutionCandidateKind,
+    val candidateArtifactDigest: String,
+    val baseRevision: String,
+    val proposedRevision: String,
     val aggregateDelta: Double,
     val noMaterialRegression: Boolean,
     val benchmarkEligible: Boolean,
@@ -143,6 +146,9 @@ data class EvolutionTournamentOutcome(
     val reasons: List<String>
 ) {
     init {
+        require(candidateArtifactDigest.matches(Regex("[0-9a-f]{64}")))
+        require(baseRevision.isNotBlank())
+        require(proposedRevision.isNotBlank())
         require(aggregateDelta.isFinite())
         require(reasons.isNotEmpty())
         if (tournamentEligible) {
@@ -189,21 +195,50 @@ data class EvolutionTournamentDecision(
 data class EvolutionPromotionProposal(
     val tournamentId: EvolutionTournamentId,
     val candidateId: EvolutionId,
-    val verifiedDecision: EvolutionDecision,
+    val kind: AutonomousEvolutionCandidateKind,
+    val artifactDigest: String,
+    val baseRevision: String,
+    val proposedRevision: String,
+    val suiteId: EvolutionBenchmarkSuiteId,
     val suiteDigest: String,
+    val baselineSubjectId: EvolutionBenchmarkSubjectId,
+    val verifiedDecision: EvolutionDecision,
     val aggregateDelta: Double,
     val rollbackToken: String,
     val createdAtEpochMs: Long
 ) {
     init {
         require(verifiedDecision.candidateId == candidateId)
+        require(artifactDigest.matches(Regex("[0-9a-f]{64}")))
+        require(baseRevision.isNotBlank())
+        require(proposedRevision.isNotBlank())
         require(verifiedDecision.stage == EvolutionStage.VERIFIED)
         require(verifiedDecision.promotable)
         require(suiteDigest.matches(Regex("[0-9a-f]{64}")))
         require(aggregateDelta > 0.0 && aggregateDelta.isFinite())
         require(rollbackToken.isNotBlank())
+        require(verifiedDecision.rollbackToken == rollbackToken) {
+            "promotion rollback token must match verified evolution decision"
+        }
         require(createdAtEpochMs >= 0L)
     }
+
+    val ticketDigest: String
+        get() = evolutionSha256(
+            listOf(
+                tournamentId.value,
+                candidateId.value,
+                kind.name,
+                artifactDigest,
+                baseRevision,
+                proposedRevision,
+                suiteId.value,
+                suiteDigest,
+                baselineSubjectId.value,
+                aggregateDelta.toString(),
+                rollbackToken
+            ).joinToString("|")
+        )
 
     val livePromoted: Boolean
         get() = false
@@ -225,6 +260,8 @@ interface AutonomousEvolutionModel {
     fun promotionProposal(
         decision: EvolutionTournamentDecision
     ): EvolutionPromotionProposal?
+
+    fun isKnownPromotionProposal(proposal: EvolutionPromotionProposal): Boolean
 }
 
 /**
@@ -341,16 +378,49 @@ class MemoryBackedAutonomousEvolutionModel(
             "evolution tournament winner is no longer eligible"
         }
         val rollbackToken = requireNotNull(outcome.verificationDecision.rollbackToken)
-        return EvolutionPromotionProposal(
+        val proposal = EvolutionPromotionProposal(
             tournamentId = decision.id,
             candidateId = winnerId,
-            verifiedDecision = outcome.verificationDecision,
+            kind = outcome.kind,
+            artifactDigest = outcome.candidateArtifactDigest,
+            baseRevision = outcome.baseRevision,
+            proposedRevision = outcome.proposedRevision,
+            suiteId = decision.suiteId,
             suiteDigest = decision.suiteDigest,
+            baselineSubjectId = decision.baselineSubjectId,
+            verifiedDecision = outcome.verificationDecision,
             aggregateDelta = outcome.aggregateDelta,
             rollbackToken = rollbackToken,
             createdAtEpochMs = clock().coerceAtLeast(decision.createdAtEpochMs)
         )
+        memory.rememberIfAbsent(
+            MemoryRecord(
+                id = promotionMemoryId(decision.id),
+                kind = PROMOTION_KIND,
+                content = proposal.ticketDigest,
+                importance = 0.99,
+                provenance = Provenance(
+                    source = "autonomous-evolution-tournament",
+                    producer = "evolution-promotion-ticket",
+                    confidence = 1.0,
+                    parents = setOf(tournamentMemoryId(decision.id))
+                ),
+                createdAtEpochMs = proposal.createdAtEpochMs
+            )
+        ).also { inserted ->
+            if (!inserted) {
+                require(isKnownPromotionProposal(proposal)) {
+                    "evolution promotion ticket is immutable"
+                }
+            }
+        }
+        return proposal
     }
+
+    override fun isKnownPromotionProposal(proposal: EvolutionPromotionProposal): Boolean =
+        memory.get(promotionMemoryId(proposal.tournamentId))
+            ?.takeIf { it.kind == PROMOTION_KIND }
+            ?.content == proposal.ticketDigest
 
     private fun evaluateCandidate(
         suite: EvolutionBenchmarkSuite,
@@ -423,6 +493,9 @@ class MemoryBackedAutonomousEvolutionModel(
         return EvolutionTournamentOutcome(
             candidateId = entry.candidate.id,
             kind = entry.kind,
+            candidateArtifactDigest = entry.candidate.artifactDigest,
+            baseRevision = entry.candidate.baseRevision,
+            proposedRevision = entry.candidate.proposedRevision,
             aggregateDelta = aggregateDelta,
             noMaterialRegression = noMaterialRegression,
             benchmarkEligible = benchmarkEligible,
@@ -458,9 +531,13 @@ class MemoryBackedAutonomousEvolutionModel(
     private fun tournamentMemoryId(id: EvolutionTournamentId): MemoryId =
         MemoryId("evolution-tournament:" + id.value)
 
+    private fun promotionMemoryId(id: EvolutionTournamentId): MemoryId =
+        MemoryId("evolution-promotion:" + id.value)
+
     companion object {
         const val SUITE_KIND = "evolution-benchmark-suite"
         const val DECISION_KIND = "evolution-tournament-decision"
+        const val PROMOTION_KIND = "evolution-promotion-ticket"
         const val MIN_AGGREGATE_IMPROVEMENT = 0.005
     }
 }
@@ -518,6 +595,9 @@ private object EvolutionTournamentCodec {
             listOf(
                 enc(outcome.candidateId.value),
                 outcome.kind.name,
+                outcome.candidateArtifactDigest,
+                enc(outcome.baseRevision),
+                enc(outcome.proposedRevision),
                 enc(outcome.aggregateDelta.toString()),
                 outcome.noMaterialRegression.toString(),
                 outcome.benchmarkEligible.toString(),
