@@ -1193,3 +1193,34 @@ behavior. Resource scheduling never bypasses fresh held-out admission, champion 
 historical anti-forgetting stability comparison or verified runtime replacement. ToolDescriptor
 binding, deterministic argument reconstruction, SovereignActionLoop, AuthorityGate, explicit
 side-effect approval and durable receipts remain unchanged.
+
+
+### Completion checkpoint — Phase516-520
+Phase516 adds a durable Reflex learning-cost model. Every real local training execution records its
+wall-clock duration, actual training-shard example count, success/failure and scheduled learning
+value. AMPER maintains EWMA duration, throughput, success rate and learning-value-per-second in the
+encrypted sovereign MemoryOs so the scheduler can learn the cost of its own updates across process
+restarts.
+
+Phase517 uses the learned throughput to predict the duration of a proposed fresh+replay update before
+training begins. The prediction is advisory and non-authoritative: it can reduce or defer compute,
+but it cannot manufacture evidence, alter labels, weaken evaluation or promote a checkpoint.
+
+Phase518 adds cost-aware budget shaping. Unplugged updates predicted above the normal target are
+reduced to the limited 64/64 budget; extreme non-novel updates are deferred. Battery-conservation and
+resource-pressure modes apply stricter predicted-duration limits. After enough observations, low
+historical learning-value-per-second can also defer low-value unplugged retraining while novel or
+high-value evidence remains eligible for bounded learning.
+
+Phase519 adds scheduler hysteresis. A transient resource deferral is not immediately flipped back to
+normal by one healthy sample; ordinary updates require two consecutive healthy evaluations before
+resuming. Charging or high-value evidence may bypass that recovery delay. This suppresses training
+thrash when thermal/RAM/battery conditions oscillate around a boundary while preserving responsiveness
+to genuinely valuable learning opportunities.
+
+Phase520 closes the self-cost loop inside ReflexNativeModelLifecycle. Initial and continual training
+both feed measured cost back into the durable model; RESOURCE_DEFERRED paths create no cost sample and
+consume no evidence. Tests cover durable cost restoration, throughput-based duration prediction,
+cost-based limiting/deferral, recovery hysteresis and defer-then-resume behavior. Fresh held-out
+admission, common-holdout champion comparison, historical anti-forgetting stability comparison and
+verified runtime replacement remain mandatory, and execution authority remains unchanged.

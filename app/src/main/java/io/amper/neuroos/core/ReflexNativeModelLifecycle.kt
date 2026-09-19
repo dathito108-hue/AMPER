@@ -31,7 +31,11 @@ class ReflexNativeModelLifecycle(
     private val runtime: AmperRuntime,
     artifacts: ReflexLinearArtifactStore,
     private val learningResourcePolicy: ReflexLearningResourcePolicy =
-        runtime.reflexLearningResourcePolicy
+        runtime.reflexLearningResourcePolicy,
+    private val learningCostModel: ReflexLearningCostModel =
+        runtime.reflexLearningCostModel,
+    private val clock: () -> Long = System::currentTimeMillis,
+    private val monotonicNanos: () -> Long = System::nanoTime
 ) {
     private val trainer = ReflexLinearNativeTrainer(artifacts)
     private val resolver = ReflexLinearDecisionPortResolver(
@@ -100,6 +104,7 @@ class ReflexNativeModelLifecycle(
             )
         }
 
+        val initialCost = learningCostModel.snapshot()
         val initialResource = learningResourcePolicy.evaluate(
             ReflexLearningDemand(
                 freshCandidates = examples.size,
@@ -110,16 +115,30 @@ class ReflexNativeModelLifecycle(
                 novelCapabilities = examples
                     .mapNotNull { it.targetCapability }
                     .distinct()
-                    .size
+                    .size,
+                predictedDurationMs = initialCost.estimateDurationMs(
+                    examples.size.coerceAtLeast(1)
+                ),
+                historicalCostSamples = initialCost.samples,
+                historicalLearningValuePerSecond =
+                    initialCost.learningValuePerSecondEwma
             )
         )
-        if (!initialResource.allowTraining) {
+        if (
+            !initialResource.allowTraining ||
+            initialResource.maxFreshExamples <
+                MIN_TOTAL_ACTION_EXAMPLES + MIN_TOTAL_ESCALATION_EXAMPLES
+        ) {
             return ReflexNativeLifecycleReport(
                 stage = ReflexNativeLifecycleStage.RESOURCE_DEFERRED,
                 checkpointId = null,
                 actionExamples = actionExamples,
                 escalationExamples = escalationExamples,
-                detail = initialResource.reason
+                detail = if (!initialResource.allowTraining) {
+                    initialResource.reason
+                } else {
+                    "initial champion deferred because resource budget cannot preserve class floors"
+                }
             )
         }
         val initialSelected = balancedInitialSelection(
@@ -145,7 +164,8 @@ class ReflexNativeModelLifecycle(
         val checkpoint = trainCheckpoint(
             spec = spec,
             actionExamples = actionExamples,
-            escalationExamples = escalationExamples
+            escalationExamples = escalationExamples,
+            learningValue = 1.0
         ) ?: return ReflexNativeLifecycleReport(
             stage = ReflexNativeLifecycleStage.TRAINING_FAILED,
             checkpointId = null,
@@ -283,6 +303,9 @@ class ReflexNativeModelLifecycle(
             )
         }
 
+        val costSnapshot = learningCostModel.snapshot()
+        val proposedExamples =
+            fullActiveBatch.selectedExampleIds.size + fullReplay.exampleIds.size
         val resourceDecision = learningResourcePolicy.evaluate(
             ReflexLearningDemand(
                 freshCandidates = fullActiveBatch.eligibleExamples,
@@ -290,7 +313,13 @@ class ReflexNativeModelLifecycle(
                 learningValue = fullActiveBatch.learningValue(),
                 hardExamples = fullActiveBatch.hardExamples,
                 disagreementExamples = fullActiveBatch.disagreementExamples,
-                novelCapabilities = fullActiveBatch.novelCapabilities.size
+                novelCapabilities = fullActiveBatch.novelCapabilities.size,
+                predictedDurationMs = costSnapshot.estimateDurationMs(
+                    proposedExamples.coerceAtLeast(1)
+                ),
+                historicalCostSamples = costSnapshot.samples,
+                historicalLearningValuePerSecond =
+                    costSnapshot.learningValuePerSecondEwma
             )
         )
         if (!resourceDecision.allowTraining) {
@@ -388,7 +417,8 @@ class ReflexNativeModelLifecycle(
         val checkpoint = trainCheckpoint(
             spec = spec,
             actionExamples = activeBatch.actionExamples,
-            escalationExamples = activeBatch.escalationExamples
+            escalationExamples = activeBatch.escalationExamples,
+            learningValue = activeBatch.learningValue()
         ) ?: run {
             lastRejectedEvidenceTag = tag
             return ReflexNativeLifecycleReport(
@@ -498,6 +528,9 @@ class ReflexNativeModelLifecycle(
                     ", resource_mode=" + resourceDecision.mode.name +
                     ", fresh_budget=" + resourceDecision.maxFreshExamples +
                     ", replay_budget=" + resourceDecision.maxReplayExamples +
+                    ", predicted_ms=" +
+                    (costSnapshot.estimateDurationMs(proposedExamples.coerceAtLeast(1)) ?: -1L) +
+                    ", cost_samples=" + costSnapshot.samples +
                     "), replayed " + replay.exampleIds.size +
                     " prior examples, and replaced champion " + champion.checkpointId.value
         )
@@ -536,8 +569,10 @@ class ReflexNativeModelLifecycle(
     private fun trainCheckpoint(
         spec: ReflexDecisionTrainingSpec,
         actionExamples: Int,
-        escalationExamples: Int
+        escalationExamples: Int,
+        learningValue: Double
     ): NativeCheckpointLineage? {
+        require(learningValue in 0.0..1.0)
         runtime.nativeModelFoundation.getCheckpoint(spec.outputCheckpointId)?.let {
             return it
         }
@@ -547,9 +582,27 @@ class ReflexNativeModelLifecycle(
             }
         }
         val prepared = runtime.reflexDecisionTraining.prepare(spec)
+        val trainingExamples = runtime.reflexExperienceDatasets
+            .getShard(spec.trainingShardId)
+            ?.exampleIds
+            ?.size
+            ?.coerceAtLeast(1)
+            ?: (actionExamples + escalationExamples).coerceAtLeast(1)
+        val startedNanos = monotonicNanos()
         val finished = runtime.nativeTrainingPipeline.execute(
             prepared.run.id,
             trainer
+        )
+        val elapsedNanos = (monotonicNanos() - startedNanos).coerceAtLeast(0L)
+        val durationMs = (elapsedNanos / 1_000_000L).coerceAtLeast(1L)
+        learningCostModel.observe(
+            ReflexLearningCostObservation(
+                durationMs = durationMs,
+                exampleCount = trainingExamples,
+                learningValue = learningValue,
+                succeeded = finished.status == NativeTrainingRunStatus.SUCCEEDED,
+                observedAtEpochMs = clock().coerceAtLeast(0L)
+            )
         )
         if (finished.status != NativeTrainingRunStatus.SUCCEEDED) {
             return null

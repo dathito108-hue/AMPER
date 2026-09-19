@@ -152,6 +152,7 @@ class ReflexRealModelTest {
         val initial = lifecycle.maintain().getOrThrow()
         assertEquals(ReflexNativeLifecycleStage.ACTIVE, initial.stage)
         val championId = requireNotNull(initial.checkpointId)
+        assertEquals(1, runtime.reflexLearningCostModel.snapshot().samples)
 
         seedFreshWebSearch(runtime.reflexExperienceDatasets, "resource-resume-fresh")
         allowTraining = false
@@ -160,6 +161,7 @@ class ReflexRealModelTest {
         assertEquals(ReflexNativeLifecycleStage.RESOURCE_DEFERRED, deferred.stage)
         assertEquals(championId, deferred.checkpointId)
         assertEquals(championId, runtime.reflexDecisionRuntime.active()?.checkpointId)
+        assertEquals(1, runtime.reflexLearningCostModel.snapshot().samples)
 
         allowTraining = true
         val resumed = lifecycle.maintain().getOrThrow()
@@ -167,6 +169,10 @@ class ReflexRealModelTest {
         assertEquals(ReflexNativeLifecycleStage.REPLACED, resumed.stage)
         assertTrue(requireNotNull(resumed.checkpointId) != championId)
         assertEquals(resumed.checkpointId, runtime.reflexDecisionRuntime.active()?.checkpointId)
+        val cost = runtime.reflexLearningCostModel.snapshot()
+        assertEquals(2, cost.samples)
+        assertTrue(requireNotNull(cost.durationEwmaMs) > 0.0)
+        assertTrue(requireNotNull(cost.examplesPerSecondEwma) > 0.0)
     }
 
     @Test
