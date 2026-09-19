@@ -7,6 +7,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 enum class AutonomousGoalSchedulerStage {
     RAN,
+    PLAN_PROGRESS,
     DEFERRED,
     NO_GOAL,
     RESOURCE_GATED,
@@ -22,6 +23,7 @@ data class AutonomousGoalSchedulerTick(
     val checkpointStage: PersistentGoalExecutiveStage? = null,
     val action: CognitiveExecutiveAction? = null,
     val planId: PlanId? = null,
+    val planRunStage: AutonomousGovernedPlanRunStage? = null,
     val failureCode: String? = null
 ) {
     init {
@@ -30,6 +32,9 @@ data class AutonomousGoalSchedulerTick(
         require(failureCode == null || failureCode.matches(FAILURE_CODE))
         if (checkpointStage == PersistentGoalExecutiveStage.PLANNED) {
             require(planId != null) { "planned scheduler tick requires plan id" }
+        }
+        require((stage == AutonomousGoalSchedulerStage.PLAN_PROGRESS) == (planRunStage != null)) {
+            "plan-progress scheduler tick requires exact autonomous plan-run stage"
         }
     }
 
@@ -55,6 +60,7 @@ data class AutonomousGoalSchedulerTick(
 class AutonomousGoalScheduler(
     private val runGoal: (ConversationId) -> Result<PersistentGoalExecutiveResult>,
     private val resourceAllowed: () -> Boolean,
+    private val runPlan: ((PlanId) -> Result<AutonomousGovernedPlanRunResult>)? = null,
     private val clock: () -> Long = System::currentTimeMillis
 ) {
     private val busy = AtomicBoolean(false)
@@ -124,30 +130,83 @@ class AutonomousGoalScheduler(
                 )
             }
             is PersistentGoalExecutiveResult.Deferred -> {
-                val delay = deferredDelay(result.checkpoint.stage)
-                scheduleFrom(now, delay)
-                AutonomousGoalSchedulerTick(
-                    stage = AutonomousGoalSchedulerStage.DEFERRED,
-                    observedAtEpochMs = now,
-                    nextDelayMs = delay,
-                    checkpointStage = result.checkpoint.stage,
-                    action = result.checkpoint.lastAction,
-                    planId = result.checkpoint.plannedPlanId
-                )
+                maybeRunPlanned(
+                    checkpoint = result.checkpoint,
+                    now = now
+                ) ?: run {
+                    val delay = deferredDelay(result.checkpoint.stage)
+                    scheduleFrom(now, delay)
+                    AutonomousGoalSchedulerTick(
+                        stage = AutonomousGoalSchedulerStage.DEFERRED,
+                        observedAtEpochMs = now,
+                        nextDelayMs = delay,
+                        checkpointStage = result.checkpoint.stage,
+                        action = result.checkpoint.lastAction,
+                        planId = result.checkpoint.plannedPlanId
+                    )
+                }
             }
             is PersistentGoalExecutiveResult.Ran -> {
-                val delay = ranDelay(result.checkpoint.stage)
-                scheduleFrom(now, delay)
-                AutonomousGoalSchedulerTick(
-                    stage = AutonomousGoalSchedulerStage.RAN,
-                    observedAtEpochMs = now,
-                    nextDelayMs = delay,
-                    checkpointStage = result.checkpoint.stage,
-                    action = result.checkpoint.lastAction,
-                    planId = result.checkpoint.plannedPlanId
-                )
+                maybeRunPlanned(
+                    checkpoint = result.checkpoint,
+                    now = now
+                ) ?: run {
+                    val delay = ranDelay(result.checkpoint.stage)
+                    scheduleFrom(now, delay)
+                    AutonomousGoalSchedulerTick(
+                        stage = AutonomousGoalSchedulerStage.RAN,
+                        observedAtEpochMs = now,
+                        nextDelayMs = delay,
+                        checkpointStage = result.checkpoint.stage,
+                        action = result.checkpoint.lastAction,
+                        planId = result.checkpoint.plannedPlanId
+                    )
+                }
             }
         }
+    }
+
+    private fun maybeRunPlanned(
+        checkpoint: PersistentGoalExecutiveCheckpoint,
+        now: Long
+    ): AutonomousGoalSchedulerTick? {
+        val runner = runPlan ?: return null
+        if (checkpoint.stage != PersistentGoalExecutiveStage.PLANNED) return null
+        val planId = checkpoint.plannedPlanId ?: return null
+
+        return runner(planId).fold(
+            onSuccess = { planRun ->
+                val delay = when (planRun.stage) {
+                    AutonomousGovernedPlanRunStage.WAITING_APPROVAL -> PLANNED_RETRY_MS
+                    AutonomousGovernedPlanRunStage.STEP_LIMIT -> PLAN_PROGRESS_RETRY_MS
+                    AutonomousGovernedPlanRunStage.CONTEXT_REFRESHED,
+                    AutonomousGovernedPlanRunStage.COMPLETED,
+                    AutonomousGovernedPlanRunStage.TERMINAL_RECOVERY -> ACTIVE_RETRY_MS
+                }
+                scheduleFrom(now, delay)
+                AutonomousGoalSchedulerTick(
+                    stage = AutonomousGoalSchedulerStage.PLAN_PROGRESS,
+                    observedAtEpochMs = now,
+                    nextDelayMs = delay,
+                    checkpointStage = planRun.goalCheckpointStage,
+                    action = CognitiveExecutiveAction.PLAN,
+                    planId = planRun.activePlanId,
+                    planRunStage = planRun.stage
+                )
+            },
+            onFailure = { error ->
+                scheduleFrom(now, FAILURE_RETRY_MS)
+                AutonomousGoalSchedulerTick(
+                    stage = AutonomousGoalSchedulerStage.FAILED,
+                    observedAtEpochMs = now,
+                    nextDelayMs = FAILURE_RETRY_MS,
+                    checkpointStage = checkpoint.stage,
+                    action = checkpoint.lastAction,
+                    planId = checkpoint.plannedPlanId,
+                    failureCode = schedulerFailureCode(error)
+                )
+            }
+        )
     }
 
     private fun ranDelay(stage: PersistentGoalExecutiveStage): Long = when (stage) {
@@ -182,6 +241,7 @@ class AutonomousGoalScheduler(
 
     companion object {
         const val OBSERVATION_RETRY_MS = 5_000L
+        const val PLAN_PROGRESS_RETRY_MS = 5_000L
         const val ACTIVE_RETRY_MS = 10_000L
         const val RESOURCE_RETRY_MS = 30_000L
         const val FAILURE_RETRY_MS = 30_000L
