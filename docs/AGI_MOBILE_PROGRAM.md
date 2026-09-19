@@ -285,6 +285,20 @@ at four decisions; only successful practice may continue within the same run, wh
 EVOLVE terminate the call. The executive owns no ToolFabric or AuthorityGate handle and cannot turn
 practice/evolution evidence into device authority or claim that a planned action executed.
 
+
+### Implemented checkpoint — Phase281-285
+Phase281 selects the highest-priority active sovereign goal for autonomous cognitive work rather than
+requiring the caller to restate that objective. Phase282 persists one bounded goal checkpoint in
+Memory OS, including conversation, priority, stage and the latest cognitive/execution-context digests;
+production encrypted Memory OS therefore carries the checkpoint across process restart, and the raw
+checkpoint kind is excluded from ordinary planning recall. Phase283 hands the selected objective to
+the existing bounded autonomous cognitive executive and persists any resulting SovereignPlan before
+recording a PLANNED handoff. Phase284 resumes WAITING_OBSERVATION, LEARNING_PAUSED and
+EVOLUTION_PAUSED checkpoints but blocks duplicate planning while a PLANNED handoff is outstanding.
+Phase285 requires explicit matching plan-completion acknowledgement before closing that checkpoint and
+selecting a different active goal. The persistent goal executive owns no ToolFabric/AuthorityGate
+handle and cannot execute or approve a plan step.
+
 ## CI budget policy
 
 GitHub Actions is a scarce verification resource.
