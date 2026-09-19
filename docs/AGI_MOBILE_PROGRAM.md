@@ -859,3 +859,19 @@ as AmperRuntime.reflexDecisionCortex while exposing reflexDecisionRuntime for ex
 activation. This is the first runtime bridge from an admitted learned System-1 checkpoint into the
 assistant fast path, without changing SovereignActionLoop, ToolDescriptor, AuthorityGate or explicit
 approval semantics.
+
+
+### Implemented checkpoint — Phase451-455
+Phase451 adds a durable ReflexRuntimeActivationIntent containing only checkpoint id, immutable weight
+SHA-256, ACTIVE/DISABLED status, monotonic generation and timestamps; backend objects, prompts, tool
+data and approvals are never serialized. Phase452 persists ACTIVE intent only after the learned port
+passes the existing canonical activation gate, and the in-memory port is published only after the
+durable record round-trips successfully. Phase453 adds NativeReflexDecisionPortResolver and restart
+recovery: a new process resolves the exact checkpoint/hash to a fresh runtime port, verifies the
+returned identity, and reruns the full checkpoint/admission/promotion activation gate before restoring
+System-1 service. A missing or invalid backend leaves learned Reflex inactive and preserves fail-safe
+bootstrap/System-2 behavior. Phase454 makes rollback durable by writing a newer DISABLED generation
+before clearing the in-memory port, preventing an older checkpoint from silently reactivating after a
+restart. Phase455 wires the MemoryOs-backed activation store into AmperRuntime, exposes the persisted
+intent through the runtime controller, and excludes activation records from generic sovereign prompt
+retrieval. Persistence carries no tool authority and cannot itself instantiate or approve a model.
