@@ -204,7 +204,8 @@ data class NativeTrainingRequest(
     val contract: AmperNativeModelContract,
     val curriculum: NativeCurriculumManifest,
     val datasets: List<NativeDatasetShardManifest>,
-    val parentCheckpoint: NativeCheckpointLineage?
+    val parentCheckpoint: NativeCheckpointLineage?,
+    val generatedExperienceShards: List<NativeExperienceDatasetShard> = emptyList()
 ) {
     init {
         require(teachers.isNotEmpty())
@@ -214,6 +215,16 @@ data class NativeTrainingRequest(
         require(manifest.studentContractId == contract.id)
         require(manifest.curriculumId == curriculum.id)
         require(manifest.parentCheckpointId == parentCheckpoint?.id)
+        require(
+            generatedExperienceShards.map { it.manifest.id }.distinct().size ==
+                generatedExperienceShards.size
+        )
+        generatedExperienceShards.forEach { shard ->
+            require(shard.manifest.id in manifest.datasetShardIds)
+            require(datasets.any { it == shard.manifest }) {
+                "generated experience shard manifest is not bound to this training request"
+            }
+        }
     }
 }
 
@@ -363,7 +374,8 @@ interface NativeTrainingPipeline {
 class MemoryBackedNativeTrainingPipeline(
     private val memory: MemoryOs,
     private val foundation: NativeModelFoundation,
-    private val clock: () -> Long = System::currentTimeMillis
+    private val clock: () -> Long = System::currentTimeMillis,
+    private val experienceDatasets: NativeExperienceDatasetStore? = null
 ) : NativeTrainingPipeline {
     override fun putTeacher(snapshot: NativeTeacherSnapshot) {
         memory.rememberIfAbsent(
@@ -811,6 +823,9 @@ class MemoryBackedNativeTrainingPipeline(
             },
             parentCheckpoint = manifest.parentCheckpointId?.let {
                 requireNotNull(foundation.getCheckpoint(it))
+            },
+            generatedExperienceShards = manifest.datasetShardIds.mapNotNull { id ->
+                experienceDatasets?.getShard(id)
             }
         )
     }

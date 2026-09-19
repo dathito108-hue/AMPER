@@ -442,7 +442,8 @@ class SovereignPlanCoordinator(
         strategyPortfolio = runtime.goalStrategyPortfolio,
         hierarchicalStrategyCredit = runtime.goalHierarchicalStrategyCredit,
         repairValidation = runtime.goalRepairValidation,
-        repairStrategyMemory = runtime.goalRepairStrategyMemory
+        repairStrategyMemory = runtime.goalRepairStrategyMemory,
+        nativeExperienceDatasets = runtime.nativeExperienceDatasets
     )
 
     fun create(
