@@ -440,7 +440,8 @@ class SovereignPlanCoordinator(
         outcomeLearning = runtime.goalOutcomeLearning,
         transferCalibration = runtime.goalTransferCalibration,
         strategyPortfolio = runtime.goalStrategyPortfolio,
-        hierarchicalStrategyCredit = runtime.goalHierarchicalStrategyCredit
+        hierarchicalStrategyCredit = runtime.goalHierarchicalStrategyCredit,
+        repairValidation = runtime.goalRepairValidation
     )
 
     fun create(

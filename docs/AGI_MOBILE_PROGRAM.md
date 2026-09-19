@@ -599,3 +599,17 @@ cross into positive credit from practice alone. Phase370 invalidates the effecti
 when newer negative execution evidence arrives and excludes repair journals from generic sovereign
 context retrieval. Real governed success remains the only path that can turn hierarchical credit
 positive.
+
+
+### Implemented checkpoint — Phase371-375
+Phase371 separates zero-tool repair validation from real-world requalification: a repair becomes
+REQUALIFIED only after a later governed VERIFIED_SUCCESS on a strategy that actually uses the repaired
+capability. Phase372 persists restart-safe real-outcome markers and makes replay idempotent without
+copying raw goals, tool payloads, approvals or tool ids. Phase373 treats execution exhaustion and
+goal-evidence exhaustion as real repair invalidation while authority/user and partial-execution
+outcomes remain neutral. Phase374 enables structural repair transfer only through capability-sequence
+similarity; transfer requires at least 0.50 structural similarity and is confidence weighted. Phase375
+feeds requalified evidence back into learning and contextual strategy ranking with hard bounds:
+requalified learning-pressure relief is capped at 60% and negative portfolio-penalty attenuation at
+80%. Neither path can mint authority, count practice as execution, or turn a negative hierarchical
+adjustment positive; real governed success still updates hierarchical credit independently.

@@ -223,6 +223,7 @@ class PersistentGoalExecutiveCoordinator(
     private val transferCalibration: GoalTransferCalibrationModel? = null,
     private val strategyPortfolio: GoalContextualStrategyPortfolio? = null,
     private val hierarchicalStrategyCredit: GoalHierarchicalStrategyCreditModel? = null,
+    private val repairValidation: GoalRepairValidationModel? = null,
     private val clock: () -> Long = System::currentTimeMillis
 ) {
     @Synchronized
@@ -594,6 +595,13 @@ class PersistentGoalExecutiveCoordinator(
                     observedAtEpochMs = observedAtEpochMs
                 )
             }
+        }
+        runCatching {
+            repairValidation?.observeGovernedOutcome(
+                plan = terminalPlan,
+                outcome = outcome,
+                observedAtEpochMs = observedAtEpochMs
+            )
         }
         runCatching {
             transferCalibration?.observe(
