@@ -288,6 +288,59 @@ class SovereignPlanCoordinator(
         require(temperature in 0.0..2.0)
     }
 
+    /**
+     * Run one bounded zero-tool autonomous-learning practice.
+     *
+     * The generated plan-shaped output is parsed only as practice evidence. It is never passed to
+     * [SovereignActionLoop], so PASS cannot become execution competence or authority.
+     */
+    fun practiceOne(): Result<AutonomousLearningCycleResult> = runCatching {
+        val descriptors = routedDescriptors()
+        val tasks = runtime.autonomousLearning.curriculum(
+            allowedCapabilities = advertisedCapabilities,
+            descriptors = descriptors,
+            limit = 1
+        )
+        val task = tasks.firstOrNull()
+            ?: return@runCatching AutonomousLearningCycleResult.NoPractice(
+                needs = runtime.autonomousLearning.diagnose(
+                    allowedCapabilities = advertisedCapabilities,
+                    descriptors = descriptors,
+                    limit = MemoryBackedAutonomousLearningModel.MAX_DIAGNOSED_NEEDS
+                )
+            )
+        val descriptor = requireNotNull(
+            descriptors.singleOrNull { it.capability == task.capability }
+        ) { "autonomous practice capability lost its live descriptor" }
+
+        val prompt = AutonomousLearningPracticePrompt.build(
+            task = task,
+            descriptor = descriptor,
+            charBudget = minOf(maxPromptChars, 4096)
+        )
+        val response = inference.infer(
+            InferenceRequest(
+                prompt = prompt,
+                requiredCapabilities = baselineCapabilities,
+                maxOutputTokens = minOf(maxOutputTokens, 256),
+                temperature = 0.2,
+                preferredCapabilityProfiles =
+                    DeterministicInferenceCapabilityPolicy.planningProfile(baselineCapabilities)
+            )
+        ).getOrThrow()
+        val evidence = runtime.autonomousLearning.assess(
+            task = task,
+            modelOutput = response.text,
+            descriptors = descriptors
+        )
+        AutonomousLearningCycleResult.Assessed(
+            task = task,
+            evidence = evidence,
+            backendId = response.backendId,
+            modelId = response.modelId
+        )
+    }
+
     fun create(
         conversationId: ConversationId,
         userGoal: String

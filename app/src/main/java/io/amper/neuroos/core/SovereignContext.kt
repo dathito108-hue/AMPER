@@ -80,7 +80,10 @@ class CanonicalSovereignContextSource(
             MemoryBackedSkillGenesisModel.INDEX_KIND,
             MemoryBackedSkillGeneralizationModel.OBSERVATION_KIND,
             MemoryBackedSkillGeneralizationModel.SNAPSHOT_KIND,
-            MemoryBackedSkillGeneralizationModel.INDEX_KIND
+            MemoryBackedSkillGeneralizationModel.INDEX_KIND,
+            MemoryBackedAutonomousLearningModel.PRACTICE_EVIDENCE_KIND,
+            MemoryBackedAutonomousLearningModel.PRACTICE_SNAPSHOT_KIND,
+            MemoryBackedAutonomousLearningModel.PRACTICE_INDEX_KIND
         )
         val seedScanLimit = if (memoryLimit == 0) 0 else (memoryLimit * 6).coerceAtLeast(memoryLimit)
         val seeds = memory.recall(query, seedScanLimit)
