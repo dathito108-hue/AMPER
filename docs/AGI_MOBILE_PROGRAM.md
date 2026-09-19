@@ -458,6 +458,25 @@ ToolFabric or AuthorityGate handle and cannot turn structural adaptation into ev
 goal succeeded.
 
 
+### Implemented checkpoint — Phase336-340
+Phase336 adds bounded durable goal-outcome evidence keyed by hashed normalized goal terms rather than
+raw goal text. Each record contains only a capability-sequence strategy signature, causal terminal
+outcome, bounded hierarchy statistics and optional verification confidence; tool inputs/outputs,
+request IDs, tool IDs and approvals are never persisted in this channel. Phase337 wires the outcome
+learner into AmperRuntime and excludes its raw record/index kinds from ordinary sovereign-memory
+recall. Phase338 records VERIFIED_SUCCESS only after the existing independent goal-satisfaction
+verifier returns SATISFIED above its confidence threshold, records EXECUTION_EXHAUSTED only after
+bounded recovery is truly exhausted with zero executed steps, and keeps authority, partial-execution
+and evidence-exhaustion outcomes diagnostic rather than execution-skill failures. Phase339 performs
+ephemeral similarity matching against hashed current-goal terms, groups analogous evidence by
+capability sequence, and derives bounded transfer support from similarity, execution-attributable
+success rate, evidence confidence and hierarchy completion. Phase340 exposes at most three
+goal-outcome strategy candidates to planning only after live tool contracts, integrated cognition,
+skill/generalization evidence and existing governed strategy guidance. Transfer is structural and
+advisory: old inputs, outputs, approvals, request IDs and tool bindings cannot be reused, and every
+new plan remains subject to current descriptor binding, AuthorityGate, confirmation, continuity and
+goal-satisfaction verification.
+
 ## CI budget policy
 
 GitHub Actions is a scarce verification resource.
