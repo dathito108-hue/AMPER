@@ -290,9 +290,10 @@ class MemoryBackedClosedLoopEvolutionLedger(
     ): Boolean {
         require(evidenceDigest.matches(SHA256))
         val entry = get(capability) ?: return false
-        return entry.evidenceDigest == evidenceDigest &&
-            entry.baselineRevisionDigest ==
-                closedLoopEvolutionSha256(baselineRevision)
+        if (entry.evidenceDigest != evidenceDigest) return false
+        if (entry.committedCount > 0) return true
+        return entry.baselineRevisionDigest ==
+            closedLoopEvolutionSha256(baselineRevision)
     }
 
     @Synchronized
