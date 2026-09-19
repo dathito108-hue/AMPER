@@ -782,3 +782,22 @@ of creating a parallel trainer stack. Phase430 exposes the dataset through Amper
 records from generic sovereign prompt retrieval, and corrects Reflex side-effect telemetry so a
 proposal created with zero LLM passes plus one post-approval synthesis reports one inference pass.
 Decision experience is non-authoritative and cannot execute a tool, grant approval or promote a model.
+
+
+### Implemented checkpoint — Phase431-435
+Phase431 adds deterministic stratified train/holdout partitioning for Reflex experience. ACTION and
+ESCALATE_SYSTEM2 examples are ordered independently by immutable example identity, so both training
+and holdout retain class coverage and insertion order cannot leak examples across the split. Phase432
+adds an evidence-backed one-stage NativeCurriculumManifest for the canonical reflex-decision
+capability and requires minimum training evidence from both decision classes. Phase433 introduces a
+ReflexDecisionTrainingCoordinator that compiles only the training shard into the existing
+NativeDistillationManifest/NativeTrainingRun path; the disjoint holdout shard is explicitly excluded
+from the training manifest for later evaluation. Phase434 extends NativeTrainingRequest
+backward-compatibly with generatedReflexExperienceShards so NativeTrainerPort receives the real
+privacy-preserving System-1 payload bytes rather than manifest metadata alone. The canonical execution
+binding digest includes those immutable reflex payload digests. Phase435 applies the existing generated
+dataset echo gates to Reflex training as well: the trainer must echo the exact execution binding,
+dataset snapshot and curriculum digest before a checkpoint can be published. AmperRuntime now exposes
+reflexExperiencePartition, reflexDecisionCurriculum and reflexDecisionTraining. Preparation/training
+remains non-authoritative; no checkpoint becomes a live model without downstream held-out evaluation,
+admission and runtime promotion.
