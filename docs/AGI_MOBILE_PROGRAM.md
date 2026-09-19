@@ -109,6 +109,16 @@ self-learning loop.
 Dataset/curriculum pipeline, model contracts, AMPER-owned student checkpoints, distillation,
 multimodal adapters and on-device inference integration.
 
+### Implemented checkpoint — Phase211-215
+Phase211 defines an explicit AMPER-owned native model architecture/capability contract. Phase212
+adds content-addressed dataset shard manifests with provenance and training-rights classification;
+UNKNOWN rights are retained for audit but fail closed at checkpoint admission. Phase213 freezes a
+bounded multi-capability curriculum and deterministic digest. Phase214 records immutable checkpoint
+lineage across parent checkpoint, contract, dataset snapshot, curriculum, training recipe and weight
+artifact digests. Phase215 adds held-out admission gates for planning protocol, live tool-contract
+compatibility, regression and generalization. An admitted foundation checkpoint is still not added to
+live ModelRegistry; distillation/training and native inference routing remain Phase216-230 work.
+
 ### Mega-Phase 231-250 — Autonomous Evolution
 Self-benchmarking, candidate code/model generation, sandbox tournaments, automated promotion,
 rollback and architecture evolution.
