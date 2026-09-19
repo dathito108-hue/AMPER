@@ -96,6 +96,17 @@ class PersistentSovereignPlanCoordinator(
         }
     }
 
+    /**
+     * Persist one fresh child plan after cognitive continuity reports context drift.
+     * Replanning performs no tool execution and is blocked while an unresolved side-effect claim
+     * exists, preventing an uncertain old effect from being duplicated by a replacement plan.
+     */
+    fun refreshContext(plan: SovereignPlan): Result<SovereignPlan> {
+        receipts?.verifyCompletedPrefix(plan)?.exceptionOrNull()?.let { return Result.failure(it) }
+        recoveryInterlock.requireApprovalAllowed().exceptionOrNull()?.let { return Result.failure(it) }
+        return delegate.refreshContext(plan).map(store::save)
+    }
+
     fun approve(plan: SovereignPlan, stepIndex: Int): Result<PlanAdvanceResult.StepProcessed> {
         receipts?.verifyCompletedPrefix(plan)?.exceptionOrNull()?.let { return Result.failure(it) }
         recoveryInterlock.requireApprovalAllowed().exceptionOrNull()?.let { return Result.failure(it) }

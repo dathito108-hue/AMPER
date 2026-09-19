@@ -577,6 +577,130 @@ class SovereignPlanCoordinator(
         }
     }
 
+    /**
+     * Replan a still-active plan only after its execution-relevant cognitive context has changed.
+     *
+     * Phase271-275 keeps replanning separate from execution: this method performs exactly one
+     * planning inference plus the already-bounded optional critic pass and invokes zero tools.
+     * The replacement is a child plan with a fresh continuity binding and fresh request ids.
+     */
+    fun refreshContext(plan: SovereignPlan): Result<SovereignPlan> = runCatching {
+        require(!plan.complete) { "context refresh requires a nonterminal plan" }
+        val expectedContextDigest = requireNotNull(plan.planningExecutionContextDigest) {
+            "legacy unbound plans require explicit manual replanning"
+        }
+        require(plan.recoveryDepth < MAX_CONTEXT_REPLANS) {
+            "context refresh depth limit reached"
+        }
+
+        val boundInferenceProfile = runtime.inferenceProfiles.bind(
+            conversationId = plan.conversationId,
+            fallbackMaxOutputTokens = maxOutputTokens,
+            fallbackTemperature = temperature,
+            fallbackMaxPromptChars = maxPromptChars
+        )
+        val descriptors = routedDescriptors()
+        val cognitiveState = runtime.integratedCognition.capture(
+            query = plan.goal,
+            allowedCapabilities = advertisedCapabilities,
+            descriptors = descriptors
+        )
+        val continuity = CognitiveContinuityPolicy.assess(
+            expectedExecutionContextDigest = expectedContextDigest,
+            current = cognitiveState
+        )
+        require(continuity.blocksExecution) {
+            "context refresh requires a changed execution context"
+        }
+
+        val continuityBinding = CognitiveContinuityPolicy.bind(cognitiveState)
+        val metacognitiveControl = MetacognitiveInferenceControlPolicy.derive(
+            state = cognitiveState,
+            profile = boundInferenceProfile
+        )
+        val prompt = buildPlanningPrompt(
+            conversationId = plan.conversationId,
+            userGoal = plan.goal,
+            descriptors = descriptors,
+            cognitiveState = cognitiveState,
+            metacognitiveControl = metacognitiveControl,
+            promptBudgetChars = boundInferenceProfile.maxPromptChars,
+            contextRefreshPlan = plan,
+            contextRefreshAssessment = continuity
+        )
+        val response = inference.infer(
+            InferenceRequest(
+                prompt = prompt,
+                requiredCapabilities = baselineCapabilities,
+                maxOutputTokens = metacognitiveControl.planningMaxOutputTokens,
+                temperature = metacognitiveControl.planningTemperature,
+                preferredCapabilityProfiles =
+                    DeterministicInferenceCapabilityPolicy.planningProfile(baselineCapabilities),
+                userPreferredModelId = runtime.conversations.preferredModelId(plan.conversationId),
+                sessionRoutingPreference = boundInferenceProfile.sessionRoutingPreference
+            )
+        ).getOrThrow()
+        val candidates = TitanDeliberationProtocol.parse(
+            modelOutput = response.text,
+            allowedCapabilities = advertisedCapabilities,
+            descriptors = descriptors
+        ).getOrThrow()
+        val selection = EvidenceGroundedDeliberationEvaluator.select(
+            candidates = candidates,
+            strategies = runtime.strategies,
+            allowedCapabilities = advertisedCapabilities
+        )
+        val critique = critiqueSelection(
+            conversationId = plan.conversationId,
+            userGoal = plan.goal,
+            selected = selection.selected,
+            descriptors = descriptors,
+            cognitiveState = cognitiveState,
+            metacognitiveControl = metacognitiveControl,
+            profile = boundInferenceProfile
+        )
+        val finalEvaluation = postCriticEvaluation(selection.selected, critique)
+
+        SovereignPlan(
+            conversationId = plan.conversationId,
+            goal = plan.goal,
+            steps = finalEvaluation.candidate.steps,
+            planningBackendId = response.backendId,
+            planningModelId = response.modelId,
+            planningSelectedCapabilities = response.selectedCapabilities,
+            parentPlanId = plan.id,
+            recoveryDepth = plan.recoveryDepth + 1,
+            deliberationCandidateCount = selection.evaluated.size,
+            deliberationScore = finalEvaluation.totalScore,
+            counterfactualViability = finalEvaluation.counterfactualViability,
+            counterfactualConfidence = finalEvaluation.counterfactualConfidence,
+            planningCognitiveStateDigest = continuityBinding.cognitiveStateDigest,
+            planningExecutionContextDigest = continuityBinding.executionContextDigest
+        ).also { replacement ->
+            require(replacement.id != plan.id)
+            replacement.steps.forEach { replacementStep ->
+                require(plan.steps.none { it.requestId == replacementStep.requestId }) {
+                    "context refresh must issue fresh action request ids"
+                }
+            }
+            runCatching {
+                runtime.skills.begin(
+                    plan = replacement,
+                    worldStates = cognitiveState.context.structuredWorldStates
+                )
+            }
+            runtime.conversations.commitAssistant(
+                conversationId = plan.conversationId,
+                userPrompt = plan.goal,
+                response = renderContextRefreshSummary(plan, replacement),
+                backendId = response.backendId,
+                confidence = 0.8,
+                modelId = response.modelId,
+                selectedCapabilities = response.selectedCapabilities
+            )
+        }
+    }
+
     private fun critiqueSelection(
         conversationId: ConversationId,
         userGoal: String,
@@ -750,7 +874,9 @@ class SovereignPlanCoordinator(
         cognitiveState: IntegratedCognitiveStatePacket,
         metacognitiveControl: MetacognitiveControlDirective,
         promptBudgetChars: Int,
-        recoveryDecision: StrategyRecoveryDecision? = null
+        recoveryDecision: StrategyRecoveryDecision? = null,
+        contextRefreshPlan: SovereignPlan? = null,
+        contextRefreshAssessment: CognitiveContinuityAssessment? = null
     ): String {
         require(promptBudgetChars in ConversationInferenceProfile.MIN_PROMPT_CHARS..ConversationInferenceProfile.MAX_PROMPT_CHARS)
         val capabilities = advertisedCapabilities
@@ -764,11 +890,25 @@ class SovereignPlanCoordinator(
         val recoverySection = recoveryDecision?.let { decision ->
             "\n" + GovernedStrategyRecovery.renderConstraint(decision) + "\n"
         }.orEmpty()
+        require((contextRefreshPlan == null) == (contextRefreshAssessment == null)) {
+            "context refresh planning requires both plan and assessment"
+        }
+        val contextRefreshSection = if (
+            contextRefreshPlan != null && contextRefreshAssessment != null
+        ) {
+            "\n" + renderContextRefreshConstraint(
+                plan = contextRefreshPlan,
+                assessment = contextRefreshAssessment
+            ) + "\n"
+        } else {
+            ""
+        }
         val wrapperChars = "\n<PLANNING_PROTOCOL>\n".length + "</PLANNING_PROTOCOL>\n".length
         val protocolBudget = promptBudgetChars -
             MIN_GROUNDED_CONTEXT_CHARS -
             currentSection.length -
             recoverySection.length -
+            contextRefreshSection.length -
             wrapperChars
         require(protocolBudget > 0) {
             "conversation prompt budget is too small for planning protocol and recovery constraints"
@@ -787,6 +927,7 @@ class SovereignPlanCoordinator(
             appendLine(protocol)
             appendLine("</PLANNING_PROTOCOL>")
             append(recoverySection)
+            append(contextRefreshSection)
             append(currentSection)
         }
         val conversationBudget = promptBudgetChars - tail.length
@@ -935,6 +1076,50 @@ class SovereignPlanCoordinator(
         )
     }
 
+    private fun renderContextRefreshConstraint(
+        plan: SovereignPlan,
+        assessment: CognitiveContinuityAssessment
+    ): String = buildString {
+        require(assessment.blocksExecution)
+        appendLine("<CONTEXT_REFRESH_CONSTRAINT>")
+        appendLine("reason=EXECUTION_CONTEXT_CHANGED")
+        appendLine("parent_plan=" + plan.id.value.take(64))
+        appendLine("previous_execution_context=" + requireNotNull(assessment.expectedExecutionContextDigest))
+        appendLine("current_execution_context=" + assessment.currentExecutionContextDigest)
+        appendLine("current_cognitive_state=" + assessment.currentCognitiveStateDigest)
+        plan.steps
+            .filter { it.status != PlanStepStatus.PLANNED && it.status != PlanStepStatus.REQUIRES_CONFIRMATION }
+            .take(TitanPlanProtocol.MAX_STEPS)
+            .forEach { step ->
+                appendLine(
+                    "terminal_step=" + step.index + "|" +
+                        step.capability.value.take(64) + "|" + step.status.name
+                )
+            }
+        appendLine("old_approval_transfer=false")
+        appendLine("old_request_id_reuse=false")
+        appendLine(
+            "instruction=Create a fresh bounded plan from current grounded state. Treat terminal " +
+                "steps above as historical outcomes and never assume an old pending approval remains valid."
+        )
+        append("</CONTEXT_REFRESH_CONSTRAINT>")
+    }
+
+    private fun renderContextRefreshSummary(
+        previous: SovereignPlan,
+        replacement: SovereignPlan
+    ): String = buildString {
+        append("Context-refreshed plan ")
+        append(replacement.id.value.take(8))
+        append(" replaces stale plan ")
+        append(previous.id.value.take(8))
+        append(" with ")
+        append(replacement.steps.size)
+        append(" newly bound governed step")
+        if (replacement.steps.size != 1) append('s')
+        append(". No replacement step has executed and no prior approval was transferred.")
+    }
+
     private fun renderRecoverySummary(
         failedPlan: SovereignPlan,
         replacement: SovereignPlan
@@ -1001,5 +1186,6 @@ class SovereignPlanCoordinator(
         private const val MIN_GROUNDED_CONTEXT_CHARS = 1024
         private const val COGNITIVE_STATE_MIN_CHARS = 512
         private const val COGNITIVE_STATE_MAX_CHARS = 1400
+        const val MAX_CONTEXT_REPLANS = 3
     }
 }

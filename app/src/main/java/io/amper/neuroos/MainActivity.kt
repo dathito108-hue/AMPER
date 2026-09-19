@@ -1953,33 +1953,65 @@ class MainActivity : ComponentActivity() {
                                     planStatus = "Advancing exactly one governed plan step..."
                                     executor.execute {
                                         val result = planner.advance(current)
+                                        val advance = result.getOrNull()
+                                        val refreshed = if (advance is PlanAdvanceResult.ContextChanged) {
+                                            planner.refreshContext(advance.plan)
+                                        } else {
+                                            null
+                                        }
                                         runOnUiThread {
-                                            result.fold(
-                                                onSuccess = { advance ->
-                                                    when (advance) {
-                                                        is PlanAdvanceResult.StepProcessed -> {
-                                                            activePlan = advance.plan
-                                                            planStatus = "Step ${advance.step.index}: ${advance.outcome.status}"
-                                                        }
-                                                        is PlanAdvanceResult.PendingApproval -> {
-                                                            activePlan = advance.plan
-                                                            planStatus = "Step ${advance.step.index} requires explicit approval"
-                                                        }
-                                                        is PlanAdvanceResult.ContextChanged -> {
-                                                            activePlan = advance.plan
-                                                            planStatus =
-                                                                "Grounded context changed; replan is required before tool execution"
-                                                        }
-                                                        is PlanAdvanceResult.Complete -> {
-                                                            activePlan = advance.plan
-                                                            planStatus = "Plan complete"
-                                                        }
+                                            if (
+                                                advance is PlanAdvanceResult.ContextChanged &&
+                                                refreshed != null
+                                            ) {
+                                                refreshed.fold(
+                                                    onSuccess = { replacement ->
+                                                        activePlan = replacement
+                                                        routeObservation = titan.latestRouteObservation()
+                                                        planStatus =
+                                                            "Grounded context changed; fresh child plan " +
+                                                                replacement.id.value.take(8) +
+                                                                " created with zero tool execution"
+                                                    },
+                                                    onFailure = { error ->
+                                                        activePlan = advance.plan
+                                                        planStatus =
+                                                            "Context changed and bounded replanning failed: " +
+                                                                (error.message ?: error::class.java.simpleName)
                                                     }
-                                                },
-                                                onFailure = { error ->
-                                                    planStatus = "Plan advance failed: ${error.message ?: error::class.java.simpleName}"
-                                                }
-                                            )
+                                                )
+                                            } else {
+                                                result.fold(
+                                                    onSuccess = { resolved ->
+                                                        when (resolved) {
+                                                            is PlanAdvanceResult.StepProcessed -> {
+                                                                activePlan = resolved.plan
+                                                                planStatus =
+                                                                    "Step ${resolved.step.index}: ${resolved.outcome.status}"
+                                                            }
+                                                            is PlanAdvanceResult.PendingApproval -> {
+                                                                activePlan = resolved.plan
+                                                                planStatus =
+                                                                    "Step ${resolved.step.index} requires explicit approval"
+                                                            }
+                                                            is PlanAdvanceResult.ContextChanged -> {
+                                                                activePlan = resolved.plan
+                                                                planStatus =
+                                                                    "Grounded context changed; bounded replanning unavailable"
+                                                            }
+                                                            is PlanAdvanceResult.Complete -> {
+                                                                activePlan = resolved.plan
+                                                                planStatus = "Plan complete"
+                                                            }
+                                                        }
+                                                    },
+                                                    onFailure = { error ->
+                                                        planStatus =
+                                                            "Plan advance failed: " +
+                                                                (error.message ?: error::class.java.simpleName)
+                                                    }
+                                                )
+                                            }
                                         }
                                     }
                                 },
