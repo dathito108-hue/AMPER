@@ -59,6 +59,6 @@ class ReflexAssistantSideEffectTest {
         assertEquals(ToolSideEffect.EXTERNAL, pending.sideEffect)
         assertEquals(ReflexDecisionRuntimeContract.BACKEND_ID, pending.firstResponse.backendId)
         assertTrue(runtime.pendingApprovals.load(pending.proposal.requestId) != null)
-        assertEquals(1, audit.snapshot().size)
+        assertEquals(0, audit.snapshot().size)
     }
 }

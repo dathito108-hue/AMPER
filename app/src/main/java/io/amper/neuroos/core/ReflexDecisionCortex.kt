@@ -275,10 +275,10 @@ object DeterministicReflexDecisionCortex : ReflexDecisionCortex {
         "accessibility" to setOf("accessibility", "tro nang")
     )
     private val TIMER_DURATION = Regex(
-        """\\b([0-9]{1,5})\\s*(giay|seconds?|secs?|s|phut|minutes?|mins?|m|gio|hours?|hrs?|h)\\b"""
+        """\b([0-9]{1,5})\s*(giay|seconds?|secs?|s|phut|minutes?|mins?|m|gio|hours?|hrs?|h)\b"""
     )
     private val SHARE_PREFIX = Regex(
-        """^\\s*(?:share|chia\\s+sẻ|chia\\s+se)\\s*:\\s*(.+?)\\s*$""",
+        """^\s*(?:share|chia\s+sẻ|chia\s+se)\s*:\s*(.+?)\s*$""",
         RegexOption.IGNORE_CASE
     )
     private val COMBINING_MARKS = Regex("\\p{M}+")
