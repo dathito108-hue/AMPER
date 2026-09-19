@@ -265,3 +265,19 @@ class MultimodalProjectorIdentityVerifier(
         require(inspection.sha256 == projector.sha256) {
             "projector SHA-256 does not match installed identity"
         }
+        projector.lengthBytes?.let { installedLength ->
+            require(inspection.lengthBytes == installedLength) {
+                "projector length does not match installed identity"
+            }
+        }
+        require(inspection.header.version == projector.ggufVersion) {
+            "projector GGUF version changed after installation"
+        }
+        require(inspection.header.tensorCount == projector.tensorCount) {
+            "projector tensor count changed after installation"
+        }
+        require(inspection.header.metadataKeyValueCount == projector.metadataKeyValueCount) {
+            "projector metadata count changed after installation"
+        }
+    }
+}
