@@ -3,7 +3,6 @@ package io.amper.neuroos.core
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.Base64
-import kotlin.math.abs
 
 @JvmInline
 value class NativeTeacherSnapshotId(val value: String) {
@@ -516,6 +515,7 @@ class MemoryBackedNativeTrainingPipeline(
                 }
 
                 val manifest = request.manifest
+                val completedAt = clock().coerceAtLeast(run.updatedAtEpochMs)
                 val checkpoint = NativeCheckpointLineage(
                     id = run.outputCheckpointId,
                     parentCheckpointId = manifest.parentCheckpointId,
@@ -527,7 +527,7 @@ class MemoryBackedNativeTrainingPipeline(
                     curriculumDigest = manifest.curriculumDigest,
                     recipeDigest = manifest.recipe.canonicalDigest,
                     weightArtifactSha256 = artifact.weightArtifactSha256,
-                    createdAtEpochMs = clock()
+                    createdAtEpochMs = completedAt
                 )
                 foundation.putCheckpoint(checkpoint)
                 memory.remember(
@@ -567,7 +567,7 @@ class MemoryBackedNativeTrainingPipeline(
             onFailure = { failure ->
                 val failed = run.copy(
                     status = NativeTrainingRunStatus.FAILED,
-                    updatedAtEpochMs = clock(),
+                    updatedAtEpochMs = clock().coerceAtLeast(run.updatedAtEpochMs),
                     failureCode = sanitizeFailure(failure)
                 )
                 persistRun(failed)
@@ -660,7 +660,7 @@ class MemoryBackedNativeTrainingPipeline(
         } else {
             deltas.average()
         }
-        if (baseline == null) {
+        if (baseline == null && candidate.admission.admitted) {
             reasons += "first admitted AMPER-native checkpoint has no baseline"
         } else if (noMaterialRegression && aggregateDelta > MIN_AGGREGATE_IMPROVEMENT) {
             reasons += "candidate improves aggregate held-out score without material regression"
@@ -781,8 +781,12 @@ class MemoryBackedNativeTrainingPipeline(
         require(requiredCapabilities.all { it in contract.capabilities }) {
             "curriculum requests capability outside student contract"
         }
-        require(shards.flatMap { it.targetCapabilities }.toSet().intersect(requiredCapabilities).isNotEmpty()) {
-            "dataset snapshot does not target curriculum capabilities"
+        val datasetCapabilities = shards.flatMap { it.targetCapabilities }.toSet()
+        require(requiredCapabilities.all { it in datasetCapabilities }) {
+            "dataset snapshot does not cover all curriculum capabilities"
+        }
+        require(manifest.target.androidArm64) {
+            "AMPER mobile training target must support Android arm64"
         }
     }
 
