@@ -276,6 +276,17 @@ interface NativeSystem2Core {
         allowedCapabilities: Set<CapabilityId>,
         descriptors: Collection<ToolDescriptor>
     ): Result<NativeSystem2Deliberation>
+
+    /**
+     * Deliberates over an already-captured canonical cognitive packet.
+     * This is used by planning so System-2 and the planner/critic bind the exact same state snapshot.
+     */
+    fun deliberateCaptured(
+        goal: String,
+        state: IntegratedCognitiveStatePacket,
+        allowedCapabilities: Set<CapabilityId>,
+        descriptors: Collection<ToolDescriptor>
+    ): Result<NativeSystem2Deliberation>
 }
 
 /**
@@ -302,7 +313,6 @@ class CanonicalNativeSystem2Core(
     ): Result<NativeSystem2Deliberation> = runCatching {
         require(goal.isNotBlank())
         require(allowedCapabilities.isNotEmpty())
-
         val liveDescriptors = descriptors
             .filter { it.capability in allowedCapabilities }
             .distinctBy { it.id }
@@ -312,6 +322,29 @@ class CanonicalNativeSystem2Core(
             allowedCapabilities = allowedCapabilities,
             descriptors = liveDescriptors
         )
+        deliberateCaptured(
+            goal = goal,
+            state = state,
+            allowedCapabilities = allowedCapabilities,
+            descriptors = liveDescriptors
+        ).getOrThrow()
+    }
+
+    override fun deliberateCaptured(
+        goal: String,
+        state: IntegratedCognitiveStatePacket,
+        allowedCapabilities: Set<CapabilityId>,
+        descriptors: Collection<ToolDescriptor>
+    ): Result<NativeSystem2Deliberation> = runCatching {
+        require(goal.isNotBlank())
+        require(allowedCapabilities.isNotEmpty())
+        val liveDescriptors = descriptors
+            .filter { it.capability in allowedCapabilities }
+            .distinctBy { it.id }
+            .sortedBy { it.capability.value }
+        require(state.queryDigest == nativeSystem2Sha256(normalizeSystem2Goal(goal))) {
+            "captured cognitive packet does not match System-2 goal"
+        }
         val goalDigest = nativeSystem2Sha256(normalizeSystem2Goal(goal))
         val executionDigest = CognitiveContinuityPolicy.executionContextDigest(state)
         val previous = workingStateStore.get(goalDigest)
