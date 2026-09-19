@@ -154,6 +154,36 @@ class CognitiveContinuityTest {
     }
 
     @Test
+    fun persistedPlanV6RoundTripsExactContinuityBinding() {
+        val plan = SovereignPlan(
+            conversationId = ConversationId("phase270-conversation"),
+            goal = "Preserve cognitive continuity across restart",
+            steps = listOf(
+                SovereignPlanStep(
+                    index = 1,
+                    requestId = ActionRequestId("phase270-request"),
+                    capability = capability,
+                    reason = "Read the currently grounded value",
+                    input = "read",
+                    boundToolId = ToolId("phase266-provider"),
+                    boundSideEffect = ToolSideEffect.READ_ONLY
+                )
+            ),
+            planningBackendId = "phase270-backend",
+            planningCognitiveStateDigest = "a".repeat(64),
+            planningExecutionContextDigest = "b".repeat(64)
+        )
+
+        val encoded = SovereignPlanCodec.encode(plan)
+        val restored = SovereignPlanCodec.decode(encoded).getOrThrow()
+
+        assertTrue(encoded.startsWith("AMPER_PLAN_STATE_V6"))
+        assertEquals(plan.planningCognitiveStateDigest, restored.planningCognitiveStateDigest)
+        assertEquals(plan.planningExecutionContextDigest, restored.planningExecutionContextDigest)
+        assertEquals(plan.steps.single().boundToolId, restored.steps.single().boundToolId)
+    }
+
+    @Test
     fun approvalBindingIsInvalidatedWhenGroundedContextChanges() {
         val runtime = AmperRuntime.reference()
         var executions = 0
