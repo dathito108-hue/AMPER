@@ -106,6 +106,16 @@ object DeterministicReflexDecisionCortex : ReflexDecisionCortex {
         matchSettings(normalized, descriptors)?.let { return it }
         matchTimer(normalized, descriptors)?.let { return it }
         matchExplicitShare(raw, descriptors)?.let { return it }
+        matchExactAppLaunch(raw, descriptors)?.let { return it }
+        matchWebSearch(raw, descriptors)?.let { return it }
+        matchClipboardWrite(raw, descriptors)?.let { return it }
+        matchFilesBrowse(normalized, descriptors)?.let { return it }
+        matchContactCompose(raw, descriptors)?.let { return it }
+        matchCalendarCompose(raw, descriptors)?.let { return it }
+        matchAlarm(normalized, descriptors)?.let { return it }
+        matchMediaOpen(raw, descriptors)?.let { return it }
+        matchNotificationSettings(normalized, descriptors)?.let { return it }
+        matchHome(normalized, descriptors)?.let { return it }
         matchSovereignStatus(normalized, descriptors)?.let { return it }
         matchDeviceStatus(normalized, descriptors)?.let { return it }
 
@@ -175,6 +185,157 @@ object DeterministicReflexDecisionCortex : ReflexDecisionCortex {
             capability = AndroidShareTextToolContract.capability,
             input = text,
             reason = "AMPER Reflex Cortex matched an explicit share request",
+            descriptors = descriptors
+        )
+    }
+
+    private fun matchExactAppLaunch(
+        raw: String,
+        descriptors: Map<CapabilityId, ToolDescriptor>
+    ): ReflexDecision? {
+        val match = APP_LAUNCH_PREFIX.matchEntire(raw) ?: return null
+        val packageName = runCatching {
+            AndroidUniversalActionInput.packageName(match.groupValues[1])
+        }.getOrNull() ?: return null
+        return propose(
+            capability = AndroidAppLaunchToolContract.capability,
+            input = packageName,
+            reason = "AMPER Reflex Cortex matched an explicit exact-package app launch",
+            descriptors = descriptors
+        )
+    }
+
+    private fun matchWebSearch(
+        raw: String,
+        descriptors: Map<CapabilityId, ToolDescriptor>
+    ): ReflexDecision? {
+        val match = WEB_SEARCH_PREFIX.matchEntire(raw) ?: return null
+        val query = runCatching {
+            AndroidUniversalActionInput.webQuery(match.groupValues[1])
+        }.getOrNull() ?: return null
+        return propose(
+            capability = AndroidWebSearchToolContract.capability,
+            input = query,
+            reason = "AMPER Reflex Cortex matched an explicit web-search request",
+            descriptors = descriptors
+        )
+    }
+
+    private fun matchClipboardWrite(
+        raw: String,
+        descriptors: Map<CapabilityId, ToolDescriptor>
+    ): ReflexDecision? {
+        val match = CLIPBOARD_PREFIX.matchEntire(raw) ?: return null
+        val text = runCatching {
+            AndroidUniversalActionInput.clipboardText(match.groupValues[1])
+        }.getOrNull() ?: return null
+        return propose(
+            capability = AndroidClipboardWriteToolContract.capability,
+            input = text,
+            reason = "AMPER Reflex Cortex matched an explicit clipboard-write request",
+            descriptors = descriptors
+        )
+    }
+
+    private fun matchFilesBrowse(
+        normalized: String,
+        descriptors: Map<CapabilityId, ToolDescriptor>
+    ): ReflexDecision? {
+        if (normalized !in FILE_BROWSER_PHRASES) return null
+        return propose(
+            capability = AndroidFilesBrowseToolContract.capability,
+            input = AndroidFilesBrowseToolContract.COMMAND,
+            reason = "AMPER Reflex Cortex matched an explicit document-browser request",
+            descriptors = descriptors
+        )
+    }
+
+    private fun matchContactCompose(
+        raw: String,
+        descriptors: Map<CapabilityId, ToolDescriptor>
+    ): ReflexDecision? {
+        val match = CONTACT_PREFIX.matchEntire(raw) ?: return null
+        val input = match.groupValues[1].trim()
+        if (runCatching { AndroidUniversalActionInput.contact(input) }.isFailure) return null
+        return propose(
+            capability = AndroidContactComposeToolContract.capability,
+            input = input,
+            reason = "AMPER Reflex Cortex matched an explicit typed contact-compose request",
+            descriptors = descriptors
+        )
+    }
+
+    private fun matchCalendarCompose(
+        raw: String,
+        descriptors: Map<CapabilityId, ToolDescriptor>
+    ): ReflexDecision? {
+        val match = CALENDAR_PREFIX.matchEntire(raw) ?: return null
+        val input = match.groupValues[1].trim()
+        if (runCatching { AndroidUniversalActionInput.calendar(input) }.isFailure) return null
+        return propose(
+            capability = AndroidCalendarComposeToolContract.capability,
+            input = input,
+            reason = "AMPER Reflex Cortex matched an explicit typed calendar-compose request",
+            descriptors = descriptors
+        )
+    }
+
+    private fun matchAlarm(
+        normalized: String,
+        descriptors: Map<CapabilityId, ToolDescriptor>
+    ): ReflexDecision? {
+        if (!ALARM_PREFIX.containsMatchIn(normalized)) return null
+        val match = ALARM_TIME.find(normalized) ?: return null
+        val hour = match.groupValues[1].toIntOrNull() ?: return null
+        val minute = match.groupValues[2].toIntOrNull() ?: return null
+        val input = "hour=$hour;minute=$minute"
+        if (runCatching { AndroidUniversalActionInput.alarm(input) }.isFailure) return null
+        return propose(
+            capability = AndroidAlarmPrepareToolContract.capability,
+            input = input,
+            reason = "AMPER Reflex Cortex matched an explicit alarm-time request",
+            descriptors = descriptors
+        )
+    }
+
+    private fun matchMediaOpen(
+        raw: String,
+        descriptors: Map<CapabilityId, ToolDescriptor>
+    ): ReflexDecision? {
+        val match = MEDIA_PREFIX.matchEntire(raw) ?: return null
+        val url = runCatching {
+            AndroidUniversalActionInput.mediaUrl(match.groupValues[1])
+        }.getOrNull() ?: return null
+        return propose(
+            capability = AndroidMediaOpenToolContract.capability,
+            input = url,
+            reason = "AMPER Reflex Cortex matched an explicit http/https media request",
+            descriptors = descriptors
+        )
+    }
+
+    private fun matchNotificationSettings(
+        normalized: String,
+        descriptors: Map<CapabilityId, ToolDescriptor>
+    ): ReflexDecision? {
+        if (normalized !in NOTIFICATION_SETTINGS_PHRASES) return null
+        return propose(
+            capability = AndroidNotificationSettingsToolContract.capability,
+            input = AndroidNotificationSettingsToolContract.COMMAND,
+            reason = "AMPER Reflex Cortex matched an explicit notification-settings request",
+            descriptors = descriptors
+        )
+    }
+
+    private fun matchHome(
+        normalized: String,
+        descriptors: Map<CapabilityId, ToolDescriptor>
+    ): ReflexDecision? {
+        if (normalized !in HOME_PHRASES) return null
+        return propose(
+            capability = AndroidHomeOpenToolContract.capability,
+            input = AndroidHomeOpenToolContract.COMMAND,
+            reason = "AMPER Reflex Cortex matched an explicit home-screen request",
             descriptors = descriptors
         )
     }
@@ -285,6 +446,50 @@ object DeterministicReflexDecisionCortex : ReflexDecisionCortex {
         """^\s*(?:share|chia\s+sẻ|chia\s+se)\s*:\s*(.+?)\s*$""",
         RegexOption.IGNORE_CASE
     )
+    private val APP_LAUNCH_PREFIX = Regex(
+        """^\s*(?:(?:open|launch)\s+app|(?:mở|mo)\s+(?:ứng\s+dụng|ung\s+dung|app))\s+([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)\s*$""",
+        RegexOption.IGNORE_CASE
+    )
+    private val WEB_SEARCH_PREFIX = Regex(
+        """^\s*(?:search\s+web(?:\s+for)?|web\s+search(?:\s+for)?|tìm\s+web|tim\s+web|tìm\s+kiếm\s+web|tim\s+kiem\s+web)\s*:?\s+(.+?)\s*$""",
+        RegexOption.IGNORE_CASE
+    )
+    private val CLIPBOARD_PREFIX = Regex(
+        """^\s*(?:copy|clipboard|sao\s+chép|sao\s+chep)\s*:\s*(.+?)\s*$""",
+        RegexOption.IGNORE_CASE
+    )
+    private val CONTACT_PREFIX = Regex(
+        """^\s*(?:contact|liên\s+hệ|lien\s+he)\s*:\s*(.+?)\s*$""",
+        RegexOption.IGNORE_CASE
+    )
+    private val CALENDAR_PREFIX = Regex(
+        """^\s*(?:calendar|lịch|lich)\s*:\s*(.+?)\s*$""",
+        RegexOption.IGNORE_CASE
+    )
+    private val MEDIA_PREFIX = Regex(
+        """^\s*(?:media|open\s+media|play\s+media|mở\s+media|mo\s+media)\s*:\s*(https?://\S+)\s*$""",
+        RegexOption.IGNORE_CASE
+    )
+    private val ALARM_PREFIX = Regex("""(?:^|\s)(?:dat\s+bao\s+thuc|set\s+alarm|alarm)(?:\s|$)""")
+    private val ALARM_TIME = Regex("""\b([01]?[0-9]|2[0-3]):([0-5][0-9])\b""")
+    private val FILE_BROWSER_PHRASES = setOf(
+        "open files",
+        "open file browser",
+        "mo tep",
+        "mo file",
+        "mo trinh chon tep"
+    )
+    private val NOTIFICATION_SETTINGS_PHRASES = setOf(
+        "open notification settings",
+        "mo cai dat thong bao",
+        "cai dat thong bao"
+    )
+    private val HOME_PHRASES = setOf(
+        "go home",
+        "open home",
+        "mo man hinh chinh",
+        "ve man hinh chinh"
+    )
     private val COMBINING_MARKS = Regex("\\p{M}+")
     private val WHITESPACE = Regex("\\s+")
 }
@@ -327,7 +532,28 @@ object ReflexFastResponseRenderer {
         val output = action.output.orEmpty()
         return when (action.proposal?.capability) {
             DeviceStatusToolContract.capability -> renderDeviceStatus(output)
-            SovereignStatusToolContract.capability -> output.ifBlank { "AMPER runtime status is unavailable." }
+            SovereignStatusToolContract.capability ->
+                output.ifBlank { "AMPER runtime status is unavailable." }
+            AndroidAppLaunchToolContract.capability ->
+                "Android accepted the app-launch request."
+            AndroidWebSearchToolContract.capability ->
+                "Opened the approved web search."
+            AndroidClipboardWriteToolContract.capability ->
+                "Copied the approved text to the clipboard."
+            AndroidFilesBrowseToolContract.capability ->
+                "Opened Android's document picker; no document was selected by AMPER."
+            AndroidContactComposeToolContract.capability ->
+                "Opened the contact editor; the contact has not been saved by AMPER."
+            AndroidCalendarComposeToolContract.capability ->
+                "Opened the calendar editor; the event has not been saved by AMPER."
+            AndroidAlarmPrepareToolContract.capability ->
+                "Opened the alarm UI; AMPER did not skip Android's confirmation UI."
+            AndroidMediaOpenToolContract.capability ->
+                "Opened the approved media link in an external handler."
+            AndroidNotificationSettingsToolContract.capability ->
+                "Opened AMPER notification settings; no setting was changed by AMPER."
+            AndroidHomeOpenToolContract.capability ->
+                "Opened the Android home screen."
             else -> output.ifBlank {
                 action.detail ?: "AMPER completed the fast-path action."
             }
