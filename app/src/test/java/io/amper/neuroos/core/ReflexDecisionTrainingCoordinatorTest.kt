@@ -46,11 +46,14 @@ class ReflexDecisionTrainingCoordinatorTest {
         )
 
         val request = requireNotNull(captured)
-        assertTrue(request.generatedExperienceShards.isEmpty())
-        assertEquals(1, request.generatedReflexExperienceShards.size)
+        assertEquals(1, request.generatedDatasetPayloads.size)
+        assertEquals(
+            NativeGeneratedDatasetKind.REFLEX_DECISION_EXPERIENCE,
+            request.generatedDatasetPayloads.single().kind
+        )
         assertEquals(
             prepared.partition.trainingShard.payload,
-            request.generatedReflexExperienceShards.single().payload
+            request.generatedDatasetPayloads.single().payload
         )
         assertEquals(NativeTrainingRunStatus.SUCCEEDED, result.status)
         assertNotNull(fixture.foundation.getCheckpoint(fixture.spec.outputCheckpointId))
@@ -98,7 +101,7 @@ class ReflexDecisionTrainingCoordinatorTest {
         val training = MemoryBackedNativeTrainingPipeline(
             memory = memory,
             foundation = foundation,
-            reflexExperienceDatasets = store,
+            generatedDatasetResolver = ReflexExperienceGeneratedDatasetResolver(store),
             clock = { 2_000L }
         )
         val contract = AmperNativeModelContract(

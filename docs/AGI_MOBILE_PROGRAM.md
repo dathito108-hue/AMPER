@@ -801,3 +801,22 @@ dataset snapshot and curriculum digest before a checkpoint can be published. Amp
 reflexExperiencePartition, reflexDecisionCurriculum and reflexDecisionTraining. Preparation/training
 remains non-authoritative; no checkpoint becomes a live model without downstream held-out evaluation,
 admission and runtime promotion.
+
+
+### Architecture de-duplication checkpoint — Phase436-440
+Phase436 audits the post-System-1 training architecture and confirms NativeExperience and
+ReflexExperience are separate evidence domains, not duplicate learning paths: the former trains
+verified root-goal/strategy intelligence while the latter trains typed assistant routing decisions.
+Phase437 confirms assistant execution does not double-record a governed action: read-only Reflex,
+approved Reflex side effects and System-2 tool actions each contribute at most one successful action
+label. Phase438 removes the remaining type-specific payload plumbing from NativeTrainingRequest.
+All AMPER-generated training data now enters NativeTrainerPort through one
+NativeGeneratedDatasetPayload envelope carrying an explicit dataset kind, immutable manifest and
+verified payload bytes. Phase439 replaces separate native/reflex payload branches in
+MemoryBackedNativeTrainingPipeline with one NativeGeneratedDatasetResolver; production composes the
+verified-goal and Reflex stores through CompositeNativeGeneratedDatasetResolver, which rejects a shard
+id resolving from multiple providers. Phase440 binds dataset kind + manifest id + payload digest into
+the existing executionBindingDigest and retains the same generated-data trainer echo gates. Future
+vision/audio/evolution datasets can add resolvers without adding fields to NativeTrainingRequest or
+creating a second trainer stack. No authority, model promotion, tool execution or approval boundary is
+changed by this unification.

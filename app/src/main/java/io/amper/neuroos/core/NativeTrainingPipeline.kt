@@ -212,8 +212,7 @@ data class NativeTrainingRequest(
     val curriculum: NativeCurriculumManifest,
     val datasets: List<NativeDatasetShardManifest>,
     val parentCheckpoint: NativeCheckpointLineage?,
-    val generatedExperienceShards: List<NativeExperienceDatasetShard> = emptyList(),
-    val generatedReflexExperienceShards: List<ReflexExperienceDatasetShard> = emptyList()
+    val generatedDatasetPayloads: List<NativeGeneratedDatasetPayload> = emptyList()
 ) {
     init {
         require(teachers.isNotEmpty())
@@ -224,30 +223,14 @@ data class NativeTrainingRequest(
         require(manifest.curriculumId == curriculum.id)
         require(manifest.parentCheckpointId == parentCheckpoint?.id)
         require(
-            generatedExperienceShards.map { it.manifest.id }.distinct().size ==
-                generatedExperienceShards.size
+            generatedDatasetPayloads.map { it.manifest.id }.distinct().size ==
+                generatedDatasetPayloads.size
         )
-        generatedExperienceShards.forEach { shard ->
-            require(shard.manifest.id in manifest.datasetShardIds)
-            require(datasets.any { it == shard.manifest }) {
-                "generated experience shard manifest is not bound to this training request"
+        generatedDatasetPayloads.forEach { generated ->
+            require(generated.manifest.id in manifest.datasetShardIds)
+            require(datasets.any { it == generated.manifest }) {
+                "generated dataset payload manifest is not bound to this training request"
             }
-        }
-        require(
-            generatedReflexExperienceShards.map { it.manifest.id }.distinct().size ==
-                generatedReflexExperienceShards.size
-        )
-        generatedReflexExperienceShards.forEach { shard ->
-            require(shard.manifest.id in manifest.datasetShardIds)
-            require(datasets.any { it == shard.manifest }) {
-                "generated reflex shard manifest is not bound to this training request"
-            }
-        }
-        val generatedIds =
-            generatedExperienceShards.map { it.manifest.id } +
-                generatedReflexExperienceShards.map { it.manifest.id }
-        require(generatedIds.distinct().size == generatedIds.size) {
-            "generated dataset payload is bound through more than one source"
         }
     }
 
@@ -265,11 +248,8 @@ data class NativeTrainingRequest(
                 datasets.sortedBy { it.id.value }.joinToString(",") {
                     it.id.value + ":" + it.sha256
                 },
-                generatedExperienceShards.sortedBy { it.manifest.id.value }.joinToString(",") {
-                    "native:" + it.manifest.id.value + ":" + it.manifest.sha256
-                },
-                generatedReflexExperienceShards.sortedBy { it.manifest.id.value }.joinToString(",") {
-                    "reflex:" + it.manifest.id.value + ":" + it.manifest.sha256
+                generatedDatasetPayloads.sortedBy { it.manifest.id.value }.joinToString(",") {
+                    it.kind.name + ":" + it.manifest.id.value + ":" + it.manifest.sha256
                 },
                 parentCheckpoint?.let {
                     it.id.value + ":" + it.weightArtifactSha256
@@ -440,8 +420,7 @@ class MemoryBackedNativeTrainingPipeline(
     private val memory: MemoryOs,
     private val foundation: NativeModelFoundation,
     private val clock: () -> Long = System::currentTimeMillis,
-    private val experienceDatasets: NativeExperienceDatasetStore? = null,
-    private val reflexExperienceDatasets: ReflexExperienceDatasetStore? = null
+    private val generatedDatasetResolver: NativeGeneratedDatasetResolver? = null
 ) : NativeTrainingPipeline {
     override fun putTeacher(snapshot: NativeTeacherSnapshot) {
         memory.rememberIfAbsent(
@@ -584,10 +563,7 @@ class MemoryBackedNativeTrainingPipeline(
             require(
                 artifact.quantization.equals(request.manifest.target.quantization, ignoreCase = true)
             ) { "trainer artifact quantization does not match mobile target" }
-            if (
-                request.generatedExperienceShards.isNotEmpty() ||
-                request.generatedReflexExperienceShards.isNotEmpty()
-            ) {
+            if (request.generatedDatasetPayloads.isNotEmpty()) {
                 require(artifact.executionBindingDigest == request.executionBindingDigest) {
                     "verified-experience trainer execution binding mismatch"
                 }
@@ -910,11 +886,8 @@ class MemoryBackedNativeTrainingPipeline(
             parentCheckpoint = manifest.parentCheckpointId?.let {
                 requireNotNull(foundation.getCheckpoint(it))
             },
-            generatedExperienceShards = manifest.datasetShardIds.mapNotNull { id ->
-                experienceDatasets?.getShard(id)
-            },
-            generatedReflexExperienceShards = manifest.datasetShardIds.mapNotNull { id ->
-                reflexExperienceDatasets?.getShard(id)
+            generatedDatasetPayloads = manifest.datasetShardIds.mapNotNull { id ->
+                generatedDatasetResolver?.resolve(id)
             }
         )
     }
