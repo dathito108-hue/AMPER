@@ -188,6 +188,9 @@ class AmperRuntime private constructor(
     val notes: SovereignNoteStore,
     val perception: PerceptionBus,
     private val actionLoopFactory: (ToolRegistry, ToolFabric, SovereignActionPolicy) -> SovereignActionLoop,
+    private val evolutionCampaignFactory:
+        (CognitiveInferencePort, EvolutionSandboxRunner) ->
+            MemoryBackedAutonomousEvolutionCampaignCoordinator,
     private val memoryKeyRotator: ((String) -> Int)? = null
 ) {
     fun tick(intent: String): TickReport = kernel.tick(intent)
@@ -198,6 +201,12 @@ class AmperRuntime private constructor(
         fabric: ToolFabric,
         policy: SovereignActionPolicy = SovereignActionPolicy()
     ): SovereignActionLoop = actionLoopFactory(registry, fabric, policy)
+
+    fun evolutionCampaign(
+        inference: CognitiveInferencePort,
+        sandbox: EvolutionSandboxRunner
+    ): MemoryBackedAutonomousEvolutionCampaignCoordinator =
+        evolutionCampaignFactory(inference, sandbox)
 
     /** Rewrap production encrypted memory under a new managed key alias. */
     fun rotateMemoryEncryption(newKeyId: String): Int =
@@ -385,6 +394,14 @@ class AmperRuntime private constructor(
                         workspace = workspace,
                         policy = policy,
                         competence = competence
+                    )
+                },
+                evolutionCampaignFactory = { inference, sandbox ->
+                    MemoryBackedAutonomousEvolutionCampaignCoordinator(
+                        memory = memory,
+                        evolution = autonomousEvolution,
+                        generator = InferenceEvolutionCandidateGenerator(inference),
+                        sandbox = sandbox
                     )
                 },
                 memoryKeyRotator = memoryKeyRotator
