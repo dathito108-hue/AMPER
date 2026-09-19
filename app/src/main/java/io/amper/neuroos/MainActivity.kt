@@ -116,7 +116,15 @@ class MainActivity : ComponentActivity() {
             val catalog = remember { FileInstalledModelCatalog(File(sovereignDir, "models.catalog")) }
             remember { InstalledModelRegistryBootstrap(catalog, modelRegistry).restore() }
             val governor = remember { AndroidResourceGovernor(applicationContext) }
-            val runtime = remember { AmperRuntime.persistentEncrypted(filesDir, modelRegistry, governor) }
+            val deviceStatusSource = remember { AndroidDeviceStatusSource(applicationContext) }
+            val runtime = remember {
+                AmperRuntime.persistentEncrypted(
+                    filesDir,
+                    modelRegistry,
+                    governor,
+                    deviceStatusSource = deviceStatusSource
+                )
+            }
             val perceptionCapture = remember {
                 AndroidPerceptionCapture(applicationContext, runtime.perception)
             }
@@ -255,7 +263,7 @@ class MainActivity : ComponentActivity() {
             val toolRegistry = remember {
                 InMemoryToolRegistry().also { registry ->
                     registry.register(
-                        DeviceStatusToolProvider(AndroidDeviceStatusSource(applicationContext))
+                        DeviceStatusToolProvider(deviceStatusSource)
                     )
                     registry.register(
                         SovereignStatusToolProvider(

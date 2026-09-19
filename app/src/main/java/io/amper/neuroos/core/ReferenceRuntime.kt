@@ -270,7 +270,8 @@ class AmperRuntime private constructor(
             rootDir: File,
             models: ModelRegistry = defaultModelRegistry(),
             governor: ResourceGovernor = MobileResourceGovernor(),
-            agentRoutePlanner: TitanInferenceRoutePlanner? = null
+            agentRoutePlanner: TitanInferenceRoutePlanner? = null,
+            deviceStatusSource: DeviceStatusSource? = null
         ): AmperRuntime {
             ensureContractPlaceholder(models)
             val sovereignDir = File(rootDir, "amper-sovereign")
@@ -279,7 +280,8 @@ class AmperRuntime private constructor(
                 memory = memory,
                 models = models,
                 governor = governor,
-                agentRoutePlanner = agentRoutePlanner
+                agentRoutePlanner = agentRoutePlanner,
+                deviceStatusSource = deviceStatusSource
             )
         }
 
@@ -296,7 +298,8 @@ class AmperRuntime private constructor(
             models: ModelRegistry = defaultModelRegistry(),
             governor: ResourceGovernor = MobileResourceGovernor(),
             cipher: MemoryLineCipher? = null,
-            agentRoutePlanner: TitanInferenceRoutePlanner? = null
+            agentRoutePlanner: TitanInferenceRoutePlanner? = null,
+            deviceStatusSource: DeviceStatusSource? = null
         ): AmperRuntime {
             ensureContractPlaceholder(models)
             val sovereignDir = File(rootDir, "amper-sovereign")
@@ -310,7 +313,8 @@ class AmperRuntime private constructor(
                 models = models,
                 governor = governor,
                 memoryKeyRotator = rotator,
-                agentRoutePlanner = agentRoutePlanner
+                agentRoutePlanner = agentRoutePlanner,
+                deviceStatusSource = deviceStatusSource
             )
         }
 
@@ -332,7 +336,8 @@ class AmperRuntime private constructor(
             models: ModelRegistry,
             governor: ResourceGovernor,
             memoryKeyRotator: ((String) -> Int)? = null,
-            agentRoutePlanner: TitanInferenceRoutePlanner? = null
+            agentRoutePlanner: TitanInferenceRoutePlanner? = null,
+            deviceStatusSource: DeviceStatusSource? = null
         ): AmperRuntime {
             val workspace = InMemoryWorkspace()
             val competence = MemoryBackedCapabilityCompetenceModel(memory)
@@ -433,7 +438,10 @@ class AmperRuntime private constructor(
                 ),
                 activationStore = reflexDecisionActivationStore,
                 calibration = reflexRuntimeCalibration,
-                resourcePolicy = ResourceGovernorReflexRuntimeResourcePolicy(governor)
+                resourcePolicy = ResourceGovernorReflexRuntimeResourcePolicy(
+                    governor = governor,
+                    deviceStatusSource = deviceStatusSource
+                )
             )
             val reflexDecisionCortex: ReflexDecisionCortex = reflexDecisionRuntime
             val selfModel = CanonicalSelfModel()
