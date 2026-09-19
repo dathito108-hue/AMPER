@@ -415,6 +415,20 @@ object ReflectivePlanCriticPrompt {
                         " authority=false"
                 )
             }
+            integratedCognitiveState?.perceptualEvidence?.take(4)?.forEach { percept ->
+                add(
+                    "PERCEPT modality=" + percept.modality.name +
+                        " summary=" + sanitizeData(percept.summary, 160) +
+                        " freshness=" + percept.freshness.name +
+                        " confidence=" +
+                        "%.3f".format(java.util.Locale.US, percept.confidence) +
+                        " relevance=" +
+                        "%.3f".format(java.util.Locale.US, percept.queryRelevance) +
+                        " planning_eligible=" + percept.planningEligible +
+                        " source=" + sanitizeData(percept.source, 64) +
+                        " authority=false"
+                )
+            }
             integratedCognitiveState?.skillGuidance?.take(3)?.forEach { guidance ->
                 add(
                     "SKILL " +
