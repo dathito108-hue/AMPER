@@ -29,11 +29,13 @@ data class ReflexNativeLifecycleReport(
 
 class ReflexNativeModelLifecycle(
     private val runtime: AmperRuntime,
-    artifacts: ReflexLinearArtifactStore,
+    private val artifacts: ReflexLinearArtifactStore,
     private val learningResourcePolicy: ReflexLearningResourcePolicy =
         runtime.reflexLearningResourcePolicy,
     private val learningCostModel: ReflexLearningCostModel =
         runtime.reflexLearningCostModel,
+    private val maintenanceQueue: ReflexLearningMaintenanceQueue =
+        runtime.reflexLearningMaintenanceQueue,
     private val clock: () -> Long = System::currentTimeMillis,
     private val monotonicNanos: () -> Long = System::nanoTime
 ) {
@@ -104,6 +106,21 @@ class ReflexNativeModelLifecycle(
             )
         }
 
+        val now = clock().coerceAtLeast(0L)
+        val maintenanceDigest = reflexLinearSha256(
+            listOf(
+                "AMPER_REFLEX_MAINTENANCE_INITIAL_V1",
+                examples.map { it.id.value }.sorted().joinToString(",")
+            ).joinToString("|")
+        )
+        maintenanceQueue.enqueue(
+            evidenceDigest = maintenanceDigest,
+            reason = ReflexLearningMaintenanceReason.INITIAL_EVIDENCE,
+            priority = 1.0,
+            notBeforeEpochMs = now + BACKGROUND_RETRY_DELAY_MS,
+            nowEpochMs = now
+        )
+
         val initialCost = learningCostModel.snapshot()
         val initialResource = learningResourcePolicy.evaluate(
             ReflexLearningDemand(
@@ -129,6 +146,13 @@ class ReflexNativeModelLifecycle(
             initialResource.maxFreshExamples <
                 MIN_TOTAL_ACTION_EXAMPLES + MIN_TOTAL_ESCALATION_EXAMPLES
         ) {
+            maintenanceQueue.enqueue(
+                evidenceDigest = maintenanceDigest,
+                reason = ReflexLearningMaintenanceReason.RESOURCE_DEFERRED,
+                priority = 1.0,
+                notBeforeEpochMs = now + BACKGROUND_RETRY_DELAY_MS,
+                nowEpochMs = now
+            )
             return ReflexNativeLifecycleReport(
                 stage = ReflexNativeLifecycleStage.RESOURCE_DEFERRED,
                 checkpointId = null,
@@ -166,13 +190,16 @@ class ReflexNativeModelLifecycle(
             actionExamples = actionExamples,
             escalationExamples = escalationExamples,
             learningValue = 1.0
-        ) ?: return ReflexNativeLifecycleReport(
+        ) ?: run {
+            maintenanceQueue.clear(maintenanceDigest)
+            return ReflexNativeLifecycleReport(
             stage = ReflexNativeLifecycleStage.TRAINING_FAILED,
             checkpointId = null,
             actionExamples = actionExamples,
             escalationExamples = escalationExamples,
             detail = "concrete Reflex trainer failed"
-        )
+            )
+        }
 
         val evaluation = runtime.nativeTrainingPipeline.getEvaluation(checkpoint.id)
             ?: runtime.reflexDecisionEvaluation.evaluate(
@@ -181,6 +208,8 @@ class ReflexNativeModelLifecycle(
                 evaluator = evaluator
             )
         if (!evaluation.admission.admitted) {
+            maintenanceQueue.clear(maintenanceDigest)
+            pruneArtifactsFor(checkpoint.id)
             return ReflexNativeLifecycleReport(
                 stage = ReflexNativeLifecycleStage.EVALUATION_REJECTED,
                 checkpointId = checkpoint.id,
@@ -195,13 +224,17 @@ class ReflexNativeModelLifecycle(
             weightArtifactSha256 = checkpoint.weightArtifactSha256
         ).getOrThrow()
         val activation = runtime.reflexDecisionRuntime.activate(port).getOrThrow()
+        maintenanceQueue.clear(maintenanceDigest)
+        val prunedArtifacts = pruneArtifactsFor(activation.checkpointId)
         lastRejectedEvidenceTag = null
         return ReflexNativeLifecycleReport(
             stage = ReflexNativeLifecycleStage.ACTIVE,
             checkpointId = activation.checkpointId,
             actionExamples = actionExamples,
             escalationExamples = escalationExamples,
-            detail = "AMPER-owned Reflex Linear V1 trained, admitted and activated"
+            detail =
+                "AMPER-owned Reflex Linear V1 trained, admitted and activated; pruned_artifacts=" +
+                    prunedArtifacts
         )
     }
 
