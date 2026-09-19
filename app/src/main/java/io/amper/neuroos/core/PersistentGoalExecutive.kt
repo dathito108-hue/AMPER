@@ -8,6 +8,10 @@ enum class PersistentGoalExecutiveStage {
     WAITING_OBSERVATION,
     LEARNING_PAUSED,
     EVOLUTION_PAUSED,
+    RECOVERY_QUEUED,
+    RECOVERY_BLOCKED,
+    PARTIAL_EXECUTION_BLOCKED,
+    RECOVERY_EXHAUSTED,
     PLANNED,
     COMPLETED
 }
@@ -23,6 +27,8 @@ data class PersistentGoalExecutiveCheckpoint(
     val lastCognitiveStateDigest: String? = null,
     val lastExecutionContextDigest: String? = null,
     val plannedPlanId: PlanId? = null,
+    val recoveryCount: Int = 0,
+    val lastFailureCode: String? = null,
     val updatedAtEpochMs: Long = System.currentTimeMillis()
 ) {
     init {
@@ -30,6 +36,10 @@ data class PersistentGoalExecutiveCheckpoint(
         require(objective.isNotBlank() && objective.length <= MAX_OBJECTIVE_CHARS)
         require(priority in 0.0..1.0)
         require(attemptCount >= 0)
+        require(recoveryCount in 0..MAX_RECOVERY_GENERATIONS)
+        require(lastFailureCode == null || lastFailureCode.matches(FAILURE_CODE)) {
+            "invalid persistent goal recovery failure code"
+        }
         require(updatedAtEpochMs >= 0L)
         require((lastCognitiveStateDigest == null) == (lastExecutionContextDigest == null)) {
             "persistent goal executive requires both cognitive digests or neither"
@@ -40,15 +50,21 @@ data class PersistentGoalExecutiveCheckpoint(
         lastExecutionContextDigest?.let {
             require(it.matches(SHA256)) { "invalid persistent goal execution-context digest" }
         }
-        if (stage == PersistentGoalExecutiveStage.PLANNED) {
-            require(plannedPlanId != null) { "planned goal checkpoint requires a plan id" }
-        }
-        if (stage !in setOf(
-                PersistentGoalExecutiveStage.PLANNED,
-                PersistentGoalExecutiveStage.COMPLETED
-            )
-        ) {
-            require(plannedPlanId == null) { "non-planned goal checkpoint cannot retain a plan id" }
+        val planBoundStages = setOf(
+            PersistentGoalExecutiveStage.PLANNED,
+            PersistentGoalExecutiveStage.RECOVERY_BLOCKED,
+            PersistentGoalExecutiveStage.PARTIAL_EXECUTION_BLOCKED,
+            PersistentGoalExecutiveStage.RECOVERY_EXHAUSTED,
+            PersistentGoalExecutiveStage.COMPLETED
+        )
+        if (stage in planBoundStages) {
+            require(plannedPlanId != null) {
+                "plan-bound persistent goal checkpoint requires a plan id"
+            }
+        } else {
+            require(plannedPlanId == null) {
+                "non-plan-bound persistent goal checkpoint cannot retain a plan id"
+            }
         }
     }
 
@@ -58,7 +74,9 @@ data class PersistentGoalExecutiveCheckpoint(
     companion object {
         const val MAX_GOAL_ID_CHARS = 256
         const val MAX_OBJECTIVE_CHARS = 1024
+        const val MAX_RECOVERY_GENERATIONS = 3
         private val SHA256 = Regex("[0-9a-f]{64}")
+        private val FAILURE_CODE = Regex("[A-Z0-9_:-]{1,128}")
     }
 }
 
@@ -150,10 +168,20 @@ class PersistentGoalExecutiveCoordinator(
         conversationId: ConversationId
     ): Result<PersistentGoalExecutiveResult> = runCatching {
         val existing = store.load()
-        if (existing?.stage == PersistentGoalExecutiveStage.PLANNED) {
+        if (existing != null && existing.stage in BLOCKED_STAGES) {
             return@runCatching PersistentGoalExecutiveResult.Deferred(
                 checkpoint = existing,
-                reason = "planned goal is already handed off; complete or abandon that plan before replanning"
+                reason = when (existing.stage) {
+                    PersistentGoalExecutiveStage.PLANNED ->
+                        "planned goal is already handed off; resolve that terminal plan before replanning"
+                    PersistentGoalExecutiveStage.RECOVERY_BLOCKED ->
+                        "goal recovery is blocked by authority/user state or an unresolved side-effect claim"
+                    PersistentGoalExecutiveStage.PARTIAL_EXECUTION_BLOCKED ->
+                        "goal recovery is blocked because part of the plan already executed"
+                    PersistentGoalExecutiveStage.RECOVERY_EXHAUSTED ->
+                        "goal recovery reached the bounded retry limit"
+                    else -> error("unexpected blocked persistent goal stage")
+                }
             )
         }
 
@@ -196,34 +224,97 @@ class PersistentGoalExecutiveCoordinator(
     }
 
     @Synchronized
-    fun completePlanned(
+    fun resolveTerminalPlan(
         planId: PlanId
     ): Result<PersistentGoalExecutiveCheckpoint> = runCatching {
         val current = requireNotNull(store.load()) {
             "persistent goal executive has no active checkpoint"
         }
-        require(current.stage == PersistentGoalExecutiveStage.PLANNED) {
-            "persistent goal executive is not awaiting plan completion"
+        require(current.stage in PLAN_RESOLUTION_STAGES) {
+            "persistent goal executive is not awaiting terminal plan resolution"
         }
         require(current.plannedPlanId == planId) {
-            "completed plan does not match persistent goal handoff"
+            "resolved plan does not match persistent goal handoff"
         }
-        val completedPlan = requireNotNull(plans.load(planId)) {
-            "completed persistent goal plan is unavailable from plan store"
+        val terminalPlan = requireNotNull(plans.load(planId)) {
+            "persistent goal plan is unavailable from plan store"
         }
-        require(completedPlan.steps.all { it.status == PlanStepStatus.EXECUTED }) {
-            "persistent goal plan has not completed successfully"
+        require(terminalPlan.complete) {
+            "persistent goal plan is not terminal"
         }
 
-        store.save(
-            current.copy(
+        val now = clock().coerceAtLeast(current.updatedAtEpochMs)
+        val statuses = terminalPlan.steps.map { it.status }
+        val successful = statuses.all { it == PlanStepStatus.EXECUTED }
+        val executedCount = statuses.count { it == PlanStepStatus.EXECUTED }
+        val authorityOrUserBlocked = statuses.any {
+            it == PlanStepStatus.DENIED || it == PlanStepStatus.REJECTED
+        }
+        val unresolvedClaims = plans.receipts
+            ?.let { SovereignRecoveryState(it).hasUnresolvedClaims() }
+            ?: false
+
+        val next = when {
+            successful -> current.copy(
                 stage = PersistentGoalExecutiveStage.COMPLETED,
-                updatedAtEpochMs = clock().coerceAtLeast(current.updatedAtEpochMs)
+                lastFailureCode = null,
+                updatedAtEpochMs = now
             )
-        )
+            executedCount > 0 -> current.copy(
+                stage = PersistentGoalExecutiveStage.PARTIAL_EXECUTION_BLOCKED,
+                lastFailureCode = "PARTIAL_EXECUTION",
+                updatedAtEpochMs = now
+            )
+            authorityOrUserBlocked -> current.copy(
+                stage = PersistentGoalExecutiveStage.RECOVERY_BLOCKED,
+                lastFailureCode = "AUTHORITY_OR_USER_BLOCK",
+                updatedAtEpochMs = now
+            )
+            unresolvedClaims -> current.copy(
+                stage = PersistentGoalExecutiveStage.RECOVERY_BLOCKED,
+                lastFailureCode = "UNRESOLVED_SIDE_EFFECT_CLAIM",
+                updatedAtEpochMs = now
+            )
+            current.recoveryCount >=
+                PersistentGoalExecutiveCheckpoint.MAX_RECOVERY_GENERATIONS -> current.copy(
+                stage = PersistentGoalExecutiveStage.RECOVERY_EXHAUSTED,
+                lastFailureCode = "RECOVERY_LIMIT_REACHED",
+                updatedAtEpochMs = now
+            )
+            else -> current.copy(
+                stage = PersistentGoalExecutiveStage.RECOVERY_QUEUED,
+                plannedPlanId = null,
+                recoveryCount = current.recoveryCount + 1,
+                lastFailureCode = terminalFailureCode(statuses),
+                updatedAtEpochMs = now
+            )
+        }
+        store.save(next)
+    }
+
+    @Synchronized
+    fun completePlanned(
+        planId: PlanId
+    ): Result<PersistentGoalExecutiveCheckpoint> = runCatching {
+        val resolved = resolveTerminalPlan(planId).getOrThrow()
+        require(resolved.stage == PersistentGoalExecutiveStage.COMPLETED) {
+            "persistent goal plan did not complete successfully"
+        }
+        resolved
     }
 
     fun current(): PersistentGoalExecutiveCheckpoint? = store.load()
+
+    private fun terminalFailureCode(statuses: List<PlanStepStatus>): String {
+        val material = statuses
+            .filterNot { it == PlanStepStatus.EXECUTED }
+            .map { it.name }
+            .distinct()
+            .sorted()
+            .joinToString("_")
+            .ifBlank { "UNKNOWN" }
+        return ("TERMINAL_PLAN_" + material).take(128)
+    }
 
     private fun selectActiveGoal(
         conversationId: ConversationId,
@@ -259,11 +350,24 @@ class PersistentGoalExecutiveCoordinator(
 
     companion object {
         private const val GOAL_SCAN_QUERY = "active sovereign goals"
+        private val BLOCKED_STAGES = setOf(
+            PersistentGoalExecutiveStage.PLANNED,
+            PersistentGoalExecutiveStage.RECOVERY_BLOCKED,
+            PersistentGoalExecutiveStage.PARTIAL_EXECUTION_BLOCKED,
+            PersistentGoalExecutiveStage.RECOVERY_EXHAUSTED
+        )
+        private val PLAN_RESOLUTION_STAGES = setOf(
+            PersistentGoalExecutiveStage.PLANNED,
+            PersistentGoalExecutiveStage.RECOVERY_BLOCKED,
+            PersistentGoalExecutiveStage.PARTIAL_EXECUTION_BLOCKED,
+            PersistentGoalExecutiveStage.RECOVERY_EXHAUSTED
+        )
     }
 }
 
 internal object PersistentGoalExecutiveCodec {
-    private const val VERSION = "AMPER_PERSISTENT_GOAL_EXECUTIVE_V1"
+    private const val VERSION_V1 = "AMPER_PERSISTENT_GOAL_EXECUTIVE_V1"
+    private const val VERSION = "AMPER_PERSISTENT_GOAL_EXECUTIVE_V2"
 
     fun encode(checkpoint: PersistentGoalExecutiveCheckpoint): String = buildString {
         appendLine(VERSION)
@@ -277,12 +381,17 @@ internal object PersistentGoalExecutiveCodec {
         appendLine("COGNITIVE_DIGEST\t" + (checkpoint.lastCognitiveStateDigest ?: "~"))
         appendLine("EXECUTION_DIGEST\t" + (checkpoint.lastExecutionContextDigest ?: "~"))
         appendLine("PLAN_ID\t" + (checkpoint.plannedPlanId?.value?.let(::enc) ?: "~"))
+        appendLine("RECOVERY_COUNT\t" + checkpoint.recoveryCount)
+        appendLine("FAILURE_CODE\t" + (checkpoint.lastFailureCode ?: "~"))
         append("UPDATED\t" + checkpoint.updatedAtEpochMs)
     }
 
     fun decode(content: String): Result<PersistentGoalExecutiveCheckpoint> = runCatching {
         val lines = content.lineSequence().filter { it.isNotBlank() }.toList()
-        require(lines.firstOrNull() == VERSION) { "unsupported persistent goal executive state" }
+        val version = lines.firstOrNull()
+        require(version == VERSION || version == VERSION_V1) {
+            "unsupported persistent goal executive state"
+        }
         val fields = linkedMapOf<String, String>()
         lines.drop(1).forEach { line ->
             val parts = line.split('\t')
@@ -305,6 +414,11 @@ internal object PersistentGoalExecutiveCodec {
             "UPDATED"
         )
         require(fields.keys.containsAll(required)) { "persistent goal executive state is incomplete" }
+        if (version == VERSION) {
+            require(fields.keys.containsAll(setOf("RECOVERY_COUNT", "FAILURE_CODE"))) {
+                "persistent goal executive recovery state is incomplete"
+            }
+        }
 
         PersistentGoalExecutiveCheckpoint(
             sourceGoalId = dec(fields.getValue("GOAL_ID")),
@@ -324,6 +438,8 @@ internal object PersistentGoalExecutiveCodec {
                 .takeUnless { it == "~" }
                 ?.let(::dec)
                 ?.let(::PlanId),
+            recoveryCount = fields["RECOVERY_COUNT"]?.toInt() ?: 0,
+            lastFailureCode = fields["FAILURE_CODE"]?.takeUnless { it == "~" },
             updatedAtEpochMs = fields.getValue("UPDATED").toLong()
         )
     }
