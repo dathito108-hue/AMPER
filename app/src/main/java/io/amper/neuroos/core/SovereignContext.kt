@@ -124,7 +124,10 @@ class CanonicalSovereignContextSource(
             MemoryBackedGoalRepairStrategyMemory.INDEX_KIND,
             MemoryBackedNativeExperienceDatasetStore.EXAMPLE_KIND,
             MemoryBackedNativeExperienceDatasetStore.EXAMPLE_INDEX_KIND,
-            MemoryBackedNativeExperienceDatasetStore.SHARD_KIND
+            MemoryBackedNativeExperienceDatasetStore.SHARD_KIND,
+            MemoryBackedReflexExperienceDatasetStore.EXAMPLE_KIND,
+            MemoryBackedReflexExperienceDatasetStore.INDEX_KIND,
+            MemoryBackedReflexExperienceDatasetStore.SHARD_KIND
         )
         val seedScanLimit = if (memoryLimit == 0) 0 else (memoryLimit * 6).coerceAtLeast(memoryLimit)
         val seeds = memory.recall(query, seedScanLimit)

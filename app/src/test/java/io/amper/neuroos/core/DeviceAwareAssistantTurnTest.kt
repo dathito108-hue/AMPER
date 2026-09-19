@@ -61,5 +61,10 @@ class DeviceAwareAssistantTurnTest {
         assertTrue(final.response.text.contains("Battery 61%"))
         assertTrue(final.response.text.contains("RAM available 1536 MB"))
         assertEquals(null, runtime.conversations.latestAssistantModelId(runtime.conversations.primary()))
+        val experience = runtime.reflexExperienceDatasets.recentExamples(4).single()
+        assertEquals(ReflexDecisionDisposition.PROPOSE_ACTION, experience.targetDisposition)
+        assertEquals(DeviceStatusToolContract.capability, experience.targetCapability)
+        assertEquals(ReflexExperienceSource.REFLEX_CORTEX, experience.source)
+        assertTrue(experience.featureHashes.isNotEmpty())
     }
 }

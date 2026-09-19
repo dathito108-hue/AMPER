@@ -230,9 +230,7 @@ class SovereignAssistantTurnCoordinator(
             val reflexDecision = runtime.reflexDecisionCortex.decide(
                 ReflexDecisionRequest(
                     userInput = userPrompt,
-                    descriptors = actions.descriptors()
-                        .filter { it.capability in advertisedCapabilities }
-                        .distinctBy { it.id }
+                    descriptors = reflexDescriptors()
                 )
             )
             handleReflexDecision(
@@ -289,6 +287,17 @@ class SovereignAssistantTurnCoordinator(
         val first = firstResult.getOrThrow()
 
         val action = actions.evaluateModelOutput(first.text)
+        if (action.status == ActionStatus.EXECUTED) {
+            runCatching {
+                runtime.reflexExperienceDatasets.observeExecuted(
+                    userInput = userPrompt,
+                    descriptors = reflexDescriptors(),
+                    action = action,
+                    source = ReflexExperienceSource.SYSTEM2_TEACHER,
+                    labelConfidence = 0.98
+                )
+            }
+        }
         when (action.status) {
             ActionStatus.NO_ACTION -> finalizeToolFreeResponse(
                 conversationId = conversationId,
@@ -362,6 +371,15 @@ class SovereignAssistantTurnCoordinator(
         cancellation?.throwIfCancelled()
         return when (action.status) {
             ActionStatus.EXECUTED -> {
+                runCatching {
+                    runtime.reflexExperienceDatasets.observeExecuted(
+                        userInput = userPrompt,
+                        descriptors = reflexDescriptors(),
+                        action = action,
+                        source = ReflexExperienceSource.REFLEX_CORTEX,
+                        labelConfidence = decision.confidence
+                    )
+                }
                 val text = ReflexFastResponseRenderer.render(action)
                 emitWhole(stream, text)
                 val response = ReflexDecisionRuntimeContract.finalResponse(text)
@@ -505,6 +523,23 @@ class SovereignAssistantTurnCoordinator(
             runtime.pendingApprovals.delete(effective.proposal.requestId)
         }
         val action = execution.getOrThrow()
+        val reflexProposal =
+            effective.firstResponse.backendId == ReflexDecisionRuntimeContract.BACKEND_ID
+        if (action.status == ActionStatus.EXECUTED) {
+            runCatching {
+                runtime.reflexExperienceDatasets.observeExecuted(
+                    userInput = effective.userPrompt,
+                    descriptors = reflexDescriptors(),
+                    action = action,
+                    source = if (reflexProposal) {
+                        ReflexExperienceSource.REFLEX_CORTEX
+                    } else {
+                        ReflexExperienceSource.SYSTEM2_TEACHER
+                    },
+                    labelConfidence = if (reflexProposal) 0.995 else 0.98
+                )
+            }
+        }
         synthesizeAfterAction(
             conversationId = effective.conversationId,
             userPrompt = effective.userPrompt,
@@ -515,6 +550,7 @@ class SovereignAssistantTurnCoordinator(
                 effective.firstResponse.backendId == ReflexDecisionRuntimeContract.BACKEND_ID
             },
             boundInferenceProfile = effective.boundInferenceProfile ?: legacyDefaultInferenceProfile(),
+            priorInferencePasses = if (reflexProposal) 0 else 1,
             stream = stream,
             cancellation = cancellation
         )
@@ -688,6 +724,14 @@ class SovereignAssistantTurnCoordinator(
             modelId = finalResponse.modelId,
             selectedCapabilities = finalResponse.selectedCapabilities
         )
+        runCatching {
+            runtime.reflexExperienceDatasets.observeEscalation(
+                conversationId = conversationId,
+                userInput = userPrompt,
+                descriptors = reflexDescriptors(),
+                response = finalResponse
+            )
+        }
         return SovereignAssistantTurnResult.Final(
             response = finalResponse,
             actionOutcome = null,
@@ -741,10 +785,12 @@ class SovereignAssistantTurnCoordinator(
         preferredCapabilityProfiles: List<Set<CapabilityId>>,
         preferredModelId: ModelId?,
         boundInferenceProfile: BoundConversationInferenceProfile,
+        priorInferencePasses: Int = 1,
         stream: ((AssistantStreamEvent) -> Unit)?,
         cancellation: InferenceCancellationSignal?
     ): SovereignAssistantTurnResult.Final {
         cancellation?.throwIfCancelled()
+        require(priorInferencePasses in 0..1)
         val promptBudgetChars = boundInferenceProfile.maxPromptChars
         val currentSection = buildString {
             appendLine("<CURRENT_USER_REQUEST_FINAL>")
@@ -823,10 +869,16 @@ class SovereignAssistantTurnCoordinator(
         return SovereignAssistantTurnResult.Final(
             response = finalResponse,
             actionOutcome = action,
-            inferencePasses = 2,
+            inferencePasses = priorInferencePasses + 1,
             reflectionApplied = false
         )
     }
+
+    private fun reflexDescriptors(): List<ToolDescriptor> =
+        actions.descriptors()
+            .filter { it.capability in advertisedCapabilities }
+            .distinctBy { it.capability }
+            .sortedBy { it.capability.value }
 
     private fun inferRequest(
         request: InferenceRequest,

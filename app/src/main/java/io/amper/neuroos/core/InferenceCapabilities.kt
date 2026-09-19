@@ -7,6 +7,7 @@ object TitanCapabilities {
     val PLANNING = CapabilityId("planning")
     val VISION = CapabilityId("vision")
     val AUDIO_UNDERSTANDING = CapabilityId("audio-understanding")
+    val REFLEX_DECISION = CapabilityId("reflex-decision")
 }
 
 /**

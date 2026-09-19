@@ -60,5 +60,16 @@ class ReflexAssistantSideEffectTest {
         assertEquals(ReflexDecisionRuntimeContract.BACKEND_ID, pending.firstResponse.backendId)
         assertTrue(runtime.pendingApprovals.load(pending.proposal.requestId) != null)
         assertEquals(0, audit.snapshot().size)
+
+        val final = assistant.approve(pending).getOrThrow()
+        assertEquals(1, final.inferencePasses)
+        assertEquals(ActionStatus.EXECUTED, final.actionOutcome?.status)
+        assertEquals(1, inferenceCalls)
+        assertEquals(1, launcherCalls)
+        assertEquals(1, audit.snapshot().size)
+        val experience = runtime.reflexExperienceDatasets.recentExamples(4).single()
+        assertEquals(AndroidTimerPrepareToolContract.capability, experience.targetCapability)
+        assertEquals(ToolSideEffect.EXTERNAL, experience.targetSideEffect)
+        assertEquals(ReflexExperienceSource.REFLEX_CORTEX, experience.source)
     }
 }

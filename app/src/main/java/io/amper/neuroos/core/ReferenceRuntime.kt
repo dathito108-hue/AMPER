@@ -186,6 +186,7 @@ class AmperRuntime private constructor(
     val nativeExperienceCurriculum: NativeExperienceCurriculumPlanner,
     val nativeExperienceTraining: NativeExperienceTrainingCoordinator,
     val nativeTrainingPipeline: NativeTrainingPipeline,
+    val reflexExperienceDatasets: ReflexExperienceDatasetStore,
     val reflexDecisionCortex: ReflexDecisionCortex,
     val conversations: SovereignConversationCoordinator,
     val inferenceProfiles: ConversationInferenceProfileStore,
@@ -375,6 +376,10 @@ class AmperRuntime private constructor(
                 foundation = nativeModelFoundation,
                 training = nativeTrainingPipeline
             )
+            val reflexExperienceDatasets = MemoryBackedReflexExperienceDatasetStore(
+                memory = memory,
+                foundation = nativeModelFoundation
+            )
             val reflexDecisionCortex: ReflexDecisionCortex = DeterministicReflexDecisionCortex
             val selfModel = CanonicalSelfModel()
             val evolutionGate = CanonicalEvolutionGate(selfModel)
@@ -472,6 +477,7 @@ class AmperRuntime private constructor(
                 nativeExperienceCurriculum = nativeExperienceCurriculum,
                 nativeExperienceTraining = nativeExperienceTraining,
                 nativeTrainingPipeline = nativeTrainingPipeline,
+                reflexExperienceDatasets = reflexExperienceDatasets,
                 reflexDecisionCortex = reflexDecisionCortex,
                 conversations = conversations,
                 inferenceProfiles = inferenceProfiles,
