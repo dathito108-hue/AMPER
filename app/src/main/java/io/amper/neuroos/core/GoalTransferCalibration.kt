@@ -130,6 +130,37 @@ class MemoryBackedGoalTransferCalibrationModel(
         outcome: GoalOutcomeEvidenceKind,
         observedAtEpochMs: Long
     ): GoalTransferCalibrationSnapshot? {
+        if (plan.goalTransferBinding == null) return null
+        require(plan.complete)
+        val statuses = plan.steps.map { it.status }
+        when (outcome) {
+            GoalOutcomeEvidenceKind.VERIFIED_SUCCESS ->
+                require(statuses.all { it == PlanStepStatus.EXECUTED }) {
+                    "verified transfer success requires an all-executed terminal plan"
+                }
+            GoalOutcomeEvidenceKind.EXECUTION_EXHAUSTED ->
+                require(statuses.all {
+                    it == PlanStepStatus.FAILED ||
+                        it == PlanStepStatus.MALFORMED ||
+                        it == PlanStepStatus.UNAVAILABLE
+                }) {
+                    "execution-exhausted transfer calibration requires zero executed/authority steps"
+                }
+            GoalOutcomeEvidenceKind.EVIDENCE_EXHAUSTED ->
+                require(statuses.all { it == PlanStepStatus.EXECUTED }) {
+                    "evidence-exhausted transfer calibration requires an all-executed terminal plan"
+                }
+            GoalOutcomeEvidenceKind.AUTHORITY_BLOCKED -> {
+                require(statuses.none { it == PlanStepStatus.EXECUTED })
+                require(statuses.any {
+                    it == PlanStepStatus.DENIED || it == PlanStepStatus.REJECTED
+                })
+            }
+            GoalOutcomeEvidenceKind.PARTIAL_EXECUTION_BLOCKED -> {
+                require(statuses.any { it == PlanStepStatus.EXECUTED })
+                require(statuses.any { it != PlanStepStatus.EXECUTED })
+            }
+        }
         val calibrationOutcome = when (outcome) {
             GoalOutcomeEvidenceKind.VERIFIED_SUCCESS ->
                 GoalTransferCalibrationOutcome.VERIFIED_SUCCESS
