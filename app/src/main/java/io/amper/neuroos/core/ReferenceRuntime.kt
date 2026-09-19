@@ -176,6 +176,7 @@ class AmperRuntime private constructor(
     val skills: SkillGenesisModel,
     val generalization: SkillGeneralizationModel,
     val autonomousLearning: AutonomousLearningModel,
+    val perceptualGrounding: PerceptualGroundingSource,
     val integratedCognition: IntegratedCognitiveStateSource,
     val autonomousEvolution: AutonomousEvolutionModel,
     val autonomousEvolutionPromotionExecutor: AutonomousEvolutionPromotionExecutor,
@@ -357,11 +358,13 @@ class AmperRuntime private constructor(
                 semanticKnowledgeStore = semanticKnowledge,
                 predictiveWorld = predictiveWorld
             )
+            val perceptualGrounding = WorldBackedPerceptualGroundingSource(world)
             val integratedCognition = CanonicalIntegratedCognitiveStateSource(
                 context = context,
                 skills = skills,
                 generalization = generalization,
-                autonomousLearning = autonomousLearning
+                autonomousLearning = autonomousLearning,
+                perceptualGrounding = perceptualGrounding
             )
             val conversations = SovereignConversationCoordinator(
                 memory = memory,
@@ -405,6 +408,7 @@ class AmperRuntime private constructor(
                 skills = skills,
                 generalization = generalization,
                 autonomousLearning = autonomousLearning,
+                perceptualGrounding = perceptualGrounding,
                 integratedCognition = integratedCognition,
                 autonomousEvolution = autonomousEvolution,
                 autonomousEvolutionPromotionExecutor = autonomousEvolutionPromotionExecutor,
