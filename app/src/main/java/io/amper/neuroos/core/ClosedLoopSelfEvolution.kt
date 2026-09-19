@@ -94,9 +94,7 @@ object ClosedLoopEvolutionEvidencePolicy {
                 snapshot.failed.toString(),
                 snapshot.lastObservedAtEpochMs.toString(),
                 sixClosedLoop(successRate),
-                sixClosedLoop(snapshot.evidenceConfidence),
-                directive.cognitiveStateDigest,
-                directive.executionContextDigest
+                sixClosedLoop(snapshot.evidenceConfidence)
             ).joinToString("|")
         )
         return ClosedLoopEvolutionEvidence(
