@@ -137,6 +137,11 @@ interface GoalContextualStrategyPortfolio {
         observedAtEpochMs: Long = System.currentTimeMillis()
     ): GoalStrategyPortfolioStats?
 
+    fun observeTerminalPlan(
+        plan: SovereignPlan,
+        observedAtEpochMs: Long = System.currentTimeMillis()
+    ): GoalStrategyPortfolioStats?
+
     fun decision(planId: PlanId): GoalStrategyPortfolioDecision?
     fun snapshot(contextDigest: String, strategy: StrategySignature): GoalStrategyPortfolioStats?
 }
@@ -240,6 +245,34 @@ class MemoryBackedGoalContextualStrategyPortfolio(
 
     @Synchronized
     override fun observe(
+        plan: SovereignPlan,
+        outcome: GoalOutcomeEvidenceKind,
+        observedAtEpochMs: Long
+    ): GoalStrategyPortfolioStats? =
+        observeOutcome(plan, outcome, observedAtEpochMs)
+
+    @Synchronized
+    override fun observeTerminalPlan(
+        plan: SovereignPlan,
+        observedAtEpochMs: Long
+    ): GoalStrategyPortfolioStats? {
+        if (decision(plan.id) == null) return null
+        require(plan.complete)
+        val statuses = plan.steps.map { it.status }
+        val outcome = when {
+            statuses.all { it == PlanStepStatus.EXECUTED } -> return null
+            statuses.any { it == PlanStepStatus.EXECUTED } ->
+                GoalOutcomeEvidenceKind.PARTIAL_EXECUTION_BLOCKED
+            statuses.any { it == PlanStepStatus.DENIED || it == PlanStepStatus.REJECTED } ->
+                GoalOutcomeEvidenceKind.AUTHORITY_BLOCKED
+            statuses.any { it == PlanStepStatus.FAILED } ->
+                GoalOutcomeEvidenceKind.EXECUTION_EXHAUSTED
+            else -> return null
+        }
+        return observeOutcome(plan, outcome, observedAtEpochMs)
+    }
+
+    private fun observeOutcome(
         plan: SovereignPlan,
         outcome: GoalOutcomeEvidenceKind,
         observedAtEpochMs: Long
@@ -550,6 +583,10 @@ object GoalContextualStrategyPortfolioPolicy {
             appendLine(
                 "Exploration never widens capabilities, reuses approval, executes a tool, or bypasses " +
                     "live binding, authority, continuity, confirmation, or goal verification."
+            )
+            appendLine(
+                "cognitive_state_digest=" +
+                    candidates.first().assessment.cognitiveStateDigest
             )
             candidates.forEachIndexed { index, item ->
                 appendLine(
