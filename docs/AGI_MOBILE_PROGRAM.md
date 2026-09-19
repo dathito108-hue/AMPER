@@ -686,3 +686,15 @@ consume AMPER-generated payloads rather than receiving metadata alone; existing 
 remain compatible. Phase400 exposes the store through AmperRuntime, excludes its records from generic
 sovereign prompt context, and preserves the existing checkpoint/admission/promotion gates. Experience
 data is non-authoritative and cannot register or promote a live model by itself.
+
+
+### Implemented checkpoint — Phase401-405
+Phase401 adds evidence-derived curriculum synthesis over the exact immutable verified-experience
+shard selected for training. Phase402 counts capability coverage only from examples contained in that
+shard and excludes capabilities below a configurable minimum-evidence threshold. Phase403 orders
+curriculum stages by observed strategy position, then evidence depth, without inventing difficulty
+labels or synthetic successes. Phase404 registers the resulting bounded NativeCurriculumManifest in
+the existing NativeModelFoundation and binds it to the shard's canonical dataset snapshot digest.
+Phase405 exposes the planner through AmperRuntime as nativeExperienceCurriculum. The planner never
+invokes a trainer, never promotes a model, and carries no authority; it only turns verified internal
+experience into a reproducible dataset+curriculum bundle for the existing native training pipeline.
