@@ -88,6 +88,9 @@ data class SovereignPlan(
             require(it.matches(Regex("[0-9a-f]{64}"))) { "invalid planning execution-context digest" }
         }
         goalTransferBinding?.let { binding ->
+            require(planningCognitiveStateDigest != null) {
+                "goal transfer binding requires a planning cognitive-state digest"
+            }
             require(binding.strategy == StrategySignature(
                 steps.sortedBy { it.index }.map { it.capability }
             )) {
