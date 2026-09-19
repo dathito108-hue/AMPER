@@ -211,7 +211,7 @@ class MemoryBackedDurableGoalPortfolio(
     companion object {
         const val INDEX_KIND = "durable-goal-portfolio-v1"
         const val MAX_PENDING = 32
-        const val MAX_COMPLETED_HISTORY = 16
+        const val MAX_COMPLETED_HISTORY = 64
         private val INDEX_ID = MemoryId("durable-goal-portfolio:index")
     }
 }
