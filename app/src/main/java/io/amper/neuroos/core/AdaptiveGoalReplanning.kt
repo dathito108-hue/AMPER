@@ -40,28 +40,34 @@ fun interface GoalAdaptiveReplanner {
 }
 
 object GoalAdaptiveReplanningEligibility {
-    fun isEligible(
+    fun hasSafeUnexecutedFailureEvidence(
         checkpoint: PersistentGoalExecutiveCheckpoint,
         failedPlan: SovereignPlan,
-        goal: DurableGoalRecord,
-        records: Collection<DurableGoalRecord>
+        goal: DurableGoalRecord
     ): Boolean {
         if (checkpoint.stage != PersistentGoalExecutiveStage.RECOVERY_EXHAUSTED) return false
         if (goal.status != DurableGoalStatus.PENDING) return false
         if (goal.parentGoalId == null) return false
         if (goal.decompositionState == DurableGoalDecompositionState.DECOMPOSED) return false
         if (goal.replanGeneration >= DurableGoalRecord.MAX_ADAPTIVE_REPLAN_GENERATIONS) return false
-        if (goal.adaptiveReplanAttemptedAtEpochMs != null) return false
-        if (records.any { it.parentGoalId == goal.sourceGoalId }) return false
         if (checkpoint.plannedPlanId != failedPlan.id) return false
         if (!failedPlan.complete) return false
-
         return failedPlan.steps.all { step ->
             step.status == PlanStepStatus.FAILED ||
                 step.status == PlanStepStatus.MALFORMED ||
                 step.status == PlanStepStatus.UNAVAILABLE
         }
     }
+
+    fun isEligible(
+        checkpoint: PersistentGoalExecutiveCheckpoint,
+        failedPlan: SovereignPlan,
+        goal: DurableGoalRecord,
+        records: Collection<DurableGoalRecord>
+    ): Boolean =
+        hasSafeUnexecutedFailureEvidence(checkpoint, failedPlan, goal) &&
+            goal.adaptiveReplanAttemptedAtEpochMs == null &&
+            records.none { it.parentGoalId == goal.sourceGoalId }
 }
 
 /**
@@ -179,13 +185,12 @@ object GoalAdaptiveReplanProtocol {
         maxChars: Int = 5_500
     ): String {
         require(
-            GoalAdaptiveReplanningEligibility.isEligible(
+            GoalAdaptiveReplanningEligibility.hasSafeUnexecutedFailureEvidence(
                 checkpoint = checkpoint,
                 failedPlan = failedPlan,
-                goal = goal,
-                records = listOf(goal)
-            ) || checkpoint.stage == PersistentGoalExecutiveStage.RECOVERY_EXHAUSTED
-        )
+                goal = goal
+            )
+        ) { "adaptive-replan prompt requires safe unexecuted recovery-exhausted evidence" }
         require(maxChars in 2_000..8_000)
 
         val planEvidence = failedPlan.steps.joinToString("\n") { step ->
@@ -278,6 +283,14 @@ class InferenceGoalAdaptiveReplanner(
         goal: DurableGoalRecord,
         progress: DurableGoalHierarchyProgress
     ): Result<GoalAdaptiveReplanAssessment> = runCatching {
+        require(
+            GoalAdaptiveReplanningEligibility.hasSafeUnexecutedFailureEvidence(
+                checkpoint = checkpoint,
+                failedPlan = failedPlan,
+                goal = goal
+            )
+        ) { "adaptive replanning requires safe unexecuted recovery-exhausted evidence" }
+
         val liveDescriptors = descriptors()
             .filter { it.capability in allowedCapabilities }
             .distinctBy { it.id }
