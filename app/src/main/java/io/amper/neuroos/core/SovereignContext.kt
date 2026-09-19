@@ -100,7 +100,8 @@ class CanonicalSovereignContextSource(
             MemoryBackedAutonomousEvolutionModel.PROMOTION_KIND,
             MemoryBackedAutonomousEvolutionPromotionExecutor.EXECUTION_KIND,
             MemoryBackedAutonomousEvolutionPromotionExecutor.INDEX_KIND,
-            MemoryBackedAutonomousEvolutionCampaignCoordinator.CAMPAIGN_KIND
+            MemoryBackedAutonomousEvolutionCampaignCoordinator.CAMPAIGN_KIND,
+            MemoryBackedPersistentGoalExecutiveStore.CHECKPOINT_KIND
         )
         val seedScanLimit = if (memoryLimit == 0) 0 else (memoryLimit * 6).coerceAtLeast(memoryLimit)
         val seeds = memory.recall(query, seedScanLimit)
