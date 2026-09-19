@@ -63,6 +63,38 @@ class ReflexRealModelTest {
     }
 
     @Test
+    fun freshEvidenceTrainsParentedChallengerAndReplacesChampion() {
+        val runtime = AmperRuntime.reference()
+        seed(runtime.reflexExperienceDatasets, "continual-base")
+        val artifacts = InMemoryReflexLinearArtifactStore()
+        val lifecycle = ReflexNativeModelLifecycle(runtime, artifacts)
+
+        val first = lifecycle.maintain().getOrThrow()
+        assertEquals(ReflexNativeLifecycleStage.ACTIVE, first.stage)
+        val championId = requireNotNull(first.checkpointId)
+
+        seedFreshWebSearch(runtime.reflexExperienceDatasets, "continual-fresh")
+        val replacement = lifecycle.maintain().getOrThrow()
+
+        assertEquals(ReflexNativeLifecycleStage.REPLACED, replacement.stage)
+        val challengerId = requireNotNull(replacement.checkpointId)
+        assertTrue(challengerId != championId)
+        assertEquals(challengerId, runtime.reflexDecisionRuntime.active()?.checkpointId)
+        assertEquals(
+            championId,
+            runtime.nativeModelFoundation.getCheckpoint(challengerId)?.parentCheckpointId
+        )
+
+        val settled = lifecycle.maintain().getOrThrow()
+        assertEquals(
+            ReflexNativeLifecycleStage.WAITING_FOR_FRESH_EVIDENCE,
+            settled.stage
+        )
+        assertEquals(0, settled.actionExamples)
+        assertEquals(0, settled.escalationExamples)
+    }
+
+    @Test
     fun serializedArtifactRoundTripsToSamePrediction() {
         val capabilities = listOf(DeviceStatusToolContract.capability)
         val biases = FloatArray(ReflexLinearModel.CLASS_SLOTS)
@@ -133,6 +165,61 @@ class ReflexRealModelTest {
             )
         }
     }
+
+    private fun seedFreshWebSearch(
+        store: ReflexExperienceDatasetStore,
+        prefix: String
+    ) {
+        val descriptor = webSearchDescriptor()
+        repeat(24) { index ->
+            val proposal = ActionProposal(
+                requestId = ActionRequestId("$prefix-action-$index"),
+                capability = descriptor.capability,
+                reason = "search the web",
+                input = "android battery optimization sample $index"
+            )
+            store.observeExecuted(
+                userInput = "search web for android battery optimization sample $index",
+                descriptors = listOf(descriptor),
+                action = ActionOutcome(
+                    status = ActionStatus.EXECUTED,
+                    proposal = proposal,
+                    toolId = descriptor.id,
+                    sideEffect = descriptor.sideEffect,
+                    output = "web_search_requested"
+                ),
+                source = ReflexExperienceSource.SYSTEM2_TEACHER,
+                labelConfidence = 0.99,
+                observedAtEpochMs = 3_000L + index
+            )
+        }
+        repeat(24) { index ->
+            store.observeEscalation(
+                conversationId = ConversationId("$prefix-thread-$index"),
+                userInput = "explain quantum field theory carefully sample $index",
+                descriptors = listOf(descriptor),
+                response = InferenceResponse(
+                    modelId = ModelId("teacher"),
+                    backendId = "teacher-backend",
+                    text = "long reasoned answer $index"
+                ),
+                labelConfidence = 0.90,
+                observedAtEpochMs = 4_000L + index
+            )
+        }
+    }
+
+    private fun webSearchDescriptor(): ToolDescriptor =
+        ToolDescriptor(
+            id = AndroidWebSearchToolContract.toolId,
+            name = "web search",
+            capability = AndroidWebSearchToolContract.capability,
+            sideEffect = ToolSideEffect.EXTERNAL,
+            inputContract = ToolInputContract(
+                description = "web query",
+                maxLength = AndroidWebSearchToolContract.MAX_QUERY_CHARS
+            )
+        )
 
     private fun deviceDescriptor(): ToolDescriptor =
         ToolDescriptor(
