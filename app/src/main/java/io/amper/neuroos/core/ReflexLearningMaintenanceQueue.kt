@@ -4,7 +4,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.math.min
+import kotlin.math.max
 
 enum class ReflexLearningMaintenanceReason {
     INITIAL_EVIDENCE,
@@ -91,7 +91,7 @@ class MemoryBackedReflexLearningMaintenanceQueue(
                 if (sameEvidence) requireNotNull(existing).firstQueuedAtEpochMs else nowEpochMs,
             lastQueuedAtEpochMs = nowEpochMs,
             notBeforeEpochMs = if (sameEvidence) {
-                min(requireNotNull(existing).notBeforeEpochMs, notBeforeEpochMs)
+                max(requireNotNull(existing).notBeforeEpochMs, notBeforeEpochMs)
             } else {
                 notBeforeEpochMs
             },
