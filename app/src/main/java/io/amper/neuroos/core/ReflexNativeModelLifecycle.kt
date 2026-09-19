@@ -242,7 +242,7 @@ class ReflexNativeModelLifecycle(
 
         val evidenceDigest = reflexLinearSha256(
             listOf(
-                "AMPER_REFLEX_CONTINUAL_V2",
+                "AMPER_REFLEX_CONTINUAL_V3_ACTIVE",
                 champion.checkpointId.value,
                 activeBatch.selectedExampleIds
                     .map { it.value }
