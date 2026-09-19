@@ -57,7 +57,7 @@ class AutonomousEvolutionPromotionExecutorTest {
     @Test
     fun canaryRegressionAutomaticallyRollsBackToCapturedBaseline() {
         val fixture = fixture("canary-regression")
-        val deployment = FakeDeploymentPort("base-canary")
+        val deployment = FakeDeploymentPort(fixture.proposal.baseRevision)
         val prepared = fixture.executor.prepare(
             fixture.proposal,
             fixture.baseline,
@@ -79,7 +79,7 @@ class AutonomousEvolutionPromotionExecutorTest {
 
         assertEquals(EvolutionPromotionExecutionStage.ROLLED_BACK, result.stage)
         assertEquals("CANARY_REGRESSION", result.failureCode)
-        assertEquals("base-canary", deployment.activeRevision)
+        assertEquals(fixture.proposal.baseRevision, deployment.activeRevision)
         assertEquals(1, deployment.rollbackCalls)
         assertFalse(result.liveCommitted)
     }
@@ -87,7 +87,7 @@ class AutonomousEvolutionPromotionExecutorTest {
     @Test
     fun deploymentIdentityMismatchRollsBackBeforeCanary() {
         val fixture = fixture("identity-mismatch")
-        val deployment = FakeDeploymentPort("base-identity").apply {
+        val deployment = FakeDeploymentPort(fixture.proposal.baseRevision).apply {
             receiptArtifactOverride = "7".repeat(64)
         }
         val prepared = fixture.executor.prepare(
@@ -104,14 +104,14 @@ class AutonomousEvolutionPromotionExecutorTest {
 
         assertEquals(EvolutionPromotionExecutionStage.ROLLED_BACK, result.stage)
         assertEquals("DEPLOYMENT_IDENTITY_MISMATCH", result.failureCode)
-        assertEquals("base-identity", deployment.activeRevision)
+        assertEquals(fixture.proposal.baseRevision, deployment.activeRevision)
         assertEquals(1, deployment.rollbackCalls)
     }
 
     @Test
     fun forgedPromotionTicketIsRejectedBeforeCheckpointMutation() {
         val fixture = fixture("forged-ticket")
-        val deployment = FakeDeploymentPort("base-forged")
+        val deployment = FakeDeploymentPort(fixture.proposal.baseRevision)
         val forged = fixture.proposal.copy(
             proposedRevision = fixture.proposal.proposedRevision + "-forged"
         )
@@ -126,13 +126,13 @@ class AutonomousEvolutionPromotionExecutorTest {
                 ?.contains("not issued by canonical evolution tournament") == true
         )
         assertEquals(0, deployment.checkpointCalls)
-        assertEquals("base-forged", deployment.activeRevision)
+        assertEquals(fixture.proposal.baseRevision, deployment.activeRevision)
     }
 
     @Test
     fun restartRecoveryRollsBackPersistedAppliedTransaction() {
         val fixture = fixture("restart-recovery")
-        val deployment = FakeDeploymentPort("base-restart")
+        val deployment = FakeDeploymentPort(fixture.proposal.baseRevision)
         val prepared = fixture.executor.prepare(
             fixture.proposal,
             fixture.baseline,
@@ -157,7 +157,7 @@ class AutonomousEvolutionPromotionExecutorTest {
         assertEquals(1, recovered.size)
         assertEquals(EvolutionPromotionExecutionStage.ROLLED_BACK, recovered.single().stage)
         assertEquals("CRASH_RECOVERY", recovered.single().failureCode)
-        assertEquals("base-restart", deployment.activeRevision)
+        assertEquals(fixture.proposal.baseRevision, deployment.activeRevision)
         assertEquals(
             EvolutionPromotionExecutionStage.ROLLED_BACK,
             restarted.get(prepared.id)?.stage
@@ -167,7 +167,7 @@ class AutonomousEvolutionPromotionExecutorTest {
     @Test
     fun rollbackFailureBecomesRecoveryRequiredAndCanRecoverLater() {
         val fixture = fixture("rollback-retry")
-        val deployment = FakeDeploymentPort("base-retry")
+        val deployment = FakeDeploymentPort(fixture.proposal.baseRevision)
         val prepared = fixture.executor.prepare(
             fixture.proposal,
             fixture.baseline,
@@ -196,13 +196,13 @@ class AutonomousEvolutionPromotionExecutorTest {
 
         assertEquals(1, recovered.size)
         assertEquals(EvolutionPromotionExecutionStage.ROLLED_BACK, recovered.single().stage)
-        assertEquals("base-retry", deployment.activeRevision)
+        assertEquals(fixture.proposal.baseRevision, deployment.activeRevision)
     }
 
     @Test
     fun committedPromotionCanRollbackAfterLaterRegression() {
         val fixture = fixture("post-commit")
-        val deployment = FakeDeploymentPort("base-post")
+        val deployment = FakeDeploymentPort(fixture.proposal.baseRevision)
         val prepared = fixture.executor.prepare(
             fixture.proposal,
             fixture.baseline,
@@ -226,13 +226,13 @@ class AutonomousEvolutionPromotionExecutorTest {
 
         assertEquals(EvolutionPromotionExecutionStage.ROLLED_BACK, rolledBack.stage)
         assertEquals("POST_COMMIT_ROLLBACK", rolledBack.failureCode)
-        assertEquals("base-post", deployment.activeRevision)
+        assertEquals(fixture.proposal.baseRevision, deployment.activeRevision)
     }
 
     @Test
     fun insufficientCanarySamplesRollbackInsteadOfCommitting() {
         val fixture = fixture("canary-samples")
-        val deployment = FakeDeploymentPort("base-samples")
+        val deployment = FakeDeploymentPort(fixture.proposal.baseRevision)
         val prepared = fixture.executor.prepare(
             fixture.proposal,
             fixture.baseline,
@@ -254,7 +254,7 @@ class AutonomousEvolutionPromotionExecutorTest {
         )
 
         assertEquals(EvolutionPromotionExecutionStage.ROLLED_BACK, result.stage)
-        assertEquals("base-samples", deployment.activeRevision)
+        assertEquals(fixture.proposal.baseRevision, deployment.activeRevision)
     }
 
     @Test
