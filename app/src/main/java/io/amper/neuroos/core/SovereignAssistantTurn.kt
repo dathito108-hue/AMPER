@@ -116,6 +116,10 @@ sealed interface SovereignAssistantTurnResult {
  * Phase 147 adds ephemeral typed image/audio attachments to the first inference pass only. Attachment
  * bytes are never persisted in conversations, approvals or tool transactions, and their specialist
  * capabilities plus backend support must pass Titan admission before execution starts.
+ * Phase 421-425 add an optional local Reflex Decision Cortex before System-2 inference. Only
+ * high-confidence typed decisions with live ToolDescriptors can use the fast path. READ_ONLY actions
+ * may complete with zero LLM passes; side effects only become durable PendingApproval checkpoints.
+ * Unknown, ambiguous, multimodal or VERIFY-mode turns retain the existing System-2 path unchanged.
  */
 class SovereignAssistantTurnCoordinator(
     private val runtime: AmperRuntime,
@@ -218,6 +222,28 @@ class SovereignAssistantTurnCoordinator(
         val previousSelectedCapabilities =
             runtime.conversations.latestAssistantSelectedCapabilities(conversationId)
         runtime.tick(userPrompt)
+        if (
+            attachments.isEmpty() &&
+            userPrompt.length <= ReflexDecisionRequest.MAX_INPUT_CHARS &&
+            boundInferenceProfile.reflectionMode == ConversationReflectionMode.STANDARD
+        ) {
+            val reflexDecision = runtime.reflexDecisionCortex.decide(
+                ReflexDecisionRequest(
+                    userInput = userPrompt,
+                    descriptors = actions.descriptors()
+                        .filter { it.capability in advertisedCapabilities }
+                        .distinctBy { it.id }
+                )
+            )
+            handleReflexDecision(
+                conversationId = conversationId,
+                userPrompt = userPrompt,
+                decision = reflexDecision,
+                boundInferenceProfile = boundInferenceProfile,
+                stream = stream,
+                cancellation = cancellation
+            )?.let { return@runCatching it }
+        }
         val explicitProfiles = capabilityPolicy.preferredProfiles(userPrompt, turnRequiredCapabilities)
         val preferredProfiles = if (explicitProfiles.isNotEmpty()) {
             explicitProfiles
@@ -318,6 +344,93 @@ class SovereignAssistantTurnCoordinator(
         }
     }
 
+    private fun handleReflexDecision(
+        conversationId: ConversationId,
+        userPrompt: String,
+        decision: ReflexDecision,
+        boundInferenceProfile: BoundConversationInferenceProfile,
+        stream: ((AssistantStreamEvent) -> Unit)?,
+        cancellation: InferenceCancellationSignal?
+    ): SovereignAssistantTurnResult? {
+        if (!decision.fastPathEligible) return null
+        val proposal = decision.toActionProposal() ?: return null
+        if (proposal.capability !in advertisedCapabilities) return null
+        val descriptor = actions.descriptorFor(proposal.capability) ?: return null
+        cancellation?.throwIfCancelled()
+
+        val action = actions.evaluate(proposal)
+        cancellation?.throwIfCancelled()
+        return when (action.status) {
+            ActionStatus.EXECUTED -> {
+                val text = ReflexFastResponseRenderer.render(action)
+                emitWhole(stream, text)
+                val response = ReflexDecisionRuntimeContract.finalResponse(text)
+                runtime.conversations.commitAssistant(
+                    conversationId = conversationId,
+                    userPrompt = userPrompt,
+                    response = text,
+                    backendId = response.backendId,
+                    modelId = null,
+                    selectedCapabilities = emptySet()
+                )
+                SovereignAssistantTurnResult.Final(
+                    response = response,
+                    actionOutcome = action,
+                    inferencePasses = 0,
+                    reflectionApplied = false
+                )
+            }
+
+            ActionStatus.REQUIRES_CONFIRMATION -> {
+                val firstPrompt = buildFirstPrompt(
+                    conversationId = conversationId,
+                    userPrompt = userPrompt,
+                    promptBudgetChars = boundInferenceProfile.maxPromptChars
+                )
+                val pending = SovereignAssistantTurnResult.PendingApproval(
+                    conversationId = conversationId,
+                    userPrompt = userPrompt,
+                    proposal = proposal,
+                    toolId = requireNotNull(action.toolId),
+                    sideEffect = requireNotNull(action.sideEffect),
+                    firstResponse = ReflexDecisionRuntimeContract.syntheticActionResponse(decision),
+                    firstPrompt = firstPrompt,
+                    preferredCapabilityProfiles = emptyList(),
+                    boundInferenceProfile = boundInferenceProfile
+                )
+                require(descriptor.id == pending.toolId && descriptor.sideEffect == pending.sideEffect) {
+                    "reflex pending action binding changed during evaluation"
+                }
+                runtime.pendingApprovals.save(pending)
+            }
+
+            ActionStatus.NO_ACTION -> null
+
+            ActionStatus.MALFORMED,
+            ActionStatus.UNAVAILABLE,
+            ActionStatus.DENIED,
+            ActionStatus.FAILED -> {
+                val text = ReflexFastResponseRenderer.renderFailure(action)
+                emitWhole(stream, text)
+                val response = ReflexDecisionRuntimeContract.finalResponse(text)
+                runtime.conversations.commitAssistant(
+                    conversationId = conversationId,
+                    userPrompt = userPrompt,
+                    response = text,
+                    backendId = response.backendId,
+                    modelId = null,
+                    selectedCapabilities = emptySet()
+                )
+                SovereignAssistantTurnResult.Final(
+                    response = response,
+                    actionOutcome = action,
+                    inferencePasses = 0,
+                    reflectionApplied = false
+                )
+            }
+        }
+    }
+
     /**
      * Returns the newest still-actionable durable approval checkpoint. Snapshots are discarded when
      * their durable execution transaction has already started or when the live tool binding no
@@ -398,7 +511,9 @@ class SovereignAssistantTurnCoordinator(
             firstPrompt = effective.firstPrompt,
             action = action,
             preferredCapabilityProfiles = effective.preferredCapabilityProfiles,
-            preferredModelId = effective.firstResponse.modelId,
+            preferredModelId = effective.firstResponse.modelId.takeUnless {
+                effective.firstResponse.backendId == ReflexDecisionRuntimeContract.BACKEND_ID
+            },
             boundInferenceProfile = effective.boundInferenceProfile ?: legacyDefaultInferenceProfile(),
             stream = stream,
             cancellation = cancellation
@@ -624,7 +739,7 @@ class SovereignAssistantTurnCoordinator(
         firstPrompt: String,
         action: ActionOutcome,
         preferredCapabilityProfiles: List<Set<CapabilityId>>,
-        preferredModelId: ModelId,
+        preferredModelId: ModelId?,
         boundInferenceProfile: BoundConversationInferenceProfile,
         stream: ((AssistantStreamEvent) -> Unit)?,
         cancellation: InferenceCancellationSignal?
