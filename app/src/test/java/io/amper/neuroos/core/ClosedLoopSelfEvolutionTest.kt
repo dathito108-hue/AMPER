@@ -168,6 +168,62 @@ class ClosedLoopSelfEvolutionTest {
     }
 
     @Test
+    fun hierarchicalRepairSignalCreatesIndependentStrategyBenchmark() {
+        val runtime = AmperRuntime.reference()
+        val capability = CapabilityId("web.search")
+        val directive = CognitiveExecutiveDirective(
+            cognitiveStateDigest = "1".repeat(64),
+            executionContextDigest = "2".repeat(64),
+            action = CognitiveExecutiveAction.EVOLVE,
+            overallReadiness = 0.35,
+            uncertainty = 0.25,
+            learningPressure = 0.90,
+            triggeringCapability = capability,
+            rationale = "hierarchical strategy repair is strongly evidenced",
+            triggeringNeedKind = LearningNeedKind.HIERARCHICAL_STRATEGY_REPAIR,
+            triggeringEvidenceConfidence = 0.70
+        )
+
+        val evidence = requireNotNull(
+            ClosedLoopEvolutionEvidencePolicy.from(
+                directive = directive,
+                competence = runtime.competence
+            )
+        )
+        val suite = ClosedLoopEvolutionBenchmark.suite(evidence)
+        val baseline = ClosedLoopEvolutionBenchmark.baseline(
+            evidence = evidence,
+            identity = EvolutionRuntimeIdentity(
+                revision = "hierarchical-v1",
+                artifactDigest = "d".repeat(64)
+            ),
+            observedAtEpochMs = 77L
+        )
+        val metric = ClosedLoopEvolutionBenchmark.metricId(
+            capability,
+            ClosedLoopEvolutionEvidenceKind.HIERARCHICAL_STRATEGY_REPAIR
+        )
+        val observation = requireNotNull(baseline.benchmark.metrics[metric])
+
+        assertEquals(
+            ClosedLoopEvolutionEvidenceKind.HIERARCHICAL_STRATEGY_REPAIR,
+            evidence.kind
+        )
+        assertEquals(0.10, observation.score, 0.0001)
+        assertEquals(1, observation.samples)
+        assertEquals(1, suite.metrics.single().minSamples)
+        assertEquals(
+            ClosedLoopEvolutionEvidencePolicy.TARGET_HIERARCHICAL_REPAIR_SCORE,
+            suite.metrics.single().minCandidateScore,
+            0.0001
+        )
+        val kinds = ClosedLoopEvolutionEvidencePolicy.candidateKinds(evidence)
+        assertTrue(AutonomousEvolutionCandidateKind.STRATEGY in kinds)
+        assertTrue(AutonomousEvolutionCandidateKind.ARCHITECTURE in kinds)
+        assertFalse(AutonomousEvolutionCandidateKind.MODEL in kinds)
+    }
+
+    @Test
     fun benchmarkIsBoundToWeakCapabilityAndRealAttemptCount() {
         val capability = CapabilityId("web.search")
         val evidence = ClosedLoopEvolutionEvidence(
