@@ -61,6 +61,7 @@ class IntegratedCognitiveRuntimeTest {
             descriptors = listOf(descriptor)
         )
 
+        val evidenceNow = System.currentTimeMillis()
         runtime.epistemic.observe(
             EpistemicClaim(
                 subject = "integrated",
@@ -70,7 +71,7 @@ class IntegratedCognitiveRuntimeTest {
                 provenance = Provenance(
                     source = "phase251-test-a",
                     producer = "independent-evidence-a",
-                    observedAtEpochMs = 10_000L,
+                    observedAtEpochMs = evidenceNow,
                     confidence = 0.98
                 )
             )
@@ -84,7 +85,7 @@ class IntegratedCognitiveRuntimeTest {
                 provenance = Provenance(
                     source = "phase251-test-b",
                     producer = "independent-evidence-b",
-                    observedAtEpochMs = 10_001L,
+                    observedAtEpochMs = evidenceNow + 1L,
                     confidence = 0.97
                 )
             )
