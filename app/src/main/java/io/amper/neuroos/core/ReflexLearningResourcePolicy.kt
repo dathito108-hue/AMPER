@@ -1,0 +1,259 @@
+package io.amper.neuroos.core
+
+import kotlin.math.min
+
+enum class ReflexLearningResourceMode {
+    READY,
+    LIMITED,
+    DEFERRED
+}
+
+data class ReflexLearningDemand(
+    val freshCandidates: Int,
+    val replayCandidates: Int,
+    val learningValue: Double,
+    val hardExamples: Int,
+    val disagreementExamples: Int,
+    val novelCapabilities: Int
+) {
+    init {
+        require(freshCandidates >= 0)
+        require(replayCandidates >= 0)
+        require(learningValue in 0.0..1.0)
+        require(hardExamples in 0..freshCandidates)
+        require(disagreementExamples in 0..freshCandidates)
+        require(novelCapabilities >= 0)
+    }
+
+    val highValue: Boolean
+        get() =
+            novelCapabilities > 0 ||
+                learningValue >= HIGH_VALUE_THRESHOLD ||
+                disagreementExamples >= MIN_HIGH_VALUE_DISAGREEMENTS
+
+    val authorityBearing: Boolean
+        get() = false
+
+    companion object {
+        const val HIGH_VALUE_THRESHOLD = 0.62
+        const val MIN_HIGH_VALUE_DISAGREEMENTS = 8
+    }
+}
+
+data class ReflexLearningResourceDecision(
+    val mode: ReflexLearningResourceMode,
+    val allowTraining: Boolean,
+    val maxFreshExamples: Int,
+    val maxReplayExamples: Int,
+    val memoryBudgetMb: Int,
+    val thermalClass: Int,
+    val batteryPercent: Int? = null,
+    val charging: Boolean? = null,
+    val reason: String
+) {
+    init {
+        require(maxFreshExamples >= 0)
+        require(maxReplayExamples >= 0)
+        require(memoryBudgetMb >= 0)
+        require(batteryPercent == null || batteryPercent in 0..100)
+        require(reason.isNotBlank())
+        if (!allowTraining) {
+            require(mode == ReflexLearningResourceMode.DEFERRED)
+            require(maxFreshExamples == 0)
+            require(maxReplayExamples == 0)
+        } else {
+            require(mode != ReflexLearningResourceMode.DEFERRED)
+            require(maxFreshExamples >= MIN_TRAINING_FRESH_BUDGET)
+            require(maxReplayExamples >= MIN_REPLAY_BUDGET)
+        }
+    }
+
+    val authorityBearing: Boolean
+        get() = false
+
+    companion object {
+        const val MIN_TRAINING_FRESH_BUDGET = 48
+        const val MIN_REPLAY_BUDGET = 16
+    }
+}
+
+fun interface ReflexLearningResourcePolicy {
+    fun evaluate(demand: ReflexLearningDemand): ReflexLearningResourceDecision
+}
+
+object UnconstrainedReflexLearningResourcePolicy : ReflexLearningResourcePolicy {
+    override fun evaluate(demand: ReflexLearningDemand): ReflexLearningResourceDecision =
+        ReflexLearningResourceDecision(
+            mode = ReflexLearningResourceMode.READY,
+            allowTraining = true,
+            maxFreshExamples = 96,
+            maxReplayExamples = 96,
+            memoryBudgetMb = Int.MAX_VALUE,
+            thermalClass = 0,
+            reason = "no mobile learning resource policy attached"
+        )
+}
+
+/**
+ * Phase511-515 mobile scheduler for continual Reflex learning.
+ *
+ * Training is deliberately more conservative than inference. It may be deferred without touching
+ * the active champion; a later lifecycle maintenance call re-evaluates live resources and resumes
+ * from the same immutable evidence when conditions improve.
+ *
+ * The policy never changes labels, promotion criteria, runtime authority or tool execution.
+ */
+class ResourceGovernorReflexLearningResourcePolicy(
+    private val governor: ResourceGovernor,
+    private val deviceStatusSource: DeviceStatusSource? = null
+) : ReflexLearningResourcePolicy {
+    override fun evaluate(demand: ReflexLearningDemand): ReflexLearningResourceDecision {
+        val budget = governor.currentBudget()
+        val device = runCatching { deviceStatusSource?.snapshot() }.getOrNull()
+        val memoryMb = min(
+            budget.memoryMb.coerceAtLeast(0),
+            device?.availableMemoryMb
+                ?.coerceAtMost(Int.MAX_VALUE.toLong())
+                ?.toInt()
+                ?: Int.MAX_VALUE
+        )
+        val thermal = maxOf(
+            budget.thermalClass,
+            device?.thermalStatus ?: budget.thermalClass
+        )
+        val battery = device?.batteryPercent
+        val charging = device?.charging
+        val storageFreeMb = device?.appStorageFreeMb
+
+        fun deferred(reason: String) = ReflexLearningResourceDecision(
+            mode = ReflexLearningResourceMode.DEFERRED,
+            allowTraining = false,
+            maxFreshExamples = 0,
+            maxReplayExamples = 0,
+            memoryBudgetMb = memoryMb,
+            thermalClass = thermal,
+            batteryPercent = battery,
+            charging = charging,
+            reason = reason
+        )
+
+        fun allowed(
+            mode: ReflexLearningResourceMode,
+            freshBudget: Int,
+            replayBudget: Int,
+            reason: String
+        ) = ReflexLearningResourceDecision(
+            mode = mode,
+            allowTraining = true,
+            maxFreshExamples = freshBudget,
+            maxReplayExamples = replayBudget,
+            memoryBudgetMb = memoryMb,
+            thermalClass = thermal,
+            batteryPercent = battery,
+            charging = charging,
+            reason = reason
+        )
+
+        if (
+            !governor.allows(1) ||
+            thermal >= SEVERE_THERMAL_CLASS ||
+            memoryMb < CRITICAL_MEMORY_MB ||
+            device?.lowMemory == true
+        ) {
+            return deferred("training deferred by thermal or memory pressure")
+        }
+
+        if (storageFreeMb != null && storageFreeMb < MIN_STORAGE_FREE_MB) {
+            return deferred("training deferred to preserve app storage reserve")
+        }
+
+        if (charging != true && battery != null && battery <= MIN_BATTERY_PERCENT) {
+            return deferred("training deferred for battery conservation")
+        }
+
+        if (
+            charging != true &&
+            battery != null &&
+            battery <= CONSERVE_BATTERY_PERCENT
+        ) {
+            if (
+                !demand.highValue ||
+                thermal > LIGHT_THERMAL_CLASS ||
+                memoryMb < CONSERVE_MEMORY_MB
+            ) {
+                return deferred("training deferred until charging or higher-value evidence")
+            }
+            return allowed(
+                mode = ReflexLearningResourceMode.LIMITED,
+                freshBudget = CONSERVE_FRESH_BUDGET,
+                replayBudget = CONSERVE_REPLAY_BUDGET,
+                reason = "high-value learning allowed under battery-conservation budget"
+            )
+        }
+
+        if (
+            thermal >= MODERATE_THERMAL_CLASS ||
+            memoryMb < NORMAL_MEMORY_MB ||
+            budget.maxConcurrentAgents <= 1
+        ) {
+            if (
+                demand.learningValue < PRESSURED_MIN_LEARNING_VALUE &&
+                demand.novelCapabilities == 0
+            ) {
+                return deferred("training deferred under mobile pressure for low-value update")
+            }
+            return allowed(
+                mode = ReflexLearningResourceMode.LIMITED,
+                freshBudget = PRESSURED_FRESH_BUDGET,
+                replayBudget = PRESSURED_REPLAY_BUDGET,
+                reason = "resource pressure permits only a bounded high-value learning update"
+            )
+        }
+
+        return allowed(
+            mode = ReflexLearningResourceMode.READY,
+            freshBudget = NORMAL_FRESH_BUDGET,
+            replayBudget = NORMAL_REPLAY_BUDGET,
+            reason = if (charging == true) {
+                "charging and mobile resources permit full Reflex learning budget"
+            } else {
+                "mobile resources permit full Reflex learning budget"
+            }
+        )
+    }
+
+    companion object {
+        const val LIGHT_THERMAL_CLASS = 1
+        const val MODERATE_THERMAL_CLASS = 2
+        const val SEVERE_THERMAL_CLASS = 3
+
+        const val CRITICAL_MEMORY_MB = 256
+        const val CONSERVE_MEMORY_MB = 512
+        const val NORMAL_MEMORY_MB = 512
+        const val MIN_STORAGE_FREE_MB = 256L
+
+        const val MIN_BATTERY_PERCENT = 20
+        const val CONSERVE_BATTERY_PERCENT = 35
+
+        const val PRESSURED_MIN_LEARNING_VALUE = 0.50
+
+        const val NORMAL_FRESH_BUDGET = 96
+        const val NORMAL_REPLAY_BUDGET = 96
+        const val PRESSURED_FRESH_BUDGET = 64
+        const val PRESSURED_REPLAY_BUDGET = 64
+        const val CONSERVE_FRESH_BUDGET = 64
+        const val CONSERVE_REPLAY_BUDGET = 48
+    }
+}
+
+internal fun ReflexActiveLearningBatch.learningValue(): Double {
+    if (eligibleExamples <= 0) return 0.0
+    val denominator = eligibleExamples.toDouble()
+    val disagreementRate = disagreementExamples.toDouble() / denominator
+    val hardRate = hardExamples.toDouble() / denominator
+    val novelty = if (novelCapabilities.isNotEmpty()) 1.0 else 0.0
+    return maxOf(
+        meanPriority,
+        0.55 * disagreementRate + 0.25 * hardRate + 0.20 * novelty
+    ).coerceIn(0.0, 1.0)
+}
