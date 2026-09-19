@@ -59,6 +59,13 @@ enum class GoalRepairRequalificationState {
     INVALIDATED
 }
 
+enum class GoalRepairRequalificationFreshness {
+    FRESH,
+    AGING,
+    EXPIRED,
+    INVALIDATED
+}
+
 data class GoalRepairRequalificationSnapshot(
     val capability: CapabilityId,
     val practiceCreditObservedAtEpochMs: Long,
@@ -100,6 +107,28 @@ data class GoalRepairRequalificationSnapshot(
         get() = false
 }
 
+data class GoalRepairRequalificationAssessment(
+    val snapshot: GoalRepairRequalificationSnapshot,
+    val freshness: GoalRepairRequalificationFreshness,
+    val ageMs: Long,
+    val recencyMultiplier: Double,
+    val effectiveConfidence: Double
+) {
+    init {
+        require(ageMs >= 0L)
+        require(recencyMultiplier in 0.0..1.0)
+        require(effectiveConfidence in 0.0..1.0)
+        if (freshness == GoalRepairRequalificationFreshness.EXPIRED ||
+            freshness == GoalRepairRequalificationFreshness.INVALIDATED
+        ) {
+            require(effectiveConfidence == 0.0)
+        }
+    }
+
+    val authorityBearing: Boolean
+        get() = false
+}
+
 interface GoalRepairValidationModel {
     fun observe(
         task: AutonomousPracticeTask,
@@ -122,6 +151,11 @@ interface GoalRepairValidationModel {
         capability: CapabilityId
     ): GoalRepairRequalificationSnapshot? = null
 
+    fun requalificationAssessment(
+        capability: CapabilityId,
+        nowEpochMs: Long = System.currentTimeMillis()
+    ): GoalRepairRequalificationAssessment? = null
+
     fun requalifiedConfidence(capability: CapabilityId): Double = 0.0
 
     fun requalifiedTransferConfidence(strategy: StrategySignature): Double = 0.0
@@ -137,7 +171,8 @@ interface GoalRepairValidationModel {
  */
 class MemoryBackedGoalRepairValidationModel(
     private val memory: MemoryOs,
-    private val credit: GoalHierarchicalStrategyCreditModel
+    private val credit: GoalHierarchicalStrategyCreditModel,
+    private val clock: () -> Long = System::currentTimeMillis
 ) : GoalRepairValidationModel {
     @Synchronized
     override fun observe(
@@ -245,12 +280,14 @@ class MemoryBackedGoalRepairValidationModel(
         } else {
             0.0
         }
-        val real = requalificationSnapshot(signal.capability)
+        val real = requalificationAssessment(signal.capability, clock())
         val realRelief = if (
-            real?.state == GoalRepairRequalificationState.REQUALIFIED &&
-            real.lastSuccessAtEpochMs >= signal.latestObservedAtEpochMs
+            real?.freshness != GoalRepairRequalificationFreshness.INVALIDATED &&
+            real?.freshness != GoalRepairRequalificationFreshness.EXPIRED &&
+            real?.snapshot?.lastSuccessAtEpochMs
+                ?.let { it >= signal.latestObservedAtEpochMs } == true
         ) {
-            real.evidenceConfidence * MAX_REQUALIFIED_LEARNING_PRESSURE_RELIEF
+            real.effectiveConfidence * MAX_REQUALIFIED_LEARNING_PRESSURE_RELIEF
         } else {
             0.0
         }
@@ -303,6 +340,13 @@ class MemoryBackedGoalRepairValidationModel(
                             rememberRealOutcomeMarker(markerId, outcome, observedAtEpochMs)
                             return@mapNotNull null
                         }
+                    if (
+                        previous?.state == GoalRepairRequalificationState.INVALIDATED &&
+                        practice.lastPracticeAtEpochMs <= previous.lastFailureAtEpochMs
+                    ) {
+                        rememberRealOutcomeMarker(markerId, outcome, observedAtEpochMs)
+                        return@mapNotNull null
+                    }
                     val compatiblePrevious = previous?.takeIf {
                         it.practiceCreditObservedAtEpochMs == practice.creditObservedAtEpochMs &&
                             it.practiceValidatedAtEpochMs == practice.lastPracticeAtEpochMs
@@ -378,10 +422,52 @@ class MemoryBackedGoalRepairValidationModel(
             ?.let { GoalRepairRequalificationCodec.decode(it.content) }
             ?.takeIf { it.capability == capability }
 
+    override fun requalificationAssessment(
+        capability: CapabilityId,
+        nowEpochMs: Long
+    ): GoalRepairRequalificationAssessment? {
+        require(nowEpochMs >= 0L)
+        val snapshot = requalificationSnapshot(capability) ?: return null
+        val ageMs = (nowEpochMs - snapshot.lastSuccessAtEpochMs).coerceAtLeast(0L)
+        if (snapshot.state == GoalRepairRequalificationState.INVALIDATED) {
+            return GoalRepairRequalificationAssessment(
+                snapshot = snapshot,
+                freshness = GoalRepairRequalificationFreshness.INVALIDATED,
+                ageMs = ageMs,
+                recencyMultiplier = 0.0,
+                effectiveConfidence = 0.0
+            )
+        }
+        val freshness = when {
+            ageMs <= FRESH_REQUALIFICATION_MS ->
+                GoalRepairRequalificationFreshness.FRESH
+            ageMs >= MAX_REQUALIFICATION_AGE_MS ->
+                GoalRepairRequalificationFreshness.EXPIRED
+            else -> GoalRepairRequalificationFreshness.AGING
+        }
+        val recencyMultiplier = when (freshness) {
+            GoalRepairRequalificationFreshness.FRESH -> 1.0
+            GoalRepairRequalificationFreshness.AGING -> (
+                (MAX_REQUALIFICATION_AGE_MS - ageMs).toDouble() /
+                    (MAX_REQUALIFICATION_AGE_MS - FRESH_REQUALIFICATION_MS).toDouble()
+                ).coerceIn(0.0, 1.0)
+            GoalRepairRequalificationFreshness.EXPIRED,
+            GoalRepairRequalificationFreshness.INVALIDATED -> 0.0
+        }
+        return GoalRepairRequalificationAssessment(
+            snapshot = snapshot,
+            freshness = freshness,
+            ageMs = ageMs,
+            recencyMultiplier = recencyMultiplier,
+            effectiveConfidence = (
+                snapshot.evidenceConfidence * recencyMultiplier
+                ).coerceIn(0.0, 1.0)
+        )
+    }
+
     override fun requalifiedConfidence(capability: CapabilityId): Double =
-        requalificationSnapshot(capability)
-            ?.takeIf { it.state == GoalRepairRequalificationState.REQUALIFIED }
-            ?.evidenceConfidence
+        requalificationAssessment(capability, clock())
+            ?.effectiveConfidence
             ?: 0.0
 
     override fun requalifiedTransferConfidence(strategy: StrategySignature): Double {
@@ -389,13 +475,16 @@ class MemoryBackedGoalRepairValidationModel(
         if (targetCapabilities.isEmpty()) return 0.0
         val scores = mutableListOf<Double>()
         for (capability in targetCapabilities) {
-            val snapshot = requalificationSnapshot(capability)
-                ?.takeIf { it.state == GoalRepairRequalificationState.REQUALIFIED }
+            val assessment = requalificationAssessment(capability, clock())
+                ?.takeIf {
+                    it.freshness == GoalRepairRequalificationFreshness.FRESH ||
+                        it.freshness == GoalRepairRequalificationFreshness.AGING
+                }
                 ?: return 0.0
-            val similarity = structuralSimilarity(snapshot.strategy, strategy)
+            val similarity = structuralSimilarity(assessment.snapshot.strategy, strategy)
             if (similarity < MIN_REQUALIFIED_TRANSFER_SIMILARITY) return 0.0
             scores += (
-                snapshot.evidenceConfidence * (0.50 + 0.50 * similarity)
+                assessment.effectiveConfidence * (0.50 + 0.50 * similarity)
                 ).coerceIn(0.0, 1.0)
         }
         return scores.average().coerceIn(0.0, 1.0)
@@ -467,6 +556,8 @@ class MemoryBackedGoalRepairValidationModel(
         const val MAX_LEARNING_PRESSURE_RELIEF = 0.35
         const val MAX_REQUALIFIED_LEARNING_PRESSURE_RELIEF = 0.60
         const val MIN_REQUALIFIED_TRANSFER_SIMILARITY = 0.50
+        const val FRESH_REQUALIFICATION_MS = 604_800_000L
+        const val MAX_REQUALIFICATION_AGE_MS = 2_592_000_000L
     }
 }
 

@@ -94,7 +94,13 @@ class GoalRepairRequalificationTest {
                 observedAtEpochMs = 100L + index
             )
         }
-        return Fixture(MemoryBackedGoalRepairValidationModel(memory, credit))
+        return Fixture(
+            MemoryBackedGoalRepairValidationModel(
+                memory = memory,
+                credit = credit,
+                clock = { 1_000L }
+            )
+        )
     }
 
     private fun validatePractice(repair: GoalRepairValidationModel) {

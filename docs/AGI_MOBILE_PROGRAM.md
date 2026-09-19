@@ -613,3 +613,15 @@ feeds requalified evidence back into learning and contextual strategy ranking wi
 requalified learning-pressure relief is capped at 60% and negative portfolio-penalty attenuation at
 80%. Neither path can mint authority, count practice as execution, or turn a negative hierarchical
 adjustment positive; real governed success still updates hierarchical credit independently.
+
+
+### Implemented checkpoint — Phase376-380
+Phase376 derives a time-aware requalification assessment at read time, so aging requires no timer,
+background loop or memory write. Phase377 keeps full real-world repair confidence for seven days,
+then linearly decays it until hard expiry at thirty days. Phase378 makes a later VERIFIED_SUCCESS renew
+the same repair generation, reset recency and deepen its real-execution confidence. Phase379 prevents
+an invalidated repair from being requalified by a later success unless fresh HIERARCHICAL_STRATEGY_REPAIR
+practice occurred after the latest real failure. Phase380 applies the same aged effective confidence
+to learning-pressure relief and structural strategy transfer; expired or invalidated evidence
+contributes zero, while authority/user outcomes remain neutral. Aging never changes authority and
+never turns practice into execution evidence.
