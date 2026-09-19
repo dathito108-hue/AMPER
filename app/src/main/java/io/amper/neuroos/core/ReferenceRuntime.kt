@@ -412,9 +412,14 @@ class AmperRuntime private constructor(
             )
             val reflexDecisionActivationStore =
                 MemoryBackedReflexDecisionRuntimeActivationStore(memory)
+            val reflexActivationGate = CanonicalReflexDecisionRuntimeActivationGate(
+                foundation = nativeModelFoundation,
+                training = nativeTrainingPipeline
+            )
             val reflexDecisionRuntime = CanonicalReflexDecisionRuntimeController(
-                activationGate = CanonicalReflexDecisionRuntimeActivationGate(
-                    foundation = nativeModelFoundation,
+                activationGate = reflexActivationGate,
+                replacementGate = CanonicalReflexDecisionRuntimeReplacementGate(
+                    activationGate = reflexActivationGate,
                     training = nativeTrainingPipeline
                 ),
                 activationStore = reflexDecisionActivationStore
