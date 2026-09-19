@@ -645,7 +645,7 @@ class SovereignPlanCoordinator(
         }
 
         val continuity = assessContinuity(plan)
-        if (continuity.blocksExecution) {
+        if (continuity?.blocksExecution == true) {
             return@runCatching PlanAdvanceResult.ContextChanged(plan, continuity)
         }
 
@@ -675,7 +675,7 @@ class SovereignPlanCoordinator(
     fun approvalBinding(plan: SovereignPlan, stepIndex: Int): Result<ApprovedToolBinding> =
         runCatching {
             val continuity = assessContinuity(plan)
-            require(!continuity.blocksExecution) {
+            require(continuity?.blocksExecution != true) {
                 "approval blocked because cognitive execution context changed"
             }
             recoveryGuard.approvalBinding(plan, stepIndex).getOrThrow()
@@ -688,7 +688,7 @@ class SovereignPlanCoordinator(
         binding: ApprovedToolBinding
     ): Result<PlanAdvanceResult.StepProcessed> = runCatching {
         val continuity = assessContinuity(plan)
-        require(!continuity.blocksExecution) {
+        require(continuity?.blocksExecution != true) {
             "approval blocked because cognitive execution context changed"
         }
         val step = plan.steps.single { it.index == stepIndex }
@@ -922,14 +922,15 @@ class SovereignPlanCoordinator(
         .mapNotNull(actions::descriptorFor)
         .sortedBy { it.capability.value }
 
-    private fun assessContinuity(plan: SovereignPlan): CognitiveContinuityAssessment {
+    private fun assessContinuity(plan: SovereignPlan): CognitiveContinuityAssessment? {
+        val expected = plan.planningExecutionContextDigest ?: return null
         val current = runtime.integratedCognition.capture(
             query = plan.goal,
             allowedCapabilities = advertisedCapabilities,
             descriptors = routedDescriptors()
         )
         return CognitiveContinuityPolicy.assess(
-            expectedExecutionContextDigest = plan.planningExecutionContextDigest,
+            expectedExecutionContextDigest = expected,
             current = current
         )
     }
