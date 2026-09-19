@@ -358,6 +358,22 @@ resolves terminal plans through the existing bounded recovery policy. Autonomous
 manufactures approval, bypasses side-effect gates, or retries past an execution failure inside the
 same plan chain.
 
+
+### Implemented checkpoint — Phase306-310
+Phase306 adds a strict independent goal-satisfaction protocol over the exact all-executed terminal
+plan and the latest integrated cognitive evidence. The verifier may return only SATISFIED or
+FOLLOW_UP_REQUIRED; a SATISFIED result below 0.80 confidence is deterministically downgraded. Phase307
+wires a bounded reasoning-only verifier through SovereignPlanCoordinator and preserves the complete
+verification envelope under the prompt budget. Phase308 changes the autonomous governed runner so
+successful tool execution no longer closes a persistent goal by itself: the exact terminal plan is
+verified before completion, while failed/denied terminal plans continue through the existing recovery
+path. Phase309 persists a follow-up lineage separate from execution recovery, requeues the same goal
+when evidence is insufficient, and blocks after three bounded follow-up generations instead of
+looping indefinitely. Phase310 upgrades the persistent-goal codec to V3 while retaining V1/V2
+decoding and stores the last verification verdict, confidence and concise reason across restart.
+Goal verification has no ToolFabric/AuthorityGate handle, cannot approve side effects, and can only
+change goal-orchestration state after an already-terminal all-executed plan.
+
 ## CI budget policy
 
 GitHub Actions is a scarce verification resource.
