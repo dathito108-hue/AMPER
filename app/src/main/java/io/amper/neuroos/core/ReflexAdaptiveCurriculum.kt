@@ -2,7 +2,6 @@ package io.amper.neuroos.core
 
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
-import kotlin.math.abs
 
 data class ReflexAdaptiveCurriculum(
     val capabilityWeights: Map<CapabilityId, Double>,
@@ -42,21 +41,21 @@ data class ReflexAdaptiveCurriculum(
                     .forEach { (capability, weight) ->
                         append(capability.value)
                         append('=')
-                        append("%.8f".format(java.util.Locale.ROOT, weight))
+                        append(java.lang.String.format(java.util.Locale.ROOT, "%.8f", weight))
                         append(';')
                     }
                 append("|esc=")
-                append("%.8f".format(java.util.Locale.ROOT, escalationWeight))
+                append(java.lang.String.format(java.util.Locale.ROOT, "%.8f", escalationWeight))
                 append("|action_error=")
-                append("%.8f".format(java.util.Locale.ROOT, actionErrorRate))
+                append(java.lang.String.format(java.util.Locale.ROOT, "%.8f", actionErrorRate))
                 append("|esc_error=")
-                append("%.8f".format(java.util.Locale.ROOT, escalationErrorRate))
+                append(java.lang.String.format(java.util.Locale.ROOT, "%.8f", escalationErrorRate))
                 append("|uncertainty=")
-                append("%.8f".format(java.util.Locale.ROOT, meanUncertainty))
+                append(java.lang.String.format(java.util.Locale.ROOT, "%.8f", meanUncertainty))
                 append("|difficulty=")
-                append("%.8f".format(java.util.Locale.ROOT, difficulty))
+                append(java.lang.String.format(java.util.Locale.ROOT, "%.8f", difficulty))
                 append("|lr=")
-                append("%.8f".format(java.util.Locale.ROOT, learningRate))
+                append(java.lang.String.format(java.util.Locale.ROOT, "%.8f", learningRate))
             }
             return MessageDigest.getInstance("SHA-256")
                 .digest(material.toByteArray(StandardCharsets.UTF_8))
