@@ -178,6 +178,7 @@ class AutonomousGoalScheduler(
             onSuccess = { planRun ->
                 val delay = when (planRun.stage) {
                     AutonomousGovernedPlanRunStage.WAITING_APPROVAL -> PLANNED_RETRY_MS
+                    AutonomousGovernedPlanRunStage.EXECUTION_PAUSED -> BLOCKED_RETRY_MS
                     AutonomousGovernedPlanRunStage.STEP_LIMIT -> PLAN_PROGRESS_RETRY_MS
                     AutonomousGovernedPlanRunStage.CONTEXT_REFRESHED,
                     AutonomousGovernedPlanRunStage.COMPLETED,
@@ -218,6 +219,7 @@ class AutonomousGoalScheduler(
         PersistentGoalExecutiveStage.PLANNED -> PLANNED_RETRY_MS
         PersistentGoalExecutiveStage.COMPLETED -> ACTIVE_RETRY_MS
         PersistentGoalExecutiveStage.RECOVERY_BLOCKED,
+        PersistentGoalExecutiveStage.EXECUTION_PAUSED,
         PersistentGoalExecutiveStage.PARTIAL_EXECUTION_BLOCKED,
         PersistentGoalExecutiveStage.RECOVERY_EXHAUSTED -> BLOCKED_RETRY_MS
     }
@@ -231,6 +233,7 @@ class AutonomousGoalScheduler(
         PersistentGoalExecutiveStage.PLANNED -> PLANNED_RETRY_MS
         PersistentGoalExecutiveStage.COMPLETED -> ACTIVE_RETRY_MS
         PersistentGoalExecutiveStage.RECOVERY_BLOCKED,
+        PersistentGoalExecutiveStage.EXECUTION_PAUSED,
         PersistentGoalExecutiveStage.PARTIAL_EXECUTION_BLOCKED,
         PersistentGoalExecutiveStage.RECOVERY_EXHAUSTED -> BLOCKED_RETRY_MS
     }
