@@ -156,7 +156,8 @@ data class NativeTrainingRun(
     val examplesSeen: Long? = null,
     val completedSteps: Long? = null,
     val finalLoss: Double? = null,
-    val failureCode: String? = null
+    val failureCode: String? = null,
+    val executionBindingDigest: String? = null
 ) {
     init {
         require(manifestDigest.matches(SHA256))
@@ -168,6 +169,10 @@ data class NativeTrainingRun(
         require(completedSteps == null || completedSteps > 0L)
         require(finalLoss == null || (finalLoss.isFinite() && finalLoss >= 0.0))
         require(failureCode == null || (failureCode.isNotBlank() && failureCode.length <= 128))
+        require(
+            executionBindingDigest == null ||
+                executionBindingDigest.matches(SHA256)
+        )
         when (status) {
             NativeTrainingRunStatus.PREPARED -> {
                 require(weightArtifactSha256 == null)
@@ -176,6 +181,7 @@ data class NativeTrainingRun(
                 require(completedSteps == null)
                 require(finalLoss == null)
                 require(failureCode == null)
+                require(executionBindingDigest == null)
             }
             NativeTrainingRunStatus.SUCCEEDED -> {
                 requireNotNull(weightArtifactSha256)
@@ -188,6 +194,7 @@ data class NativeTrainingRun(
             NativeTrainingRunStatus.FAILED -> {
                 require(!failureCode.isNullOrBlank())
                 require(weightArtifactSha256 == null)
+                require(executionBindingDigest == null)
             }
         }
     }
@@ -226,6 +233,29 @@ data class NativeTrainingRequest(
             }
         }
     }
+
+    val executionBindingDigest: String
+        get() = trainingSha256(
+            listOf(
+                runId.value,
+                manifest.canonicalDigest,
+                contract.canonicalDigest,
+                curriculum.canonicalDigest,
+                manifest.datasetSnapshotDigest,
+                teachers.sortedBy { it.id.value }.joinToString(",") {
+                    it.id.value + ":" + it.artifactSha256
+                },
+                datasets.sortedBy { it.id.value }.joinToString(",") {
+                    it.id.value + ":" + it.sha256
+                },
+                generatedExperienceShards.sortedBy { it.manifest.id.value }.joinToString(",") {
+                    it.manifest.id.value + ":" + it.manifest.sha256
+                },
+                parentCheckpoint?.let {
+                    it.id.value + ":" + it.weightArtifactSha256
+                } ?: "~"
+            ).joinToString("|")
+        )
 }
 
 data class NativeTrainingArtifact(
@@ -238,7 +268,10 @@ data class NativeTrainingArtifact(
     val artifactBytes: Long,
     val examplesSeen: Long,
     val completedSteps: Long,
-    val finalLoss: Double
+    val finalLoss: Double,
+    val executionBindingDigest: String? = null,
+    val datasetSnapshotDigest: String? = null,
+    val curriculumDigest: String? = null
 ) {
     init {
         require(manifestDigest.matches(SHA256))
@@ -250,6 +283,18 @@ data class NativeTrainingArtifact(
         require(examplesSeen > 0L)
         require(completedSteps > 0L)
         require(finalLoss.isFinite() && finalLoss >= 0.0)
+        require(
+            executionBindingDigest == null ||
+                executionBindingDigest.matches(SHA256)
+        )
+        require(
+            datasetSnapshotDigest == null ||
+                datasetSnapshotDigest.matches(SHA256)
+        )
+        require(
+            curriculumDigest == null ||
+                curriculumDigest.matches(SHA256)
+        )
     }
 
     companion object {
@@ -518,6 +563,22 @@ class MemoryBackedNativeTrainingPipeline(
             require(
                 artifact.quantization.equals(request.manifest.target.quantization, ignoreCase = true)
             ) { "trainer artifact quantization does not match mobile target" }
+            if (request.generatedExperienceShards.isNotEmpty()) {
+                require(artifact.executionBindingDigest == request.executionBindingDigest) {
+                    "verified-experience trainer execution binding mismatch"
+                }
+                require(
+                    artifact.datasetSnapshotDigest ==
+                        request.manifest.datasetSnapshotDigest
+                ) {
+                    "verified-experience trainer dataset snapshot mismatch"
+                }
+                require(
+                    artifact.curriculumDigest == request.manifest.curriculumDigest
+                ) {
+                    "verified-experience trainer curriculum digest mismatch"
+                }
+            }
             require(foundation.getCheckpoint(run.outputCheckpointId) == null) {
                 "training output checkpoint already exists"
             }
@@ -575,7 +636,8 @@ class MemoryBackedNativeTrainingPipeline(
                     trainingBackendId = artifact.trainingBackendId,
                     examplesSeen = artifact.examplesSeen,
                     completedSteps = artifact.completedSteps,
-                    finalLoss = artifact.finalLoss
+                    finalLoss = artifact.finalLoss,
+                    executionBindingDigest = request.executionBindingDigest
                 )
                 persistRun(succeeded)
                 succeeded
@@ -1013,7 +1075,8 @@ private object NativeTrainingCodec {
         "examples=" + (value.examplesSeen?.toString() ?: "~"),
         "steps=" + (value.completedSteps?.toString() ?: "~"),
         "loss=" + (value.finalLoss?.toString()?.let(::enc) ?: "~"),
-        "failure=" + (value.failureCode?.let(::enc) ?: "~")
+        "failure=" + (value.failureCode?.let(::enc) ?: "~"),
+        "binding=" + (value.executionBindingDigest ?: "~")
     ).joinToString(";")
 
     fun decodeRun(content: String): NativeTrainingRun? = runCatching {
@@ -1032,7 +1095,8 @@ private object NativeTrainingCodec {
             examplesSeen = requireNotNull(f["examples"]).takeUnless { it == "~" }?.toLong(),
             completedSteps = requireNotNull(f["steps"]).takeUnless { it == "~" }?.toLong(),
             finalLoss = requireNotNull(f["loss"]).takeUnless { it == "~" }?.let { dec(it).toDouble() },
-            failureCode = requireNotNull(f["failure"]).takeUnless { it == "~" }?.let(::dec)
+            failureCode = requireNotNull(f["failure"]).takeUnless { it == "~" }?.let(::dec),
+            executionBindingDigest = f["binding"]?.takeUnless { it == "~" }
         )
     }.getOrNull()
 

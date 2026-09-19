@@ -713,3 +713,18 @@ authority surface. Phase410 exposes the coordinator as nativeExperienceTraining 
 Preparation never invokes NativeTrainerPort, never creates a checkpoint, never registers a live model
 and never promotes a model; execution, held-out evaluation, admission and runtime promotion remain the
 existing downstream gates.
+
+
+### Implemented checkpoint — Phase411-415
+Phase411 gives every NativeTrainingRequest a canonical executionBindingDigest over the exact run,
+manifest, student contract, curriculum, dataset manifests, generated-experience shard payload digests,
+teacher artifact identities and optional parent checkpoint weights. Phase412 extends
+NativeTrainingArtifact with backward-compatible optional execution-binding, dataset-snapshot and
+curriculum-digest echoes. Phase413 requires all three echoes for any request that carries generated
+verified-experience shards; a mismatch fails the run before checkpoint publication. Phase414 persists
+the request execution binding on newly successful NativeTrainingRun records while keeping legacy run
+decoding compatible when the field is absent. Phase415 adds regression coverage proving a correctly
+bound trainer can publish the immutable checkpoint lineage, while a trainer that returns the correct
+run/manifest identity but the wrong verified-experience binding produces a FAILED run and no
+checkpoint. These checks do not promote or register the model; held-out evaluation, admission and
+runtime promotion remain downstream gates.
