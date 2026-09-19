@@ -358,41 +358,58 @@ class MemoryBackedAgiMobileQualificationStore(
 ) : AgiMobileQualificationStore {
     @Synchronized
     override fun persist(report: AgiMobileQualificationReport) {
-        val reportRecord = MemoryRecord(
-            id = MemoryId("agi-mobile-qualification:" + report.canonicalDigest),
-            kind = REPORT_KIND,
-            content = AgiMobileQualificationCodec.encode(report),
-            importance = 0.98,
-            provenance = Provenance(
-                source = "independent-qualification-evidence",
-                producer = "agi-mobile-qualification",
-                confidence = 1.0
-            ),
-            createdAtEpochMs = report.createdAtEpochMs
-        )
-        memory.rememberIfAbsent(reportRecord).also { inserted ->
-            if (!inserted) {
-                val existing = memory.get(reportRecord.id)
-                require(existing?.content == reportRecord.content) {
-                    "qualification report digest collision"
-                }
-            }
-        }
-        memory.remember(
-            MemoryRecord(
-                id = LATEST_ID,
-                kind = LATEST_KIND,
-                content = report.canonicalDigest,
-                importance = 0.94,
+        memory.transaction {
+            val reportRecord = MemoryRecord(
+                id = MemoryId("agi-mobile-qualification:" + report.canonicalDigest),
+                kind = REPORT_KIND,
+                content = AgiMobileQualificationCodec.encode(report),
+                importance = 0.98,
                 provenance = Provenance(
                     source = "independent-qualification-evidence",
-                    producer = "agi-mobile-qualification-index",
-                    confidence = 1.0,
-                    parents = setOf(reportRecord.id)
+                    producer = "agi-mobile-qualification",
+                    confidence = 1.0
                 ),
                 createdAtEpochMs = report.createdAtEpochMs
             )
-        )
+            rememberIfAbsent(reportRecord).also { inserted ->
+                if (!inserted) {
+                    val existing = get(reportRecord.id)
+                    require(existing?.content == reportRecord.content) {
+                        "qualification report digest collision"
+                    }
+                }
+            }
+
+            val currentLatest = get(LATEST_ID)
+                ?.takeIf { it.kind == LATEST_KIND }
+                ?.content
+                ?.takeIf { it.matches(SHA256) }
+                ?.let { digest ->
+                    get(MemoryId("agi-mobile-qualification:$digest"))
+                        ?.takeIf { it.kind == REPORT_KIND }
+                        ?.let { AgiMobileQualificationCodec.decode(it.content) }
+                }
+            if (
+                currentLatest == null ||
+                report.createdAtEpochMs >= currentLatest.createdAtEpochMs
+            ) {
+                remember(
+                    MemoryRecord(
+                        id = LATEST_ID,
+                        kind = LATEST_KIND,
+                        content = report.canonicalDigest,
+                        importance = 0.94,
+                        provenance = Provenance(
+                            source = "independent-qualification-evidence",
+                            producer = "agi-mobile-qualification-index",
+                            confidence = 1.0,
+                            parents = setOf(reportRecord.id)
+                        ),
+                        createdAtEpochMs = report.createdAtEpochMs
+                    )
+                )
+            }
+        }
     }
 
     @Synchronized
