@@ -14,7 +14,8 @@ enum class LearningNeedKind {
     EVIDENCE_DEPTH,
     EXECUTION_RELIABILITY,
     TRANSFER_COVERAGE,
-    CONTRACT_PRACTICE
+    CONTRACT_PRACTICE,
+    HIERARCHICAL_STRATEGY_REPAIR
 }
 
 data class LearningNeed(
@@ -166,7 +167,8 @@ class MemoryBackedAutonomousLearningModel(
     private val competence: CapabilityCompetenceModel,
     private val skills: SkillGenesisModel,
     private val generalization: SkillGeneralizationModel,
-    private val clock: () -> Long = System::currentTimeMillis
+    private val clock: () -> Long = System::currentTimeMillis,
+    private val hierarchicalCredit: GoalHierarchicalStrategyCreditModel? = null
 ) : AutonomousLearningModel {
     override fun diagnose(
         allowedCapabilities: Set<CapabilityId>,
@@ -271,6 +273,24 @@ class MemoryBackedAutonomousLearningModel(
             }
         }
 
+        hierarchicalCredit
+            ?.learningSignals(
+                allowedCapabilities = live.keys,
+                limit = MAX_HIERARCHICAL_REPAIR_SIGNALS
+            )
+            .orEmpty()
+            .forEach { signal ->
+                needs += LearningNeed(
+                    capability = signal.capability,
+                    kind = LearningNeedKind.HIERARCHICAL_STRATEGY_REPAIR,
+                    severity = signal.severity,
+                    evidenceConfidence = signal.evidenceConfidence,
+                    rationale =
+                        "governed hierarchical strategy credit is negative across " +
+                            signal.matchedComponents + " reusable component(s)"
+                )
+            }
+
         return needs
             .sortedWith(
                 compareByDescending<LearningNeed> { it.severity }
@@ -309,11 +329,13 @@ class MemoryBackedAutonomousLearningModel(
                 }
                 val sourceKinds = sorted.map { it.kind }.toSet()
                 val priority = sorted.maxOf { it.severity }
-                val objective = when (kind) {
-                    AutonomousPracticeKind.CONTRACT_PLAN ->
-                        "Practice a valid bounded plan for capability ${capability.value} using the current live contract."
-                    AutonomousPracticeKind.NOVEL_TRANSFER_PLAN ->
+                val objective = when {
+                    LearningNeedKind.HIERARCHICAL_STRATEGY_REPAIR in sourceKinds ->
+                        "Practice repairing a recurrent hierarchical strategy weakness for capability ${capability.value} using only the current live contract."
+                    kind == AutonomousPracticeKind.NOVEL_TRANSFER_PLAN ->
                         "Practice adapting capability ${capability.value} to a novel synthetic context using the current live contract."
+                    else ->
+                        "Practice a valid bounded plan for capability ${capability.value} using the current live contract."
                 }
                 AutonomousPracticeTask(
                     id = practiceTaskId(capability, kind, sourceKinds),
@@ -481,6 +503,7 @@ class MemoryBackedAutonomousLearningModel(
         const val PRACTICE_INDEX_KIND = "autonomous-practice-index"
         const val MAX_CURRICULUM_TASKS = 4
         const val MAX_DIAGNOSED_NEEDS = 16
+        const val MAX_HIERARCHICAL_REPAIR_SIGNALS = 8
 
         private const val SKILL_LOOKBACK = 24
         private const val GENERALIZATION_LOOKBACK = 24

@@ -102,6 +102,30 @@ data class GoalHierarchicalStrategyCreditAssessment(
         get() = false
 }
 
+data class GoalHierarchicalLearningSignal(
+    val capability: CapabilityId,
+    val severity: Double,
+    val evidenceConfidence: Double,
+    val meanCredit: Double,
+    val matchedComponents: Int,
+    val componentKinds: Set<GoalStrategyCreditComponentKind>,
+    val hierarchyDepths: Set<Int>
+) {
+    init {
+        require(severity in 0.0..1.0)
+        require(evidenceConfidence in 0.0..1.0)
+        require(meanCredit in -1.0..0.0)
+        require(matchedComponents > 0)
+        require(componentKinds.isNotEmpty())
+        require(hierarchyDepths.all {
+            it in 0..DurableGoalRecord.MAX_DECOMPOSITION_DEPTH
+        })
+    }
+
+    val authorityBearing: Boolean
+        get() = false
+}
+
 interface GoalHierarchicalStrategyCreditModel {
     fun observe(
         checkpoint: PersistentGoalExecutiveCheckpoint,
@@ -122,6 +146,11 @@ interface GoalHierarchicalStrategyCreditModel {
         goal: String,
         strategy: StrategySignature
     ): GoalHierarchicalStrategyCreditAssessment
+
+    fun learningSignals(
+        allowedCapabilities: Set<CapabilityId>,
+        limit: Int = 8
+    ): List<GoalHierarchicalLearningSignal> = emptyList()
 }
 
 /**
@@ -307,6 +336,84 @@ class MemoryBackedGoalHierarchicalStrategyCreditModel(
                 it.stats.hierarchyDepth
             }
         )
+    }
+
+    @Synchronized
+    override fun learningSignals(
+        allowedCapabilities: Set<CapabilityId>,
+        limit: Int
+    ): List<GoalHierarchicalLearningSignal> {
+        require(limit >= 0)
+        if (limit == 0 || allowedCapabilities.isEmpty()) return emptyList()
+
+        data class Accumulator(
+            var creditNumerator: Double = 0.0,
+            var weight: Double = 0.0,
+            var missProbability: Double = 1.0,
+            var matchedComponents: Int = 0,
+            val componentKinds: MutableSet<GoalStrategyCreditComponentKind> = linkedSetOf(),
+            val hierarchyDepths: MutableSet<Int> = linkedSetOf()
+        )
+
+        val byCapability = linkedMapOf<CapabilityId, Accumulator>()
+        recentStats(MAX_INDEXED_STATS).forEach { stats ->
+            if (stats.comparableObservations <= 0 || stats.meanCredit >= 0.0) {
+                return@forEach
+            }
+            val componentWeight = when (stats.componentKind) {
+                GoalStrategyCreditComponentKind.STEP -> 1.00
+                GoalStrategyCreditComponentKind.PREFIX -> 0.85
+                GoalStrategyCreditComponentKind.SEQUENCE -> 0.70
+            }
+            val evidenceWeight = (
+                stats.evidenceConfidence * componentWeight
+                ).coerceIn(0.0, 1.0)
+            if (evidenceWeight <= 0.0) return@forEach
+
+            stats.strategy.capabilities
+                .distinct()
+                .filter { it in allowedCapabilities }
+                .forEach { capability ->
+                    val accumulator = byCapability.getOrPut(capability) {
+                        Accumulator()
+                    }
+                    accumulator.creditNumerator += stats.meanCredit * evidenceWeight
+                    accumulator.weight += evidenceWeight
+                    accumulator.missProbability *= (1.0 - evidenceWeight)
+                    accumulator.matchedComponents += 1
+                    accumulator.componentKinds += stats.componentKind
+                    accumulator.hierarchyDepths += stats.hierarchyDepth
+                }
+        }
+
+        return byCapability.mapNotNull { (capability, accumulator) ->
+            if (accumulator.weight <= 0.0) return@mapNotNull null
+            val meanCredit = (
+                accumulator.creditNumerator / accumulator.weight
+                ).coerceIn(-1.0, 0.0)
+            val confidence = (
+                1.0 - accumulator.missProbability
+                ).coerceIn(0.0, 1.0)
+            val severity = (
+                -meanCredit * (0.55 + 0.45 * confidence)
+                ).coerceIn(0.0, 1.0)
+            if (severity < MIN_LEARNING_SIGNAL_SEVERITY) {
+                return@mapNotNull null
+            }
+            GoalHierarchicalLearningSignal(
+                capability = capability,
+                severity = severity,
+                evidenceConfidence = confidence,
+                meanCredit = meanCredit,
+                matchedComponents = accumulator.matchedComponents,
+                componentKinds = accumulator.componentKinds.toSet(),
+                hierarchyDepths = accumulator.hierarchyDepths.toSet()
+            )
+        }.sortedWith(
+            compareByDescending<GoalHierarchicalLearningSignal> { it.severity }
+                .thenByDescending { it.evidenceConfidence }
+                .thenBy { it.capability.value }
+        ).take(limit)
     }
 
     private fun applyOutcome(
@@ -654,6 +761,7 @@ class MemoryBackedGoalHierarchicalStrategyCreditModel(
         const val INDEX_KIND = "goal-hierarchical-strategy-credit-index-v1"
         const val MAX_INDEXED_STATS = 192
         const val MIN_GOAL_SIMILARITY = 0.20
+        const val MIN_LEARNING_SIGNAL_SEVERITY = 0.08
         private const val STEP_WEIGHT = 0.30
         private const val PREFIX_WEIGHT = 0.30
         private const val SEQUENCE_WEIGHT = 0.40

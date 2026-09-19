@@ -327,11 +327,14 @@ class AmperRuntime private constructor(
             val predictiveWorld = MemoryBackedPredictiveWorldModel(memory)
             val skills = MemoryBackedSkillGenesisModel(memory)
             val generalization = MemoryBackedSkillGeneralizationModel(memory, skills)
+            val goalHierarchicalStrategyCredit =
+                MemoryBackedGoalHierarchicalStrategyCreditModel(memory)
             val autonomousLearning = MemoryBackedAutonomousLearningModel(
                 memory = memory,
                 competence = competence,
                 skills = skills,
-                generalization = generalization
+                generalization = generalization,
+                hierarchicalCredit = goalHierarchicalStrategyCredit
             )
             val nativeModelFoundation = MemoryBackedNativeModelFoundation(memory)
             val nativeTrainingPipeline = MemoryBackedNativeTrainingPipeline(
@@ -388,8 +391,6 @@ class AmperRuntime private constructor(
             val goalPortfolio = MemoryBackedDurableGoalPortfolio(memory)
             val goalOutcomeLearning = MemoryBackedGoalOutcomeLearningModel(memory)
             val goalTransferCalibration = MemoryBackedGoalTransferCalibrationModel(memory)
-            val goalHierarchicalStrategyCredit =
-                MemoryBackedGoalHierarchicalStrategyCreditModel(memory)
             val goalStrategyPortfolio = MemoryBackedGoalContextualStrategyPortfolio(
                 memory = memory,
                 hierarchicalCredit = goalHierarchicalStrategyCredit

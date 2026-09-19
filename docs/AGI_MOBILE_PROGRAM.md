@@ -573,3 +573,15 @@ GitHub Actions is a scarce verification resource.
 - New commits cancel obsolete in-progress CI for the same PR.
 
 This changes when verification runs, not the canonical correctness requirements.
+
+### Implemented checkpoint — Phase361-365
+Phase361 exposes bounded learning signals from negative hierarchical STEP/PREFIX/SEQUENCE credit
+without exposing raw goals, tool payloads, approvals or tool ids. Phase362 keeps authority/user and
+partial-execution evidence neutral, so denied actions cannot manufacture self-training pressure.
+Phase363 feeds confidence-weighted negative credit into the existing autonomous weakness map as
+HIERARCHICAL_STRATEGY_REPAIR while keeping real execution competence and practice competence separate.
+Phase364 turns that pressure into bounded zero-tool repair curriculum over the current live capability
+contract; practice output is still parsed only as a plan exercise and is never sent to ToolFabric.
+Phase365 wires the restart-durable credit model into the canonical autonomous-learning runtime so
+repeated governed strategy failures can redirect future practice automatically. Learning signals are
+authority=false and cannot grant approval, permission, tool access or device/external authority.
