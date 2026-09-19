@@ -219,6 +219,8 @@ data class NativeTrainingArtifact(
     val manifestDigest: String,
     val trainingBackendId: String,
     val weightArtifactSha256: String,
+    val outputFormat: String,
+    val quantization: String,
     val artifactBytes: Long,
     val examplesSeen: Long,
     val completedSteps: Long,
@@ -228,6 +230,8 @@ data class NativeTrainingArtifact(
         require(manifestDigest.matches(SHA256))
         require(trainingBackendId.isNotBlank() && trainingBackendId.length <= 128)
         require(weightArtifactSha256.matches(SHA256))
+        require(outputFormat.isNotBlank() && outputFormat.length <= 32)
+        require(quantization.isNotBlank() && quantization.length <= 32)
         require(artifactBytes > 0L)
         require(examplesSeen > 0L)
         require(completedSteps > 0L)
@@ -495,6 +499,12 @@ class MemoryBackedNativeTrainingPipeline(
                 require(artifact.manifestDigest == run.manifestDigest) {
                     "trainer result manifest digest mismatch"
                 }
+                require(
+                    artifact.outputFormat.equals(request.manifest.target.outputFormat, ignoreCase = true)
+                ) { "trainer artifact format does not match mobile target" }
+                require(
+                    artifact.quantization.equals(request.manifest.target.quantization, ignoreCase = true)
+                ) { "trainer artifact quantization does not match mobile target" }
                 require(foundation.getCheckpoint(run.outputCheckpointId) == null) {
                     "training output checkpoint already exists"
                 }
@@ -514,6 +524,27 @@ class MemoryBackedNativeTrainingPipeline(
                     createdAtEpochMs = clock()
                 )
                 foundation.putCheckpoint(checkpoint)
+                memory.remember(
+                    MemoryRecord(
+                        id = outputIndexMemoryId(run.outputCheckpointId),
+                        kind = OUTPUT_INDEX_KIND,
+                        content = NativeTrainingCodec.encodeOutputIndex(
+                            checkpointId = run.outputCheckpointId,
+                            runId = run.id
+                        ),
+                        importance = 0.93,
+                        provenance = Provenance(
+                            source = "amper-native-training",
+                            producer = "native-training-output-index",
+                            confidence = 1.0,
+                            parents = setOf(
+                                runMemoryId(run.id),
+                                MemoryId("native-checkpoint:" + run.outputCheckpointId.value)
+                            )
+                        ),
+                        createdAtEpochMs = checkpoint.createdAtEpochMs
+                    )
+                )
 
                 val succeeded = run.copy(
                     status = NativeTrainingRunStatus.SUCCEEDED,
@@ -543,6 +574,13 @@ class MemoryBackedNativeTrainingPipeline(
         checkpointId: NativeCheckpointId,
         evaluation: NativeCheckpointEvaluation
     ): NativeCheckpointEvaluationRecord {
+        val existing = getEvaluation(checkpointId)
+        if (existing != null) {
+            require(existing.evaluation == evaluation) {
+                "native checkpoint evaluation is immutable"
+            }
+            return existing
+        }
         val run = requireNotNull(successfulRunFor(checkpointId)) {
             "checkpoint was not produced by a successful native training run"
         }
@@ -559,13 +597,6 @@ class MemoryBackedNativeTrainingPipeline(
             recordedAtEpochMs = clock()
         )
         val memoryId = evaluationMemoryId(checkpointId)
-        val existing = getEvaluation(checkpointId)
-        if (existing != null) {
-            require(existing == record) {
-                "native checkpoint evaluation is immutable"
-            }
-            return existing
-        }
         memory.remember(
             MemoryRecord(
                 id = memoryId,
@@ -789,12 +820,13 @@ class MemoryBackedNativeTrainingPipeline(
     }
 
     private fun successfulRunFor(checkpointId: NativeCheckpointId): NativeTrainingRun? {
-        val query = checkpointId.value
-        return memory.recall(query, MAX_RUN_LOOKBACK)
-            .asSequence()
-            .filter { it.kind == RUN_KIND }
-            .mapNotNull { NativeTrainingCodec.decodeRun(it.content) }
-            .firstOrNull {
+        val index = memory.get(outputIndexMemoryId(checkpointId))
+            ?.takeIf { it.kind == OUTPUT_INDEX_KIND }
+            ?.let { NativeTrainingCodec.decodeOutputIndex(it.content) }
+            ?: return null
+        if (index.first != checkpointId) return null
+        return getRun(index.second)
+            ?.takeIf {
                 it.outputCheckpointId == checkpointId &&
                     it.status == NativeTrainingRunStatus.SUCCEEDED
             }
@@ -828,16 +860,19 @@ class MemoryBackedNativeTrainingPipeline(
     private fun evaluationMemoryId(id: NativeCheckpointId): MemoryId =
         MemoryId("native-training-evaluation:" + id.value)
 
+    private fun outputIndexMemoryId(id: NativeCheckpointId): MemoryId =
+        MemoryId("native-training-output:" + id.value)
+
     companion object {
         const val TEACHER_KIND = "native-teacher-snapshot"
         const val MANIFEST_KIND = "native-distillation-manifest"
         const val RUN_KIND = "native-training-run"
+        const val OUTPUT_INDEX_KIND = "native-training-output-index"
         const val EVALUATION_KIND = "native-training-evaluation"
         const val PROMOTION_KIND = "native-model-promotion-candidate"
 
         const val MAX_METRIC_REGRESSION = 0.01
         const val MIN_AGGREGATE_IMPROVEMENT = 0.005
-        private const val MAX_RUN_LOOKBACK = 128
     }
 }
 
@@ -971,6 +1006,23 @@ private object NativeTrainingCodec {
             failureCode = requireNotNull(f["failure"]).takeUnless { it == "~" }?.let(::dec)
         )
     }.getOrNull()
+
+    fun encodeOutputIndex(
+        checkpointId: NativeCheckpointId,
+        runId: NativeTrainingRunId
+    ): String = listOf(
+        "v=1",
+        "checkpoint=" + enc(checkpointId.value),
+        "run=" + enc(runId.value)
+    ).joinToString(";")
+
+    fun decodeOutputIndex(content: String): Pair<NativeCheckpointId, NativeTrainingRunId>? =
+        runCatching {
+            val f = fields(content)
+            require(f["v"] == "1")
+            NativeCheckpointId(dec(requireNotNull(f["checkpoint"]))) to
+                NativeTrainingRunId(dec(requireNotNull(f["run"])))
+        }.getOrNull()
 
     fun encodeEvaluationRecord(value: NativeCheckpointEvaluationRecord): String = listOf(
         "v=1",
