@@ -1,5 +1,7 @@
 package io.amper.neuroos.core
 
+import java.security.MessageDigest
+
 @JvmInline
 value class EvolutionAutonomyRunId(val value: String) {
     init { require(value.matches(Regex("[A-Za-z0-9._:-]{1,128}"))) }
@@ -169,7 +171,9 @@ class AutonomousEvolutionOrchestrator(
                 break
             }
 
-            val campaignId = EvolutionCampaignId(id.value + ":cycle:" + index)
+            val campaignId = EvolutionCampaignId(
+                "autonomy-" + autonomySha256(id.value + "|" + index).take(24)
+            )
             val campaignResult = runCatching {
                 campaign.run(
                     campaignId = campaignId,
@@ -343,3 +347,8 @@ private fun sanitizeAutonomyFailure(failure: Throwable?): String =
     failure?.javaClass?.simpleName
         ?.takeIf { it.matches(Regex("[A-Za-z0-9._:-]{1,128}")) }
         ?: "EVOLUTION_CYCLE_FAILURE"
+
+private fun autonomySha256(value: String): String =
+    MessageDigest.getInstance("SHA-256")
+        .digest(value.toByteArray(Charsets.UTF_8))
+        .joinToString("") { "%02x".format(it.toInt() and 0xff) }
