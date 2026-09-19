@@ -1,5 +1,6 @@
 package io.amper.neuroos.core
 
+import java.util.Base64
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -12,7 +13,8 @@ class GoalTransferCalibrationTest {
 
     @Test
     fun verifiedSuccessRaisesCalibratedSupportAndPersistsIdempotently() {
-        val model = MemoryBackedGoalTransferCalibrationModel(InMemoryMemoryOs())
+        val memory = InMemoryMemoryOs()
+        val model = MemoryBackedGoalTransferCalibrationModel(memory)
         val plan = terminalBoundPlan(
             id = "phase346-success",
             status = PlanStepStatus.EXECUTED
@@ -44,6 +46,55 @@ class GoalTransferCalibrationTest {
         assertTrue(adjustment.multiplier > 1.0)
         assertTrue(adjustment.calibratedSupport > candidate.transferSupport)
         assertFalse(adjustment.suppressedByFailureStreak)
+        val restarted = MemoryBackedGoalTransferCalibrationModel(memory)
+        assertEquals(first, restarted.snapshot(StrategySignature.from(plan)))
+    }
+
+    @Test
+    fun legacyV6PlanRemainsReadableWithoutInventingTransferAttribution() {
+        fun enc(value: String): String = Base64.getUrlEncoder().withoutPadding()
+            .encodeToString(value.toByteArray(Charsets.UTF_8))
+        val content = listOf(
+            "AMPER_PLAN_STATE_V6",
+            "ID\t" + enc("phase348-v6-plan"),
+            "CONVERSATION\t" + enc("phase348-v6-conversation"),
+            "GOAL\t" + enc("legacy continuity goal"),
+            "BACKEND\t" + enc("phase348-v6-backend"),
+            "CREATED\t55",
+            "MODEL\t~",
+            "CAPABILITIES\t~",
+            "PARENT_PLAN\t~",
+            "RECOVERY_DEPTH\t0",
+            "DELIBERATION_COUNT\t1",
+            "DELIBERATION_SCORE\t~",
+            "COUNTERFACTUAL_VIABILITY\t~",
+            "COUNTERFACTUAL_CONFIDENCE\t~",
+            "COGNITIVE_STATE_DIGEST\t" + "c".repeat(64),
+            "EXECUTION_CONTEXT_DIGEST\t" + "d".repeat(64),
+            listOf(
+                "STEP",
+                "1",
+                enc("phase348-v6-request"),
+                enc(capability.value),
+                enc("Read current value"),
+                enc("read"),
+                PlanStepStatus.PLANNED.name,
+                "~",
+                "~",
+                "~",
+                "~",
+                "~",
+                enc("phase346-provider"),
+                ToolSideEffect.READ_ONLY.name
+            ).joinToString("\t")
+        ).joinToString("\n")
+
+        val restored = SovereignPlanCodec.decode(content).getOrThrow()
+
+        assertEquals(PlanId("phase348-v6-plan"), restored.id)
+        assertEquals("c".repeat(64), restored.planningCognitiveStateDigest)
+        assertEquals("d".repeat(64), restored.planningExecutionContextDigest)
+        assertEquals(null, restored.goalTransferBinding)
     }
 
     @Test
