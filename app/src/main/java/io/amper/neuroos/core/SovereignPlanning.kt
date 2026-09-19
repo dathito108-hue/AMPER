@@ -395,7 +395,8 @@ class SovereignPlanCoordinator(
         context = runtime.context,
         executive = autonomousExecutive(evolution, observation),
         store = runtime.persistentGoalExecutiveStore,
-        plans = runtime.plans
+        plans = runtime.plans,
+        portfolio = runtime.goalPortfolio
     )
 
     fun create(
