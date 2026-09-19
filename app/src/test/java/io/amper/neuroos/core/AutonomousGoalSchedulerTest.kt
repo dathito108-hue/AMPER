@@ -128,6 +128,64 @@ class AutonomousGoalSchedulerTest {
     }
 
     @Test
+    fun plannedHandoffCanAdvanceThroughInjectedGovernedRunner() {
+        var now = 25_000L
+        var goalCalls = 0
+        var planCalls = 0
+        val planId = PlanId("phase305-plan")
+        val checkpoint = checkpoint(
+            stage = PersistentGoalExecutiveStage.PLANNED,
+            action = CognitiveExecutiveAction.PLAN,
+            planId = planId
+        )
+        val scheduler = AutonomousGoalScheduler(
+            runGoal = {
+                goalCalls += 1
+                Result.success(
+                    PersistentGoalExecutiveResult.Deferred(
+                        checkpoint = checkpoint,
+                        reason = "planned handoff is unresolved"
+                    )
+                )
+            },
+            resourceAllowed = { true },
+            runPlan = { requested ->
+                planCalls += 1
+                assertEquals(planId, requested)
+                Result.success(
+                    AutonomousGovernedPlanRunResult(
+                        planId = planId,
+                        stage = AutonomousGovernedPlanRunStage.WAITING_APPROVAL,
+                        processedSteps = 0,
+                        activePlanId = planId,
+                        goalCheckpointStage = PersistentGoalExecutiveStage.PLANNED
+                    )
+                )
+            },
+            clock = { now }
+        )
+
+        val first = scheduler.tick(conversationId)
+
+        assertEquals(AutonomousGoalSchedulerStage.PLAN_PROGRESS, first.stage)
+        assertEquals(
+            AutonomousGovernedPlanRunStage.WAITING_APPROVAL,
+            first.planRunStage
+        )
+        assertEquals(PersistentGoalExecutiveStage.PLANNED, first.checkpointStage)
+        assertEquals(planId, first.planId)
+        assertEquals(AutonomousGoalScheduler.PLANNED_RETRY_MS, first.nextDelayMs)
+        assertEquals(1, goalCalls)
+        assertEquals(1, planCalls)
+
+        now += 1_000L
+        val throttled = scheduler.tick(conversationId)
+        assertEquals(AutonomousGoalSchedulerStage.THROTTLED, throttled.stage)
+        assertEquals(1, goalCalls)
+        assertEquals(1, planCalls)
+    }
+
+    @Test
     fun overlappingTickReturnsBusyInsteadOfStartingCompetingCognition() {
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
