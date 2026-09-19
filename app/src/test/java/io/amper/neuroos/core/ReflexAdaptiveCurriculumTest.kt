@@ -77,8 +77,6 @@ class ReflexAdaptiveCurriculumTest {
             )
         )
 
-        val selected = batch.selectedExampleIds.map { it.value }
-        val deviceSelected = selected.count { it.contains("device").not() }
         // IDs are hashed-format only, so verify prioritization through the source mapping.
         val selectedSet = batch.selectedExampleIds.toSet()
         val selectedDevice = fresh.count {
@@ -124,7 +122,7 @@ class ReflexAdaptiveCurriculumTest {
             featureHashes = setOf(
                 "u:" + index.toString(16).padStart(16, '0').takeLast(16)
             ),
-            availableCapabilities = setOf(capability),
+            availableCapabilities = emptySet(),
             targetDisposition = ReflexDecisionDisposition.ESCALATE_SYSTEM2,
             source = ReflexExperienceSource.SYSTEM2_TEACHER,
             labelConfidence = 0.90,
