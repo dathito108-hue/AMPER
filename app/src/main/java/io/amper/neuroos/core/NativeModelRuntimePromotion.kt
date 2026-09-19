@@ -105,7 +105,9 @@ class NativeCheckpointRuntimePromotionService(
         val descriptor = ModelDescriptor(
             id = modelId,
             format = "gguf",
-            capabilities = contract.capabilities,
+            capabilities = NativeRuntimeCapabilityAdmission.baseCapabilities(
+                contract.capabilities
+            ),
             local = true
         )
         val installed = InstalledModel(
