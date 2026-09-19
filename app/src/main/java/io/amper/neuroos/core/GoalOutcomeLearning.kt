@@ -58,7 +58,8 @@ data class GoalStrategyTransferCandidate(
     val analogousSuccessRate: Double,
     val evidenceConfidence: Double,
     val transferSupport: Double,
-    val meanHierarchyCompletionRatio: Double
+    val meanHierarchyCompletionRatio: Double,
+    val latestAnalogousObservedAtEpochMs: Long = 0L
 ) {
     init {
         require(analogousSuccesses > 0)
@@ -71,6 +72,7 @@ data class GoalStrategyTransferCandidate(
         require(evidenceConfidence in 0.0..1.0)
         require(transferSupport in 0.0..1.0)
         require(meanHierarchyCompletionRatio in 0.0..1.0)
+        require(latestAnalogousObservedAtEpochMs >= 0L)
     }
 
     val comparableAttempts: Int
@@ -402,7 +404,10 @@ object GoalOutcomeStrategyTransfer {
                     analogousSuccessRate = successRate,
                     evidenceConfidence = confidence,
                     transferSupport = support,
-                    meanHierarchyCompletionRatio = hierarchyRatio
+                    meanHierarchyCompletionRatio = hierarchyRatio,
+                    latestAnalogousObservedAtEpochMs = group.maxOf {
+                        it.evidence.observedAtEpochMs
+                    }
                 )
             }
             .sortedWith(
@@ -441,6 +446,7 @@ object GoalOutcomeStrategyTransfer {
                         " evidence_confidence=" + fmt(candidate.evidenceConfidence) +
                         " hierarchy_completion=" + fmt(candidate.meanHierarchyCompletionRatio) +
                         " transfer_support=" + fmt(candidate.transferSupport) +
+                        " latest_observed_ms=" + candidate.latestAnalogousObservedAtEpochMs +
                         " authority=false"
                 )
             }
