@@ -233,54 +233,45 @@ class ReflexNativeModelLifecycle(
             )
         }
 
-        val originalChampionEvaluation = requireNotNull(
-            runtime.nativeTrainingPipeline.getEvaluation(champion.checkpointId)
-        ) {
-            "active Reflex champion has no persisted held-out evaluation"
-        }
-
-        try {
-            runtime.reflexDecisionEvaluation.evaluate(
-                checkpointId = champion.checkpointId,
-                holdoutShardId = spec.holdoutShardId,
-                evaluator = evaluator
-            )
-            val promotion = runtime.nativeTrainingPipeline.promotionCandidate(
-                candidateCheckpointId = checkpoint.id,
-                baselineCheckpointId = champion.checkpointId
-            )
-            if (!promotion.promotable) {
-                lastRejectedEvidenceTag = tag
-                return ReflexNativeLifecycleReport(
-                    stage = ReflexNativeLifecycleStage.CHALLENGER_REJECTED,
-                    checkpointId = champion.checkpointId,
-                    actionExamples = actionExamples,
-                    escalationExamples = escalationExamples,
-                    detail = promotion.comparison.reasons.joinToString("; ")
-                )
-            }
-
-            val port = resolver.resolve(
-                checkpointId = checkpoint.id,
-                weightArtifactSha256 = checkpoint.weightArtifactSha256
-            ).getOrThrow()
-            val activation = runtime.reflexDecisionRuntime.activate(port).getOrThrow()
-            lastRejectedEvidenceTag = null
+        val championCommonHoldout = runtime.reflexDecisionEvaluation.score(
+            checkpointId = champion.checkpointId,
+            holdoutShardId = spec.holdoutShardId,
+            evaluator = evaluator
+        )
+        val promotion = runtime.nativeTrainingPipeline.promotionCandidateAgainstEvaluation(
+            candidateCheckpointId = checkpoint.id,
+            baselineCheckpointId = champion.checkpointId,
+            baselineEvaluation = championCommonHoldout
+        )
+        if (!promotion.promotable) {
+            lastRejectedEvidenceTag = tag
             return ReflexNativeLifecycleReport(
-                stage = ReflexNativeLifecycleStage.REPLACED,
-                checkpointId = activation.checkpointId,
+                stage = ReflexNativeLifecycleStage.CHALLENGER_REJECTED,
+                checkpointId = champion.checkpointId,
                 actionExamples = actionExamples,
                 escalationExamples = escalationExamples,
-                detail =
-                    "fresh-evidence challenger improved the common holdout and replaced champion " +
-                        champion.checkpointId.value
-            )
-        } finally {
-            runtime.nativeTrainingPipeline.recordEvaluation(
-                checkpointId = champion.checkpointId,
-                evaluation = originalChampionEvaluation.evaluation
+                detail = promotion.comparison.reasons.joinToString("; ")
             )
         }
+
+        val port = resolver.resolve(
+            checkpointId = checkpoint.id,
+            weightArtifactSha256 = checkpoint.weightArtifactSha256
+        ).getOrThrow()
+        val activation = runtime.reflexDecisionRuntime.replace(
+            port = port,
+            promotion = promotion
+        ).getOrThrow()
+        lastRejectedEvidenceTag = null
+        return ReflexNativeLifecycleReport(
+            stage = ReflexNativeLifecycleStage.REPLACED,
+            checkpointId = activation.checkpointId,
+            actionExamples = actionExamples,
+            escalationExamples = escalationExamples,
+            detail =
+                "fresh-evidence challenger improved the common holdout and replaced champion " +
+                    champion.checkpointId.value
+        )
     }
 
     private fun trainCheckpoint(
