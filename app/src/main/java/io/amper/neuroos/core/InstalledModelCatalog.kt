@@ -112,6 +112,9 @@ class InstalledModelCapabilityService(
         id: ModelId,
         profile: ModelCapabilityProfile
     ): Result<InstalledModel> = runCatching {
+        require(!id.value.startsWith("amper-native-")) {
+            "AMPER-native capabilities are governed by native runtime admission"
+        }
         val current = requireNotNull(catalog.get(id)) {
             "installed model not found: ${id.value}"
         }
