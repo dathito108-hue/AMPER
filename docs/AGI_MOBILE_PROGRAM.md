@@ -1518,3 +1518,42 @@ a substitute for physical-device qualification. The next qualification block mus
 long-horizon execution plus memory/world-model probes, followed by self-learning/evolution, Android
 resource stress, process/reboot recovery and authority-invariant probe packs. Only after all ten
 canonical domains have real evidence can amper-agi-mobile-v1 return QUALIFIED.
+
+
+### Qualification checkpoint — Phase561-565: Long-Horizon + Memory/World Probes
+Phase561 adds a real bounded long-horizon execution probe. Sixteen independent qualification samples
+each execute the maximum four-step Titan plan through the real SovereignActionLoop using synthetic
+READ_ONLY providers. Every step is rebound to its exact ToolDescriptor, executed through an audited
+bound fabric, persisted in MemoryBackedSovereignPlanStore and sealed with an immutable execution
+receipt. Mid-plan the plan-store wrapper is recreated over the same MemoryOs and execution continues
+only after the completed-prefix receipt ledger verifies the durable prefix.
+
+Phase562 makes the long-horizon score depend on complete ordered execution rather than merely reaching
+a terminal plan state. Each sample must preserve exact 1->2->3->4 provider order, four audit entries,
+four immutable receipts, a successful mid-plan reload and a final plan containing only EXECUTED
+steps. The synthetic providers have no external side effects; this probe measures orchestration,
+binding and durable progression without turning qualification into a new authority surface.
+
+Phase563 adds a 32-sample memory/semantic probe against real MemoryOs, EpistemicState and
+MemoryBackedSemanticKnowledgeStore. Every sample writes and retrieves one episodic token, reconciles
+two independent high-confidence claims into one ACTIVE semantic entry, verifies evidence-parent
+lineage, then retrieves that semantic entry through the normal query path.
+
+Phase564 extends each memory sample through the real MemoryBackedPredictiveWorldModel. A repeated
+idle->busy temporal sequence creates immutable structured-state transitions. The probe predicts the
+held-out next busy state from temporal evidence, observes the real next state and requires the
+prediction outcome to become CONFIRMED while current structured world state resolves to the observed
+value. This directly measures structured update + prediction consistency rather than only object
+construction.
+
+Phase565 exposes AmperRuntime.agiMobileLongHorizonQualificationProbes(...) and regression-tests the
+16/32 sample packs. Combined with Phase556-560, the canonical reference qualification run now supplies
+real executable evidence for five domains: SYSTEM1_FAST_PATH, NATIVE_SYSTEM2_REASONING,
+GENERALIZATION, LONG_HORIZON_EXECUTION and MEMORY_WORLD_MODEL. The project verdict intentionally
+remains INCOMPLETE because SELF_LEARNING, SELF_EVOLUTION, MOBILE_RESOURCE_RESILIENCE,
+RESTART_RECOVERY and AUTHORITY_INVARIANTS still require their own subject-bound probe evidence.
+
+The next block should qualify self-learning retention and the full closed-loop self-evolution
+transaction under held-out evidence, then move to Android resource stress, process/reboot recovery and
+authority invariants. Physical-device stress evidence remains distinct from deterministic CI/reference
+runtime evidence and must not be inferred from this checkpoint.
