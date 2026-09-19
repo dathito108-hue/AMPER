@@ -439,7 +439,8 @@ class SovereignPlanCoordinator(
         adaptiveReplanner = goalAdaptiveReplanner(),
         outcomeLearning = runtime.goalOutcomeLearning,
         transferCalibration = runtime.goalTransferCalibration,
-        strategyPortfolio = runtime.goalStrategyPortfolio
+        strategyPortfolio = runtime.goalStrategyPortfolio,
+        hierarchicalStrategyCredit = runtime.goalHierarchicalStrategyCredit
     )
 
     fun create(
