@@ -177,7 +177,7 @@ class InferenceGoalSatisfactionVerifier(
     init {
         require(allowedCapabilities.isNotEmpty())
         require(maxPromptChars in 2_000..12_000)
-        require(maxOutputTokens in 64..256)
+        require(maxOutputTokens in 16..256)
     }
 
     override fun verify(
