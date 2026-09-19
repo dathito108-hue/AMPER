@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import io.amper.neuroos.core.AmperRuntime
 import io.amper.neuroos.core.AssistantStreamEvent
 import io.amper.neuroos.core.AutonomousGoalScheduler
+import io.amper.neuroos.core.AutonomousGovernedPlanRunner
 import io.amper.neuroos.core.InferenceCancellationSignal
 import io.amper.neuroos.core.InferenceCancelledException
 import io.amper.neuroos.core.InferenceRequest
@@ -333,10 +334,18 @@ class MainActivity : ComponentActivity() {
                     observation = activePerceptionPort
                 )
             }
+            val autonomousPlanRunner = remember {
+                AutonomousGovernedPlanRunner(
+                    planner = planner,
+                    plans = runtime.plans,
+                    goals = persistentGoalExecutive
+                )
+            }
             val autonomousGoalScheduler = remember {
                 AutonomousGoalScheduler(
                     runGoal = persistentGoalExecutive::runNext,
-                    resourceAllowed = { governor.allows(agentCount = 1) }
+                    resourceAllowed = { governor.allows(agentCount = 1) },
+                    runPlan = autonomousPlanRunner::runBounded
                 )
             }
             val planHistory = remember { SovereignPlanHistory(runtime.plans) }
@@ -478,11 +487,11 @@ class MainActivity : ComponentActivity() {
                     },
                     onTick = { tick ->
                         runOnUiThread {
-                            autonomyLoopEnabled = true
                             val checkpoint = tick.checkpointStage?.name ?: "none"
+                            val planRun = tick.planRunStage?.name?.let { " · plan=$it" } ?: ""
                             autonomyLoopStatus =
-                                "Autonomy ${tick.stage.name} · checkpoint=$checkpoint · next=" +
-                                    (tick.nextDelayMs / 1_000L) + "s"
+                                "Autonomy ${tick.stage.name} · checkpoint=$checkpoint" +
+                                    planRun + " · next=" + (tick.nextDelayMs / 1_000L) + "s"
                             tick.planId
                                 ?.let(runtime.plans::load)
                                 ?.let { planned ->

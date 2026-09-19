@@ -342,6 +342,22 @@ existing encrypted persistent-goal checkpoint for restart continuity. It automat
 orchestration while leaving plan-step execution and side-effect authority in the governed execution
 layer.
 
+
+### Implemented checkpoint — Phase301-305
+Phase301 loads only the exact persisted SovereignPlan currently handed off by the persistent-goal
+checkpoint and caps each autonomous execution call to TitanPlanProtocol.MAX_STEPS. Phase302 advances
+that plan only through PersistentSovereignPlanCoordinator, preserving live ToolDescriptor rebinding,
+AuthorityGate checks, audited ToolFabric execution and existing durable receipts. Read-only/otherwise
+immediately authorized steps may therefore progress autonomously, but Phase303 stops at
+REQUIRES_CONFIRMATION without calling approve/approveBound; a nonterminal FAILED/DENIED/
+UNAVAILABLE/MALFORMED outcome moves the goal checkpoint to EXECUTION_PAUSED before any later step can
+run. Phase304 handles cognitive-context drift only through the existing zero-tool refresh path and
+rebinds the exact persistent-goal handoff to the fresh child plan. Phase305 lets the resource-gated
+autonomy scheduler invoke this runner for PLANNED checkpoints, reports plan-progress state, and
+resolves terminal plans through the existing bounded recovery policy. Autonomous execution never
+manufactures approval, bypasses side-effect gates, or retries past an execution failure inside the
+same plan chain.
+
 ## CI budget policy
 
 GitHub Actions is a scarce verification resource.
