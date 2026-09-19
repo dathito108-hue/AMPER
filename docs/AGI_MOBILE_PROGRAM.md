@@ -912,3 +912,19 @@ removed on explicit rejection. Phase465 propagates the exact adaptive threshold 
 so the runtime and assistant fast-path gate cannot disagree, wires the MemoryOs-backed calibrator into
 AmperRuntime, and excludes calibration records from generic sovereign prompt retrieval. Calibration is
 non-authoritative and cannot bypass safe argument binding, ToolDescriptor, AuthorityGate or approval.
+
+
+### Implemented checkpoint — Phase466-470
+Phase466 adds ReflexRuntimeResourcePolicy as a small scheduling input to the existing learned Reflex
+controller, reusing ResourceGovernor rather than creating a second Android telemetry stack. Phase467
+maps live governor memory/thermal pressure into NORMAL, PRESSURED or BLOCKED per-turn decisions. A
+critical governor denial, thermal class >=4 or memory budget below 96 MiB blocks learned inference;
+severe pressure (thermal >=3 or memory below 192 MiB) also blocks it. Phase468 allows moderate pressure
+(thermal >=2 or memory below 384 MiB) only when the learned checkpoint's calibrated latency EWMA is
+unknown or <=180 ms. Resource skips immediately fall back to deterministic Reflex/System-2 and do not
+alter checkpoint activation. Phase469 records only in-memory resource scheduling telemetry in the
+existing ReflexRuntimeHealthSnapshot (skip count plus last mode/memory/thermal); resource pressure is
+not persisted as model-failure evidence and cannot trigger champion demotion by itself. Phase470 wires
+ResourceGovernorReflexRuntimeResourcePolicy into AmperRuntime, so AndroidResourceGovernor's existing
+live RAM/thermal signals now directly shape System-1 scheduling without duplicating device monitoring.
+No resource policy can grant tool authority, bypass approval, or change safe argument binding.

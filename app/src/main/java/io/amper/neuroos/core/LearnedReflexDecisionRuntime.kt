@@ -98,7 +98,11 @@ data class ReflexRuntimeHealthSnapshot(
     val consecutiveSlowPredictions: Int = 0,
     val lastPredictionLatencyMs: Double = 0.0,
     val maxPredictionLatencyMs: Double = 0.0,
-    val automaticRollbacks: Long = 0L
+    val automaticRollbacks: Long = 0L,
+    val resourceSkips: Long = 0L,
+    val lastResourceMode: ReflexRuntimeResourceMode = ReflexRuntimeResourceMode.NORMAL,
+    val lastResourceMemoryMb: Int = 0,
+    val lastResourceThermalClass: Int = 0
 ) {
     init {
         require(totalPredictions >= 0L)
@@ -109,6 +113,8 @@ data class ReflexRuntimeHealthSnapshot(
         require(lastPredictionLatencyMs >= 0.0 && lastPredictionLatencyMs.isFinite())
         require(maxPredictionLatencyMs >= 0.0 && maxPredictionLatencyMs.isFinite())
         require(automaticRollbacks >= 0L)
+        require(resourceSkips >= 0L)
+        require(lastResourceMemoryMb >= 0)
     }
 
     val authorityBearing: Boolean
@@ -231,6 +237,8 @@ class CanonicalReflexDecisionRuntimeController(
     private val activationStore: ReflexDecisionRuntimeActivationStore =
         VolatileReflexDecisionRuntimeActivationStore(),
     private val calibration: ReflexRuntimeCalibration = StaticReflexRuntimeCalibration,
+    private val resourcePolicy: ReflexRuntimeResourcePolicy =
+        UnconstrainedReflexRuntimeResourcePolicy,
     private val healthPolicy: ReflexRuntimeHealthPolicy = ReflexRuntimeHealthPolicy(),
     private val clock: () -> Long = System::currentTimeMillis,
     private val monotonicNanos: () -> Long = System::nanoTime
@@ -376,6 +384,13 @@ class CanonicalReflexDecisionRuntimeController(
 
     override fun decide(request: ReflexDecisionRequest): ReflexDecision {
         val port = activePort ?: return fallback.decide(request)
+        val currentAdaptivePolicy = calibration.policy(port.checkpointId)
+        val resourceDecision = resourcePolicy.evaluate(currentAdaptivePolicy)
+        recordResourceDecision(port, resourceDecision)
+        if (!resourceDecision.allowLearnedInference) {
+            return fallback.decide(request)
+        }
+
         val available = request.descriptors
             .map { it.capability }
             .distinct()
@@ -447,6 +462,23 @@ class CanonicalReflexDecisionRuntimeController(
             reason = proposal.reason,
             fastPathConfidenceThreshold = adaptivePolicy.minFastPathConfidence,
             fastPathUncertaintyThreshold = adaptivePolicy.maxFastPathUncertainty
+        )
+    }
+
+    @Synchronized
+    private fun recordResourceDecision(
+        port: NativeReflexDecisionPort,
+        decision: ReflexRuntimeResourceDecision
+    ) {
+        if (activePort !== port) return
+        val previous = healthState
+        healthState = previous.copy(
+            checkpointId = port.checkpointId,
+            resourceSkips = previous.resourceSkips +
+                if (decision.allowLearnedInference) 0L else 1L,
+            lastResourceMode = decision.mode,
+            lastResourceMemoryMb = decision.memoryBudgetMb,
+            lastResourceThermalClass = decision.thermalClass
         )
     }
 
