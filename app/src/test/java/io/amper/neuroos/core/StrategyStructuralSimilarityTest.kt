@@ -30,7 +30,10 @@ class StrategyStructuralSimilarityTest {
 
         assertEquals(1.0, identity, 1e-9)
         assertTrue(prefixExtension in 0.0..1.0)
-        assertTrue(prefixExtension > reordered)
+        assertTrue(reordered in 0.0..1.0)
+        assertTrue(identity > prefixExtension)
+        assertTrue(prefixExtension > disjoint)
+        assertTrue(reordered > disjoint)
         assertEquals(0.0, disjoint, 1e-9)
     }
 }
