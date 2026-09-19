@@ -300,6 +300,16 @@ class AmperRuntime private constructor(
             store = agiMobileQualificationStore
         )
 
+    fun agiMobileCognitiveQualificationProbes(
+        subject: AgiMobileQualificationSubject,
+        monotonicNanos: () -> Long = System::nanoTime
+    ): AgiMobileCognitiveProbePack =
+        AgiMobileCognitiveQualificationProbes.canonical(
+            subject = subject,
+            reflex = reflexDecisionCortex,
+            monotonicNanos = monotonicNanos
+        )
+
     /** Rewrap production encrypted memory under a new managed key alias. */
     fun rotateMemoryEncryption(newKeyId: String): Int =
         requireNotNull(memoryKeyRotator) { "memory key rotation is unavailable for this runtime" }(newKeyId)
