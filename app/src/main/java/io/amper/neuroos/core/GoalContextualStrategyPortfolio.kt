@@ -77,7 +77,9 @@ data class GoalStrategyPortfolioCandidate(
     val hierarchicalCreditScore: Double = 0.0,
     val hierarchicalCreditConfidence: Double = 0.0,
     val hierarchicalMatchedComponents: Int = 0,
-    val hierarchicalCreditAdjustment: Double = 0.0
+    val hierarchicalCreditAdjustment: Double = 0.0,
+    val repairMemorySupport: Double = 0.0,
+    val repairMemoryBonus: Double = 0.0
 ) {
     init {
         require(contextDigest.matches(Regex("[0-9a-f]{64}")))
@@ -98,6 +100,8 @@ data class GoalStrategyPortfolioCandidate(
                 hierarchicalCreditAdjustment <=
                     GoalHierarchicalStrategyCreditPolicy.MAX_PORTFOLIO_ADJUSTMENT
         )
+        require(repairMemorySupport in 0.0..1.0)
+        require(repairMemoryBonus in 0.0..GoalRepairStrategyMemoryPolicy.MAX_PORTFOLIO_BONUS)
     }
 
     val authorityBearing: Boolean
@@ -169,7 +173,8 @@ interface GoalContextualStrategyPortfolio {
 class MemoryBackedGoalContextualStrategyPortfolio(
     private val memory: MemoryOs,
     private val hierarchicalCredit: GoalHierarchicalStrategyCreditModel? = null,
-    private val repairValidation: GoalRepairValidationModel? = null
+    private val repairValidation: GoalRepairValidationModel? = null,
+    private val repairStrategyMemory: GoalRepairStrategyMemory? = null
 ) : GoalContextualStrategyPortfolio {
     @Synchronized
     override fun rank(
@@ -199,12 +204,18 @@ class MemoryBackedGoalContextualStrategyPortfolio(
                 credit = credit
             )
         } ?: ranked
-        return repairValidation?.let { validation ->
+        val repaired = repairValidation?.let { validation ->
             GoalRepairRefinementPolicy.apply(
                 candidates = credited,
                 validation = validation
             )
         } ?: credited
+        return repairStrategyMemory?.let { repairMemory ->
+            GoalRepairStrategyMemoryPolicy.apply(
+                candidates = repaired,
+                memory = repairMemory
+            )
+        } ?: repaired
     }
 
     @Synchronized
