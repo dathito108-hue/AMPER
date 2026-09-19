@@ -8,6 +8,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 enum class AutonomousGoalSchedulerStage {
     RAN,
     DECOMPOSED,
+    REPLANNED,
     PLAN_PROGRESS,
     DEFERRED,
     NO_GOAL,
@@ -134,6 +135,14 @@ class AutonomousGoalScheduler(
                 scheduleFrom(now, ACTIVE_RETRY_MS)
                 AutonomousGoalSchedulerTick(
                     stage = AutonomousGoalSchedulerStage.DECOMPOSED,
+                    observedAtEpochMs = now,
+                    nextDelayMs = ACTIVE_RETRY_MS
+                )
+            }
+            is PersistentGoalExecutiveResult.Replanned -> {
+                scheduleFrom(now, ACTIVE_RETRY_MS)
+                AutonomousGoalSchedulerTick(
+                    stage = AutonomousGoalSchedulerStage.REPLANNED,
                     observedAtEpochMs = now,
                     nextDelayMs = ACTIVE_RETRY_MS
                 )
