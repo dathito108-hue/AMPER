@@ -132,7 +132,7 @@ class PersistentReflexDecisionRuntimeTest {
         val port = port("persistent-reflex-private", "d".repeat(64))
         controller.activate(port).getOrThrow()
 
-        val record = memory.recall("reflex-runtime", 16)
+        val record = memory.recall(port.checkpointId.value, 16)
             .firstOrNull { it.kind == MemoryBackedReflexDecisionRuntimeActivationStore.KIND }
         assertNotNull(record)
         val content = requireNotNull(record).content
