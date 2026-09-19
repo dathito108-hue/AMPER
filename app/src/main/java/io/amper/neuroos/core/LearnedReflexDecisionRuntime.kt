@@ -79,7 +79,7 @@ class CanonicalReflexDecisionRuntimeReplacementGate(
 
 data class ReflexRuntimeHealthPolicy(
     val maxConsecutivePredictionFailures: Int = 3,
-    val maxPredictionLatencyMs: Double = 250.0,
+    val maxPredictionLatencyMs: Double = 350.0,
     val maxConsecutiveSlowPredictions: Int = 3
 ) {
     init {
