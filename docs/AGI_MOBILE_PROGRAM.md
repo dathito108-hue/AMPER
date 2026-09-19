@@ -257,6 +257,20 @@ legacy unbound plans on the pre-existing live ToolDescriptor/recovery revalidati
 inventing a historical digest. Continuity evidence is authority=false and never grants execution,
 approval or device authority.
 
+
+### Implemented checkpoint — Phase271-275
+Phase271 makes a nonterminal V6 plan eligible for context refresh only after its execution-context
+digest has actually changed; stable context and legacy-unbound plans cannot consume a refresh
+inference. Phase272 binds the refresh prompt to the new cognitive/metacognitive state plus the old and
+new execution-context digests, with terminal parent-step outcomes carried only as bounded historical
+guidance. Phase273 performs exactly one fresh planning inference plus the existing bounded optional
+critic, creates a child plan with a new continuity binding and forbids reuse of parent action request
+IDs. Phase274 persists the child plan and lets the Android execution console automatically replace a
+stale active plan without invoking ToolFabric; old pending approvals are explicitly non-transferable.
+Phase275 caps context-refresh lineage at three replacement generations and blocks refresh while an
+unresolved durable side-effect claim exists. Replanning remains planning-only: it cannot execute a
+tool, approve a side effect or widen device/external authority.
+
 ## CI budget policy
 
 GitHub Actions is a scarce verification resource.
