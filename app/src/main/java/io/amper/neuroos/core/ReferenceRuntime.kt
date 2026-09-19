@@ -185,6 +185,7 @@ class AmperRuntime private constructor(
     val conversations: SovereignConversationCoordinator,
     val inferenceProfiles: ConversationInferenceProfileStore,
     val plans: SovereignPlanStore,
+    val persistentGoalExecutiveStore: PersistentGoalExecutiveStore,
     val goalGraphs: SovereignGoalGraphStore,
     val pendingApprovals: PendingAssistantApprovalStore,
     val notes: SovereignNoteStore,
@@ -378,6 +379,7 @@ class AmperRuntime private constructor(
                 }
             )
             val plans = MemoryBackedSovereignPlanStore(memory)
+            val persistentGoalExecutiveStore = MemoryBackedPersistentGoalExecutiveStore(memory)
             val goalGraphs = MemoryBackedSovereignGoalGraphStore(memory)
             val pendingApprovals = MemoryBackedPendingAssistantApprovalStore(memory)
             val notes = MemoryBackedSovereignNoteStore(memory, workspace)
@@ -417,6 +419,7 @@ class AmperRuntime private constructor(
                 conversations = conversations,
                 inferenceProfiles = inferenceProfiles,
                 plans = plans,
+                persistentGoalExecutiveStore = persistentGoalExecutiveStore,
                 goalGraphs = goalGraphs,
                 pendingApprovals = pendingApprovals,
                 notes = notes,
