@@ -141,6 +141,17 @@ if live registration fails, and Android Titan routing now resolves both user con
 AMPER-owned app-private artifact locators. Phase225 reuses the governed unload/detach path for runtime
 rollback; live model availability never grants tool/device authority.
 
+### Implemented checkpoint — Phase226-230
+Phase226 separates runtime capability admission from the full native model contract: adapter-dependent
+VISION/AUDIO capabilities stay latent when a checkpoint first enters live routing. Phase227 requires
+held-out adapter evidence before those capabilities can be enabled. Phase228 binds a descriptor-bound
+GGUF multimodal projector identity to the promoted checkpoint and gives Android MTMD routing a composite
+resolver for both user content-URI projectors and AMPER-owned app-private projectors, with rollback on
+catalog/registry failure. Phase229 adds an AMPER-native soft preference only when no explicit user model
+choice or turn-continuity model is present. Phase230 proves ordinary Titan capability/backend/resource
+admission remains authoritative, so an unavailable or incapable native route falls back rather than
+becoming a hard pin. Native model or adapter state never grants tool/device authority.
+
 ### Mega-Phase 231-250 — Autonomous Evolution
 Self-benchmarking, candidate code/model generation, sandbox tournaments, automated promotion,
 rollback and architecture evolution.

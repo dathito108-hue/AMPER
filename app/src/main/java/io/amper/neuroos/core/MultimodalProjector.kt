@@ -180,6 +180,13 @@ interface MultimodalProjectorArtifactResolver {
     fun resolve(projector: InstalledMultimodalProjector): ModelArtifactSource?
 }
 
+class LocatorMultimodalProjectorArtifactResolver(
+    private val factories: List<(InstalledMultimodalProjector) -> ModelArtifactSource?>
+) : MultimodalProjectorArtifactResolver {
+    override fun resolve(projector: InstalledMultimodalProjector): ModelArtifactSource? =
+        factories.firstNotNullOfOrNull { it(projector) }
+}
+
 class MultimodalProjectorInstallService(
     private val inspector: GgufInspector,
     private val catalog: MultimodalProjectorCatalog
