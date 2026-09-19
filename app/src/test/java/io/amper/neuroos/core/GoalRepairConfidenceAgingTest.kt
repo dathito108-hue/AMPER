@@ -12,9 +12,17 @@ class GoalRepairConfidenceAgingTest {
     fun requalifiedConfidenceAgesThenExpiresAndLearningPressureReturns() {
         val fixture = fixture()
         fixture.validatePractice(500L)
+        val successful = terminalPlan("phase376-success", PlanStepStatus.EXECUTED)
         fixture.repair.observeGovernedOutcome(
-            plan = terminalPlan("phase376-success", PlanStepStatus.EXECUTED),
+            plan = successful,
             outcome = GoalOutcomeEvidenceKind.VERIFIED_SUCCESS,
+            observedAtEpochMs = 1_000L
+        )
+        fixture.credit.observe(
+            checkpoint = checkpoint(successful),
+            plan = successful,
+            outcome = GoalOutcomeEvidenceKind.VERIFIED_SUCCESS,
+            portfolioRecords = emptyList(),
             observedAtEpochMs = 1_000L
         )
 
