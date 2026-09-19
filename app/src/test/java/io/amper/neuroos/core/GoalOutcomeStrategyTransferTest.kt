@@ -192,6 +192,22 @@ class GoalOutcomeStrategyTransferTest {
             verificationConfidence = 0.94,
             observedAtEpochMs = 1L
         )
+        repeat(6) { index ->
+            runtime.competence.observe(
+                ActionOutcome(
+                    status = ActionStatus.EXECUTED,
+                    proposal = ActionProposal(
+                        requestId = ActionRequestId("phase339-history-execution-" + index),
+                        capability = capability,
+                        reason = "historic governed execution evidence",
+                        input = "read"
+                    ),
+                    toolId = ToolId("phase336-provider"),
+                    sideEffect = ToolSideEffect.READ_ONLY,
+                    output = "ok"
+                )
+            )
+        }
 
         var executions = 0
         val registry = InMemoryToolRegistry().also {
