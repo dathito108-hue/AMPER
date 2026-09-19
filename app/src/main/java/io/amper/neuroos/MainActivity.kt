@@ -59,6 +59,7 @@ import io.amper.neuroos.core.DenyByDefaultAuthorityGate
 import io.amper.neuroos.core.DeviceStatusToolProvider
 import io.amper.neuroos.core.FileInstalledModelCatalog
 import io.amper.neuroos.core.FileMultimodalProjectorCatalog
+import io.amper.neuroos.core.FileReflexLinearArtifactStore
 import io.amper.neuroos.core.InMemoryModelRegistry
 import io.amper.neuroos.core.InMemoryToolAuditLog
 import io.amper.neuroos.core.InMemoryToolRegistry
@@ -91,6 +92,7 @@ import io.amper.neuroos.core.PlanStepStatus
 import io.amper.neuroos.core.PreferredModelInferencePort
 import io.amper.neuroos.core.ProcessResidentAutonomyLoop
 import io.amper.neuroos.core.RuntimeSovereignStatusSource
+import io.amper.neuroos.core.ReflexNativeModelLifecycle
 import io.amper.neuroos.core.SovereignAssistantToolExposure
 import io.amper.neuroos.core.SovereignAssistantTurnCoordinator
 import io.amper.neuroos.core.SovereignAssistantTurnResult
@@ -123,6 +125,15 @@ class MainActivity : ComponentActivity() {
                     modelRegistry,
                     governor,
                     deviceStatusSource = deviceStatusSource
+                )
+            }
+            val reflexArtifactStore = remember {
+                FileReflexLinearArtifactStore(File(sovereignDir, "native-reflex"))
+            }
+            val reflexLifecycle = remember {
+                ReflexNativeModelLifecycle(
+                    runtime = runtime,
+                    artifacts = reflexArtifactStore
                 )
             }
             val perceptionCapture = remember {
@@ -370,6 +381,9 @@ class MainActivity : ComponentActivity() {
             val initialProfileModel = remember { catalog.list().firstOrNull() }
             val executor = remember { Executors.newSingleThreadExecutor() }
             DisposableEffect(Unit) {
+                executor.execute {
+                    runCatching { reflexLifecycle.maintain() }
+                }
                 onDispose {
                     runCatching { executor.execute { titan.unloadAll() } }
                     executor.shutdown()
@@ -1855,6 +1869,9 @@ class MainActivity : ComponentActivity() {
                                             )
                                         }
                                     }
+                                    if (result.isSuccess) {
+                                        runCatching { reflexLifecycle.maintain() }
+                                    }
                                 }
                             }
                         ) {
@@ -1930,6 +1947,9 @@ class MainActivity : ComponentActivity() {
                                                     }
                                                 )
                                             }
+                                        }
+                                        if (result.isSuccess) {
+                                            runCatching { reflexLifecycle.maintain() }
                                         }
                                     }
                                 }
