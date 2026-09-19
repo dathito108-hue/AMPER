@@ -191,6 +191,7 @@ class AmperRuntime private constructor(
     val reflexDecisionCurriculum: ReflexDecisionCurriculumPlanner,
     val reflexDecisionTraining: ReflexDecisionTrainingCoordinator,
     val reflexDecisionEvaluation: ReflexDecisionEvaluationCoordinator,
+    val reflexRuntimeCalibration: ReflexRuntimeCalibration,
     val reflexDecisionActivationStore: ReflexDecisionRuntimeActivationStore,
     val reflexDecisionRuntime: ReflexDecisionRuntimeController,
     val reflexDecisionCortex: ReflexDecisionCortex,
@@ -410,6 +411,14 @@ class AmperRuntime private constructor(
                 foundation = nativeModelFoundation,
                 training = nativeTrainingPipeline
             )
+            val reflexRuntimeCalibration = MemoryBackedReflexRuntimeCalibration(
+                memory = memory,
+                heldout = ReflexHeldoutCalibrationSource { checkpointId ->
+                    nativeTrainingPipeline.getEvaluation(checkpointId)
+                        ?.evaluation
+                        ?.reflexDecision
+                }
+            )
             val reflexDecisionActivationStore =
                 MemoryBackedReflexDecisionRuntimeActivationStore(memory)
             val reflexActivationGate = CanonicalReflexDecisionRuntimeActivationGate(
@@ -422,7 +431,8 @@ class AmperRuntime private constructor(
                     activationGate = reflexActivationGate,
                     training = nativeTrainingPipeline
                 ),
-                activationStore = reflexDecisionActivationStore
+                activationStore = reflexDecisionActivationStore,
+                calibration = reflexRuntimeCalibration
             )
             val reflexDecisionCortex: ReflexDecisionCortex = reflexDecisionRuntime
             val selfModel = CanonicalSelfModel()
@@ -526,6 +536,7 @@ class AmperRuntime private constructor(
                 reflexDecisionCurriculum = reflexDecisionCurriculum,
                 reflexDecisionTraining = reflexDecisionTraining,
                 reflexDecisionEvaluation = reflexDecisionEvaluation,
+                reflexRuntimeCalibration = reflexRuntimeCalibration,
                 reflexDecisionActivationStore = reflexDecisionActivationStore,
                 reflexDecisionRuntime = reflexDecisionRuntime,
                 reflexDecisionCortex = reflexDecisionCortex,

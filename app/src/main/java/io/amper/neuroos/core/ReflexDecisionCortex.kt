@@ -35,11 +35,15 @@ data class ReflexDecision(
     val source: ReflexDecisionSource,
     val capability: CapabilityId? = null,
     val input: String? = null,
-    val reason: String? = null
+    val reason: String? = null,
+    val fastPathConfidenceThreshold: Double = MIN_FAST_PATH_CONFIDENCE,
+    val fastPathUncertaintyThreshold: Double = MAX_FAST_PATH_UNCERTAINTY
 ) {
     init {
         require(confidence in 0.0..1.0)
         require(uncertainty in 0.0..1.0)
+        require(fastPathConfidenceThreshold in 0.0..1.0)
+        require(fastPathUncertaintyThreshold in 0.0..1.0)
         when (disposition) {
             ReflexDecisionDisposition.ESCALATE_SYSTEM2 -> {
                 require(capability == null && input == null && reason == null)
@@ -59,8 +63,8 @@ data class ReflexDecision(
     val fastPathEligible: Boolean
         get() =
             disposition == ReflexDecisionDisposition.PROPOSE_ACTION &&
-                confidence >= MIN_FAST_PATH_CONFIDENCE &&
-                uncertainty <= MAX_FAST_PATH_UNCERTAINTY
+                confidence >= fastPathConfidenceThreshold &&
+                uncertainty <= fastPathUncertaintyThreshold
 
     fun toActionProposal(): ActionProposal? =
         if (!fastPathEligible) {

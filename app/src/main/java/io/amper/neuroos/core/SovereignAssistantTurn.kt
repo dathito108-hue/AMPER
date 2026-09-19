@@ -367,7 +367,9 @@ class SovereignAssistantTurnCoordinator(
         val descriptor = actions.descriptorFor(proposal.capability) ?: return null
         cancellation?.throwIfCancelled()
 
+        runtime.reflexDecisionRuntime.bindActionDecision(proposal.requestId, decision)
         val action = actions.evaluate(proposal)
+        runtime.reflexDecisionRuntime.observeActionOutcome(proposal.requestId, action.status)
         cancellation?.throwIfCancelled()
         return when (action.status) {
             ActionStatus.EXECUTED -> {
@@ -470,6 +472,7 @@ class SovereignAssistantTurnCoordinator(
         runtime.pendingApprovals.load(pending.proposal.requestId)?.let { stored ->
             requireSameApprovalIdentity(stored, pending)
         }
+        runtime.reflexDecisionRuntime.discardActionDecision(pending.proposal.requestId)
         runtime.pendingApprovals.delete(pending.proposal.requestId)
         Unit
     }
@@ -525,6 +528,12 @@ class SovereignAssistantTurnCoordinator(
         val action = execution.getOrThrow()
         val reflexProposal =
             effective.firstResponse.backendId == ReflexDecisionRuntimeContract.BACKEND_ID
+        if (reflexProposal) {
+            runtime.reflexDecisionRuntime.observeActionOutcome(
+                effective.proposal.requestId,
+                action.status
+            )
+        }
         if (action.status == ActionStatus.EXECUTED) {
             runCatching {
                 runtime.reflexExperienceDatasets.observeExecuted(
