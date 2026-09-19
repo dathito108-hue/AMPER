@@ -106,6 +106,11 @@ interface GoalTransferCalibrationModel {
         observedAtEpochMs: Long = System.currentTimeMillis()
     ): GoalTransferCalibrationSnapshot?
 
+    fun observeTerminalPlan(
+        plan: SovereignPlan,
+        observedAtEpochMs: Long = System.currentTimeMillis()
+    ): GoalTransferCalibrationSnapshot?
+
     fun snapshot(signature: StrategySignature): GoalTransferCalibrationSnapshot?
 }
 
@@ -125,13 +130,6 @@ class MemoryBackedGoalTransferCalibrationModel(
         outcome: GoalOutcomeEvidenceKind,
         observedAtEpochMs: Long
     ): GoalTransferCalibrationSnapshot? {
-        val binding = plan.goalTransferBinding ?: return null
-        require(plan.complete)
-        require(observedAtEpochMs >= 0L)
-        require(binding.strategy == StrategySignature.from(plan)) {
-            "transfer calibration requires the terminal plan to retain the bound transfer strategy"
-        }
-
         val calibrationOutcome = when (outcome) {
             GoalOutcomeEvidenceKind.VERIFIED_SUCCESS ->
                 GoalTransferCalibrationOutcome.VERIFIED_SUCCESS
@@ -143,6 +141,50 @@ class MemoryBackedGoalTransferCalibrationModel(
                 GoalTransferCalibrationOutcome.AUTHORITY_NEUTRAL
             GoalOutcomeEvidenceKind.PARTIAL_EXECUTION_BLOCKED ->
                 GoalTransferCalibrationOutcome.PARTIAL_NEUTRAL
+        }
+        return observeCalibration(
+            plan = plan,
+            calibrationOutcome = calibrationOutcome,
+            observedAtEpochMs = observedAtEpochMs
+        )
+    }
+
+    @Synchronized
+    override fun observeTerminalPlan(
+        plan: SovereignPlan,
+        observedAtEpochMs: Long
+    ): GoalTransferCalibrationSnapshot? {
+        val binding = plan.goalTransferBinding ?: return null
+        require(plan.complete)
+        val statuses = plan.steps.map { it.status }
+        val calibrationOutcome = when {
+            statuses.all { it == PlanStepStatus.EXECUTED } -> return null
+            statuses.any { it == PlanStepStatus.EXECUTED } ->
+                GoalTransferCalibrationOutcome.PARTIAL_NEUTRAL
+            statuses.any { it == PlanStepStatus.DENIED || it == PlanStepStatus.REJECTED } ->
+                GoalTransferCalibrationOutcome.AUTHORITY_NEUTRAL
+            statuses.any { it == PlanStepStatus.FAILED } ->
+                GoalTransferCalibrationOutcome.EXECUTION_FAILURE
+            else -> return null
+        }
+        require(binding.strategy == StrategySignature.from(plan))
+        return observeCalibration(
+            plan = plan,
+            calibrationOutcome = calibrationOutcome,
+            observedAtEpochMs = observedAtEpochMs
+        )
+    }
+
+    private fun observeCalibration(
+        plan: SovereignPlan,
+        calibrationOutcome: GoalTransferCalibrationOutcome,
+        observedAtEpochMs: Long
+    ): GoalTransferCalibrationSnapshot? {
+        val binding = plan.goalTransferBinding ?: return null
+        require(plan.complete)
+        require(observedAtEpochMs >= 0L)
+        require(binding.strategy == StrategySignature.from(plan)) {
+            "transfer calibration requires the terminal plan to retain the bound transfer strategy"
         }
 
         val markerId = markerId(plan.id)
