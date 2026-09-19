@@ -37,6 +37,14 @@ data class ReflexLearningMaintenanceTicket(
         get() = false
 }
 
+fun interface ReflexLearningMaintenanceScheduler {
+    fun reconcile(ticket: ReflexLearningMaintenanceTicket?): Boolean
+}
+
+object NoopReflexLearningMaintenanceScheduler : ReflexLearningMaintenanceScheduler {
+    override fun reconcile(ticket: ReflexLearningMaintenanceTicket?): Boolean = false
+}
+
 interface ReflexLearningMaintenanceQueue {
     fun pending(): ReflexLearningMaintenanceTicket?
 
