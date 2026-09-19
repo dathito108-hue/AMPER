@@ -491,20 +491,26 @@ class MemoryBackedNativeTrainingPipeline(
             "only a prepared training run may execute"
         }
         val request = trainingRequest(run)
-        val result = trainer.train(request)
+        val result = runCatching {
+            val artifact = trainer.train(request).getOrThrow()
+            require(artifact.runId == run.id) { "trainer result run id mismatch" }
+            require(artifact.manifestDigest == run.manifestDigest) {
+                "trainer result manifest digest mismatch"
+            }
+            require(
+                artifact.outputFormat.equals(request.manifest.target.outputFormat, ignoreCase = true)
+            ) { "trainer artifact format does not match mobile target" }
+            require(
+                artifact.quantization.equals(request.manifest.target.quantization, ignoreCase = true)
+            ) { "trainer artifact quantization does not match mobile target" }
+            require(foundation.getCheckpoint(run.outputCheckpointId) == null) {
+                "training output checkpoint already exists"
+            }
+            artifact
+        }
 
         return result.fold(
             onSuccess = { artifact ->
-                require(artifact.runId == run.id) { "trainer result run id mismatch" }
-                require(artifact.manifestDigest == run.manifestDigest) {
-                    "trainer result manifest digest mismatch"
-                }
-                require(
-                    artifact.outputFormat.equals(request.manifest.target.outputFormat, ignoreCase = true)
-                ) { "trainer artifact format does not match mobile target" }
-                require(
-                    artifact.quantization.equals(request.manifest.target.quantization, ignoreCase = true)
-                ) { "trainer artifact quantization does not match mobile target" }
                 require(foundation.getCheckpoint(run.outputCheckpointId) == null) {
                     "training output checkpoint already exists"
                 }
