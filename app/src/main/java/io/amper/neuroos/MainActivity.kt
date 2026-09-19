@@ -73,6 +73,7 @@ import io.amper.neuroos.core.NativeCheckpointRuntimePromotionService
 import io.amper.neuroos.core.NativeInstalledModelSelector
 import io.amper.neuroos.core.NativeModelPreferenceInferencePort
 import io.amper.neuroos.core.NativeMultimodalAdapterActivationService
+import io.amper.neuroos.core.NativeRuntimeCapabilityReconciler
 import io.amper.neuroos.core.LlamaNativeTextEngine
 import io.amper.neuroos.core.LlamaNativeTextInferenceBackend
 import io.amper.neuroos.core.MtmdNativeInferenceBackend
@@ -128,6 +129,13 @@ class MainActivity : ComponentActivity() {
                 FileMultimodalProjectorCatalog(
                     File(sovereignDir, "multimodal-projectors.catalog")
                 )
+            }
+            remember {
+                NativeRuntimeCapabilityReconciler(
+                    catalog = catalog,
+                    registry = modelRegistry,
+                    projectors = projectorCatalog
+                ).reconcile()
             }
             val projectorImporter = remember {
                 AndroidMultimodalProjectorImportService(
