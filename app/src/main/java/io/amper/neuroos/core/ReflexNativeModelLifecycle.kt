@@ -95,6 +95,7 @@ class ReflexNativeModelLifecycle(
             actionExamples < MIN_TOTAL_ACTION_EXAMPLES ||
             escalationExamples < MIN_TOTAL_ESCALATION_EXAMPLES
         ) {
+            maintenanceQueue.clear()
             return ReflexNativeLifecycleReport(
                 stage = ReflexNativeLifecycleStage.INSUFFICIENT_EVIDENCE,
                 checkpointId = null,
@@ -209,7 +210,7 @@ class ReflexNativeModelLifecycle(
             )
         if (!evaluation.admission.admitted) {
             maintenanceQueue.clear(maintenanceDigest)
-            pruneArtifactsFor(checkpoint.id)
+            pruneArtifactsFor(null)
             return ReflexNativeLifecycleReport(
                 stage = ReflexNativeLifecycleStage.EVALUATION_REJECTED,
                 checkpointId = checkpoint.id,
@@ -255,6 +256,7 @@ class ReflexNativeModelLifecycle(
             actionExamples < MIN_CONTINUAL_ACTION_EXAMPLES ||
             escalationExamples < MIN_CONTINUAL_ESCALATION_EXAMPLES
         ) {
+            maintenanceQueue.clear()
             return ReflexNativeLifecycleReport(
                 stage = if (recovered) {
                     ReflexNativeLifecycleStage.RECOVERED
@@ -295,7 +297,9 @@ class ReflexNativeModelLifecycle(
             minActionExamples = MIN_CONTINUAL_ACTION_EXAMPLES,
             minEscalationExamples = MIN_CONTINUAL_ESCALATION_EXAMPLES,
             maxExamples = MAX_ACTIVE_LEARNING_EXAMPLES
-        ) ?: return ReflexNativeLifecycleReport(
+        ) ?: run {
+            maintenanceQueue.clear()
+            return ReflexNativeLifecycleReport(
             stage = if (recovered) {
                 ReflexNativeLifecycleStage.RECOVERED
             } else {
@@ -307,7 +311,8 @@ class ReflexNativeModelLifecycle(
             detail =
                 "champion active; waiting for enough high-quality governed evidence " +
                     "(label_confidence >= " + ReflexActiveLearningMiner.MIN_LABEL_CONFIDENCE + ")"
-        )
+            )
+        }
         val drift = ReflexContinualDriftAnalyzer.analyze(
             fresh = fresh,
             replay = fullReplay
@@ -317,6 +322,7 @@ class ReflexNativeModelLifecycle(
             fresh.size < MIN_LOW_DRIFT_RETRAIN_EXAMPLES &&
             !fullActiveBatch.highValueSignal
         ) {
+            maintenanceQueue.clear()
             return ReflexNativeLifecycleReport(
                 stage = if (recovered) {
                     ReflexNativeLifecycleStage.RECOVERED
@@ -335,6 +341,30 @@ class ReflexNativeModelLifecycle(
                         ", disagreements=" + fullActiveBatch.disagreementExamples + ")"
             )
         }
+
+        val now = clock().coerceAtLeast(0L)
+        val maintenanceDigest = reflexLinearSha256(
+            listOf(
+                "AMPER_REFLEX_MAINTENANCE_CONTINUAL_V1",
+                champion.checkpointId.value,
+                fullActiveBatch.selectedExampleIds
+                    .map { it.value }
+                    .sorted()
+                    .joinToString(","),
+                fullReplay.exampleIds.map { it.value }.sorted().joinToString(",")
+            ).joinToString("|")
+        )
+        maintenanceQueue.enqueue(
+            evidenceDigest = maintenanceDigest,
+            reason = if (fullActiveBatch.highValueSignal) {
+                ReflexLearningMaintenanceReason.HARD_EVIDENCE
+            } else {
+                ReflexLearningMaintenanceReason.FRESH_EVIDENCE
+            },
+            priority = fullActiveBatch.learningValue(),
+            notBeforeEpochMs = now + BACKGROUND_RETRY_DELAY_MS,
+            nowEpochMs = now
+        )
 
         val costSnapshot = learningCostModel.snapshot()
         val proposedExamples =
@@ -356,6 +386,13 @@ class ReflexNativeModelLifecycle(
             )
         )
         if (!resourceDecision.allowTraining) {
+            maintenanceQueue.enqueue(
+                evidenceDigest = maintenanceDigest,
+                reason = ReflexLearningMaintenanceReason.RESOURCE_DEFERRED,
+                priority = fullActiveBatch.learningValue(),
+                notBeforeEpochMs = now + BACKGROUND_RETRY_DELAY_MS,
+                nowEpochMs = now
+            )
             return ReflexNativeLifecycleReport(
                 stage = ReflexNativeLifecycleStage.RESOURCE_DEFERRED,
                 checkpointId = champion.checkpointId,
@@ -430,6 +467,7 @@ class ReflexNativeModelLifecycle(
         )
         val tag = evidenceDigest.take(20)
         if (lastRejectedEvidenceTag == tag) {
+            maintenanceQueue.clear(maintenanceDigest)
             return ReflexNativeLifecycleReport(
                 stage = ReflexNativeLifecycleStage.CHALLENGER_REJECTED,
                 checkpointId = champion.checkpointId,
@@ -454,6 +492,8 @@ class ReflexNativeModelLifecycle(
             learningValue = activeBatch.learningValue()
         ) ?: run {
             lastRejectedEvidenceTag = tag
+            maintenanceQueue.clear(maintenanceDigest)
+            pruneArtifactsFor(champion.checkpointId)
             return ReflexNativeLifecycleReport(
                 stage = ReflexNativeLifecycleStage.TRAINING_FAILED,
                 checkpointId = champion.checkpointId,
@@ -471,6 +511,8 @@ class ReflexNativeModelLifecycle(
             )
         if (!candidateEvaluation.admission.admitted) {
             lastRejectedEvidenceTag = tag
+            maintenanceQueue.clear(maintenanceDigest)
+            pruneArtifactsFor(champion.checkpointId)
             return ReflexNativeLifecycleReport(
                 stage = ReflexNativeLifecycleStage.EVALUATION_REJECTED,
                 checkpointId = champion.checkpointId,
@@ -493,6 +535,8 @@ class ReflexNativeModelLifecycle(
         )
         if (!promotion.promotable) {
             lastRejectedEvidenceTag = tag
+            maintenanceQueue.clear(maintenanceDigest)
+            pruneArtifactsFor(champion.checkpointId)
             return ReflexNativeLifecycleReport(
                 stage = ReflexNativeLifecycleStage.CHALLENGER_REJECTED,
                 checkpointId = champion.checkpointId,
@@ -525,6 +569,8 @@ class ReflexNativeModelLifecycle(
         )
         if (!stabilityComparison.noMaterialRegression) {
             lastRejectedEvidenceTag = tag
+            maintenanceQueue.clear(maintenanceDigest)
+            pruneArtifactsFor(champion.checkpointId)
             return ReflexNativeLifecycleReport(
                 stage = ReflexNativeLifecycleStage.CHALLENGER_REJECTED,
                 checkpointId = champion.checkpointId,
@@ -544,6 +590,8 @@ class ReflexNativeModelLifecycle(
             promotion = promotion,
             stabilityComparison = stabilityComparison
         ).getOrThrow()
+        maintenanceQueue.clear(maintenanceDigest)
+        val prunedArtifacts = pruneArtifactsFor(activation.checkpointId)
         lastRejectedEvidenceTag = null
         return ReflexNativeLifecycleReport(
             stage = ReflexNativeLifecycleStage.REPLACED,
@@ -565,7 +613,27 @@ class ReflexNativeModelLifecycle(
                     (costSnapshot.estimateDurationMs(proposedExamples.coerceAtLeast(1)) ?: -1L) +
                     ", cost_samples=" + costSnapshot.samples +
                     "), replayed " + replay.exampleIds.size +
-                    " prior examples, and replaced champion " + champion.checkpointId.value
+                    " prior examples, replaced champion " + champion.checkpointId.value +
+                    ", pruned_artifacts=" + prunedArtifacts
+        )
+    }
+
+    private fun pruneArtifactsFor(activeCheckpointId: NativeCheckpointId?): Int {
+        val protected = linkedSetOf<String>()
+        var cursor = activeCheckpointId
+        var depth = 0
+        while (cursor != null && depth < RETAINED_ARTIFACT_LINEAGE_DEPTH) {
+            val checkpoint = runtime.nativeModelFoundation.getCheckpoint(cursor) ?: break
+            protected += checkpoint.weightArtifactSha256
+            cursor = checkpoint.parentCheckpointId
+            depth += 1
+        }
+        runtime.reflexDecisionRuntime.active()
+            ?.weightArtifactSha256
+            ?.let(protected::add)
+        return artifacts.prune(
+            protectedSha256 = protected,
+            maxDelete = MAX_ARTIFACT_PRUNE_PER_MAINTENANCE
         )
     }
 
@@ -808,5 +876,8 @@ class ReflexNativeModelLifecycle(
         const val MAX_SELECTED_EXAMPLES = 256
         const val CONTINUAL_HOLDOUT_RATIO = 0.35
         const val CONTINUAL_LEARNING_RATE = 0.03
+        const val BACKGROUND_RETRY_DELAY_MS = 60_000L
+        const val RETAINED_ARTIFACT_LINEAGE_DEPTH = 3
+        const val MAX_ARTIFACT_PRUNE_PER_MAINTENANCE = 8
     }
 }
