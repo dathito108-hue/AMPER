@@ -221,6 +221,11 @@ class ReflexNativeModelLifecycle(
                 "champion active; waiting for enough high-quality governed evidence " +
                     "(label_confidence >= " + ReflexActiveLearningMiner.MIN_LABEL_CONFIDENCE + ")"
         )
+        val effectiveLearningRate = if (activeBatch.novelCapabilities.isNotEmpty()) {
+            maxOf(curriculum.learningRate, CONTINUAL_LEARNING_RATE)
+        } else {
+            curriculum.learningRate
+        }
         val drift = ReflexContinualDriftAnalyzer.analyze(
             fresh = fresh,
             replay = replay
@@ -254,6 +259,7 @@ class ReflexNativeModelLifecycle(
                 "AMPER_REFLEX_CONTINUAL_V4_CURRICULUM",
                 champion.checkpointId.value,
                 curriculum.canonicalDigest,
+                effectiveLearningRate.toString(),
                 activeBatch.selectedExampleIds
                     .map { it.value }
                     .sorted()
@@ -277,7 +283,7 @@ class ReflexNativeModelLifecycle(
             parentCheckpointId = champion.checkpointId,
             selectedExampleIds = activeBatch.selectedExampleIds,
             replayExampleIds = replay.exampleIds,
-            continualLearningRate = curriculum.learningRate,
+            continualLearningRate = effectiveLearningRate,
             continual = true
         )
         val checkpoint = trainCheckpoint(
@@ -389,7 +395,7 @@ class ReflexNativeModelLifecycle(
                     ", disagreements=" + activeBatch.disagreementExamples +
                     ", novel_capabilities=" + activeBatch.novelCapabilities.size +
                     ", weak_capabilities=" + curriculum.weakCapabilities.size +
-                    ", lr=" + curriculum.learningRate +
+                    ", lr=" + effectiveLearningRate +
                     "), replayed " + replay.exampleIds.size +
                     " prior examples, and replaced champion " + champion.checkpointId.value
         )
