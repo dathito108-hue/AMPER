@@ -436,6 +436,28 @@ Decomposition owns no ToolFabric or AuthorityGate handle and cannot widen capabi
 side effect or turn planning structure into evidence that the user objective succeeded.
 
 
+### Implemented checkpoint — Phase331-335
+Phase331 adds a deterministic hierarchy-progress projection over the durable goal portfolio. Direct
+parent lineage is persisted for decomposition children, SUPERSEDED branch tombstones remain visible
+for audit/history, and progress distinguishes active, completed, superseded, runnable and blocked
+subgoals without treating superseded work as successful completion. Phase332 adds a strict
+one-inference adaptive branch-replanning protocol that can return KEEP_BLOCKED or only 1-3 bounded
+replacement objectives; replacement dependencies may reference earlier replacement indices only and
+the model cannot emit tool calls, authority, approvals, execution or completion claims. Phase333
+permits adaptive rewrite only for a pending hierarchy leaf after governed recovery is exhausted and
+only when every terminal plan step is FAILED, MALFORMED or UNAVAILABLE: any executed, denied,
+rejected, partial-execution or unresolved side-effect evidence is ineligible. The replan-attempt
+marker is persisted before inference so each failed leaf receives at most one adaptive inference.
+Phase334 atomically rewires only pending dependants from the failed leaf to deterministic replacement
+IDs, caps replacement priority at the original/parent priority, preserves deadline and hierarchy
+depth, retains all completed evidence unchanged, and releases the obsolete persistent checkpoint only
+after the replacement transaction commits. Phase335 bounds replacement lineage to two generations,
+integrates REPLANNED scheduling/UI state, and upgrades the durable portfolio payload to V5 with
+V1/V2/V3/V4 decoding plus conservative V4 parent-lineage migration. Adaptive goal replanning owns no
+ToolFabric or AuthorityGate handle and cannot turn structural adaptation into evidence that a parent
+goal succeeded.
+
+
 ## CI budget policy
 
 GitHub Actions is a scarce verification resource.
