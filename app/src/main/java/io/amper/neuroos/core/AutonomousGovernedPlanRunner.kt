@@ -2,6 +2,8 @@ package io.amper.neuroos.core
 
 enum class AutonomousGovernedPlanRunStage {
     COMPLETED,
+    FOLLOW_UP_QUEUED,
+    FOLLOW_UP_EXHAUSTED,
     TERMINAL_RECOVERY,
     EXECUTION_PAUSED,
     WAITING_APPROVAL,
@@ -35,11 +37,16 @@ data class AutonomousGovernedPlanRunResult(
  * rebinding the exact persistent-goal handoff, with zero tool execution during refresh.
  * Phase305 resolves terminal plans through the existing bounded goal-recovery policy and caps each
  * invocation to TitanPlanProtocol.MAX_STEPS.
+ *
+ * Phase306-310 may inject an independent goal-satisfaction verifier for all-executed terminal plans.
+ * Only verified SATISFIED closes the goal; conservative FOLLOW_UP_REQUIRED requeues bounded cognitive
+ * work without changing execution authority.
  */
 class AutonomousGovernedPlanRunner(
     private val planner: PersistentSovereignPlanCoordinator,
     private val plans: SovereignPlanStore,
-    private val goals: PersistentGoalExecutiveCoordinator
+    private val goals: PersistentGoalExecutiveCoordinator,
+    private val completionVerifier: GoalSatisfactionVerifier? = null
 ) {
     fun runBounded(
         planId: PlanId,
@@ -131,15 +138,31 @@ class AutonomousGovernedPlanRunner(
         plan: SovereignPlan,
         processed: Int
     ): AutonomousGovernedPlanRunResult {
-        val checkpoint = goals.resolveTerminalPlan(plan.id).getOrThrow()
-        val completed = checkpoint.stage == PersistentGoalExecutiveStage.COMPLETED
+        val checkpoint = if (
+            completionVerifier != null &&
+            plan.steps.all { it.status == PlanStepStatus.EXECUTED }
+        ) {
+            val current = requireNotNull(goals.current()) {
+                "goal verification requires an active persistent checkpoint"
+            }
+            val assessment = completionVerifier.verify(current, plan).getOrThrow()
+            goals.resolveVerifiedSuccess(plan.id, assessment).getOrThrow()
+        } else {
+            goals.resolveTerminalPlan(plan.id).getOrThrow()
+        }
+
+        val runStage = when (checkpoint.stage) {
+            PersistentGoalExecutiveStage.COMPLETED ->
+                AutonomousGovernedPlanRunStage.COMPLETED
+            PersistentGoalExecutiveStage.FOLLOW_UP_QUEUED ->
+                AutonomousGovernedPlanRunStage.FOLLOW_UP_QUEUED
+            PersistentGoalExecutiveStage.FOLLOW_UP_EXHAUSTED ->
+                AutonomousGovernedPlanRunStage.FOLLOW_UP_EXHAUSTED
+            else -> AutonomousGovernedPlanRunStage.TERMINAL_RECOVERY
+        }
         return AutonomousGovernedPlanRunResult(
             planId = plan.id,
-            stage = if (completed) {
-                AutonomousGovernedPlanRunStage.COMPLETED
-            } else {
-                AutonomousGovernedPlanRunStage.TERMINAL_RECOVERY
-            },
+            stage = runStage,
             processedSteps = processed,
             activePlanId = checkpoint.plannedPlanId ?: plan.id,
             goalCheckpointStage = checkpoint.stage
