@@ -762,3 +762,23 @@ VERIFY reflection mode, missing descriptors, unsupported commands and uncertain 
 System-2 path. The bootstrap classifier is replaceable by a future AMPER-owned native System-1 model
 using the same typed interface, allowing Phase396-420 verified experience/training infrastructure to
 train faster learned decisions without changing the authority boundary or the AGI-mobile target.
+
+
+### Implemented checkpoint — Phase426-430
+Phase426 adds a restart-safe ReflexExperienceDatasetStore for System-1 decision learning. Raw user
+text is converted ephemerally into bounded hashed unigram/bigram features; raw prompts, action reasons,
+tool inputs, tool outputs, tool ids, approvals and conversation ids are never retained in the training
+example. Phase427 admits successful governed actions as typed ACTION targets containing only the live
+capability and side-effect class, and records ordinary completed System-2 no-action turns as
+conservative ESCALATE_SYSTEM2 teacher examples. Side-effect proposals are not admitted merely because
+they were proposed: Reflex/System-2 side effects enter the action dataset only after explicit approval
+and terminal EXECUTED outcome. Phase428 wires both zero-LLM Reflex executions and legacy System-2 tool
+executions into the same dataset while keeping one canonical live-descriptor projection; rejected,
+denied, unavailable, malformed and failed actions are not promoted to positive training labels.
+Phase429 materializes bounded immutable GENERATED_INTERNAL decision shards through the existing
+NativeModelFoundation with target capability reflex-decision, canonical payload SHA-256 and provenance,
+so future native System-1 training can reuse the established dataset-rights/checkpoint pipeline instead
+of creating a parallel trainer stack. Phase430 exposes the dataset through AmperRuntime, excludes its
+records from generic sovereign prompt retrieval, and corrects Reflex side-effect telemetry so a
+proposal created with zero LLM passes plus one post-approval synthesis reports one inference pass.
+Decision experience is non-authoritative and cannot execute a tool, grant approval or promote a model.
