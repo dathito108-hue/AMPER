@@ -227,6 +227,36 @@ class NativeModelCompletionTest {
     }
 
     @Test
+    fun restartReconciliationRemovesStaleVisionWhenProjectorIsMissing() {
+        val descriptor = ModelDescriptor(
+            id = ModelId("amper-native-stale-vision"),
+            format = "gguf",
+            capabilities = setOf(reasoning, vision),
+            local = true
+        )
+        val installed = installed(
+            descriptor = descriptor,
+            locator = "memory://stale-vision.gguf"
+        )
+        val catalog = InMemoryInstalledModelCatalog().also { it.put(installed) }
+        val registry = InMemoryModelRegistry().also { it.register(descriptor) }
+
+        val changed = NativeRuntimeCapabilityReconciler(
+            catalog = catalog,
+            registry = registry,
+            projectors = InMemoryMultimodalProjectorCatalog()
+        ).reconcile()
+
+        assertEquals(1, changed)
+        assertEquals(
+            setOf(reasoning),
+            requireNotNull(catalog.get(descriptor.id)).descriptor.capabilities
+        )
+        assertNull(registry.route(setOf(reasoning, vision)))
+        assertEquals(descriptor.id, registry.route(setOf(reasoning))?.id)
+    }
+
+    @Test
     fun explicitUserPreferenceOutranksNativeSoftPreference() {
         val recording = RecordingInference()
         val nativeId = ModelId("amper-native-soft")
