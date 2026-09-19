@@ -314,7 +314,7 @@ class ResourceGovernorReflexLearningResourcePolicy(
         }
         if (!deferredState) return decision
 
-        if (decision.charging == true) {
+        if (decision.charging == true || demand.highValue) {
             deferredState = false
             recoveryHealthySamples = 0
             return decision
