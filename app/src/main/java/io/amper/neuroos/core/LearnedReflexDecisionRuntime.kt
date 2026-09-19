@@ -79,7 +79,7 @@ class CanonicalReflexDecisionRuntimeReplacementGate(
 
 data class ReflexRuntimeHealthPolicy(
     val maxConsecutivePredictionFailures: Int = 3,
-    val maxPredictionLatencyMs: Double = 250.0,
+    val maxPredictionLatencyMs: Double = 350.0,
     val maxConsecutiveSlowPredictions: Int = 3
 ) {
     init {
@@ -207,6 +207,10 @@ interface ReflexDecisionRuntimeController : ReflexDecisionCortex {
     fun active(): ReflexDecisionRuntimeActivation?
     fun persistedIntent(): ReflexRuntimeActivationIntent?
     fun health(): ReflexRuntimeHealthSnapshot
+    fun adaptivePolicy(): ReflexAdaptiveRuntimePolicy?
+    fun bindActionDecision(requestId: ActionRequestId, decision: ReflexDecision)
+    fun observeActionOutcome(requestId: ActionRequestId, status: ActionStatus)
+    fun discardActionDecision(requestId: ActionRequestId)
 }
 
 /**
@@ -226,6 +230,7 @@ class CanonicalReflexDecisionRuntimeController(
     private val binder: ReflexActionArgumentBinder = CanonicalReflexActionArgumentBinder,
     private val activationStore: ReflexDecisionRuntimeActivationStore =
         VolatileReflexDecisionRuntimeActivationStore(),
+    private val calibration: ReflexRuntimeCalibration = StaticReflexRuntimeCalibration,
     private val healthPolicy: ReflexRuntimeHealthPolicy = ReflexRuntimeHealthPolicy(),
     private val clock: () -> Long = System::currentTimeMillis,
     private val monotonicNanos: () -> Long = System::nanoTime
@@ -345,6 +350,30 @@ class CanonicalReflexDecisionRuntimeController(
 
     override fun health(): ReflexRuntimeHealthSnapshot = healthState
 
+    override fun adaptivePolicy(): ReflexAdaptiveRuntimePolicy? =
+        activation?.checkpointId?.let(calibration::policy)
+
+    override fun bindActionDecision(
+        requestId: ActionRequestId,
+        decision: ReflexDecision
+    ) {
+        val checkpointId = activation?.checkpointId ?: return
+        if (decision.source != ReflexDecisionSource.NATIVE_SYSTEM1) return
+        calibration.bindAction(
+            requestId = requestId,
+            checkpointId = checkpointId,
+            confidence = decision.confidence
+        )
+    }
+
+    override fun observeActionOutcome(requestId: ActionRequestId, status: ActionStatus) {
+        calibration.observeActionOutcome(requestId, status)
+    }
+
+    override fun discardActionDecision(requestId: ActionRequestId) {
+        calibration.discardAction(requestId)
+    }
+
     override fun decide(request: ReflexDecisionRequest): ReflexDecision {
         val port = activePort ?: return fallback.decide(request)
         val available = request.descriptors
@@ -364,10 +393,12 @@ class CanonicalReflexDecisionRuntimeController(
         val latencyMs = elapsedNanos.toDouble() / 1_000_000.0
 
         val prediction = predictionResult.getOrElse {
+            val policy = calibration.policy(port.checkpointId)
             val unhealthy = recordPredictionHealth(
                 port = port,
                 latencyMs = latencyMs,
-                failed = true
+                failed = true,
+                latencyBudgetMs = policy.maxPredictionLatencyMs
             )
             if (unhealthy) {
                 autoRollbackUnhealthy(port)
@@ -375,10 +406,13 @@ class CanonicalReflexDecisionRuntimeController(
             return fallback.decide(request)
         }
 
+        calibration.observePrediction(port.checkpointId, latencyMs)
+        val adaptivePolicy = calibration.policy(port.checkpointId)
         val unhealthy = recordPredictionHealth(
             port = port,
             latencyMs = latencyMs,
-            failed = false
+            failed = false,
+            latencyBudgetMs = adaptivePolicy.maxPredictionLatencyMs
         )
         if (unhealthy) {
             autoRollbackUnhealthy(port)
@@ -394,8 +428,8 @@ class CanonicalReflexDecisionRuntimeController(
             return escalation(0.0, 1.0)
         }
         if (
-            prediction.confidence < ReflexDecision.MIN_FAST_PATH_CONFIDENCE ||
-            prediction.uncertainty > ReflexDecision.MAX_FAST_PATH_UNCERTAINTY
+            prediction.confidence < adaptivePolicy.minFastPathConfidence ||
+            prediction.uncertainty > adaptivePolicy.maxFastPathUncertainty
         ) {
             return escalation(prediction.confidence, prediction.uncertainty)
         }
@@ -410,7 +444,9 @@ class CanonicalReflexDecisionRuntimeController(
             source = ReflexDecisionSource.NATIVE_SYSTEM1,
             capability = capability,
             input = proposal.input,
-            reason = proposal.reason
+            reason = proposal.reason,
+            fastPathConfidenceThreshold = adaptivePolicy.minFastPathConfidence,
+            fastPathUncertaintyThreshold = adaptivePolicy.maxFastPathUncertainty
         )
     }
 
@@ -418,11 +454,16 @@ class CanonicalReflexDecisionRuntimeController(
     private fun recordPredictionHealth(
         port: NativeReflexDecisionPort,
         latencyMs: Double,
-        failed: Boolean
+        failed: Boolean,
+        latencyBudgetMs: Double
     ): Boolean {
         if (activePort !== port) return false
         val previous = healthState
-        val slow = latencyMs > healthPolicy.maxPredictionLatencyMs
+        val effectiveLatencyBudget = minOf(
+            latencyBudgetMs,
+            healthPolicy.maxPredictionLatencyMs
+        )
+        val slow = latencyMs > effectiveLatencyBudget
         val next = previous.copy(
             checkpointId = port.checkpointId,
             totalPredictions = previous.totalPredictions + 1L,

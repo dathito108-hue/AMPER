@@ -892,3 +892,23 @@ When no standby exists, the unhealthy learned model is durably disabled and assi
 back to the deterministic Reflex bootstrap/System-2 path. Phase460 wires canonical replacement
 comparison into AmperRuntime. Explicit rollback still disables learned Reflex rather than restoring a
 standby, and no health/replacement mechanism changes tool authority, approval or safe argument binding.
+
+
+### Implemented checkpoint — Phase461-465
+Phase461 adds ReflexRuntimeCalibration with a held-out-evidence prior and durable privacy-preserving
+runtime aggregates. Calibration stores only checkpoint identity, bounded counters/EWMAs and temporary
+ActionRequestId-to-checkpoint/confidence bindings; raw prompts, tool inputs/outputs and approval
+content are excluded. Phase462 feeds measured learned-System-1 prediction latency into an EWMA and
+adapts the operational slow-call budget only after sixteen samples, bounded to 100-350 ms. The runtime
+health controller uses this adaptive budget under its existing hard health ceiling, so calibration
+cannot make an arbitrarily slow model healthy. Phase463 derives per-checkpoint confidence/uncertainty
+gates from admitted held-out action precision and calibration error, then permits online governed
+action evidence to adjust the confidence threshold by only +/-0.002 after at least thirty-two resolved
+samples. The absolute confidence range remains 0.985-0.997. Phase464 binds learned Reflex decisions to
+their ActionRequestId before ActionLoop evaluation and resolves calibration only from terminal governed
+outcomes. EXECUTED is positive; MALFORMED/UNAVAILABLE are negative; REQUIRES_CONFIRMATION remains
+pending; authority DENIED and tool-runtime FAILED are neutral. Pending bindings survive restart and are
+removed on explicit rejection. Phase465 propagates the exact adaptive threshold inside ReflexDecision
+so the runtime and assistant fast-path gate cannot disagree, wires the MemoryOs-backed calibrator into
+AmperRuntime, and excludes calibration records from generic sovereign prompt retrieval. Calibration is
+non-authoritative and cannot bypass safe argument binding, ToolDescriptor, AuthorityGate or approval.
