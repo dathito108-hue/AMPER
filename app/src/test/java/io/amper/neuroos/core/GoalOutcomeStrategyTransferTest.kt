@@ -2,7 +2,6 @@ package io.amper.neuroos.core
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -174,6 +173,82 @@ class GoalOutcomeStrategyTransferTest {
     }
 
     @Test
+    fun plannerReceivesOutcomeTransferWithoutExecutingOrLeakingHistoricPayloads() {
+        val runtime = AmperRuntime.reference()
+        val historic = terminalPlan(
+            id = "phase339-history-plan",
+            goal = "Inspect delta artifact integrity"
+        )
+        runtime.goalOutcomeLearning.observe(
+            checkpoint = verifiedCheckpoint(
+                goalId = "phase339-history-goal",
+                objective = "Inspect delta artifact integrity",
+                plan = historic
+            ),
+            terminalPlan = historic,
+            outcome = GoalOutcomeEvidenceKind.VERIFIED_SUCCESS,
+            hierarchy = null,
+            hierarchyDepth = 0,
+            verificationConfidence = 0.94,
+            observedAtEpochMs = 1L
+        )
+
+        var executions = 0
+        val registry = InMemoryToolRegistry().also {
+            it.register(provider { executions += 1 })
+        }
+        val audit = InMemoryToolAuditLog()
+        val loop = runtime.actionLoop(
+            registry = registry,
+            fabric = AuditedToolFabric(
+                gate = DenyByDefaultAuthorityGate(setOf(capability)),
+                registry = registry,
+                audit = audit
+            )
+        )
+        val requests = mutableListOf<InferenceRequest>()
+        val inference = CognitiveInferencePort { request ->
+            requests += request
+            Result.success(
+                InferenceResponse(
+                    modelId = ModelId("phase339-planner"),
+                    backendId = "phase339-test-backend",
+                    text = """
+                        <AMPER_PLAN_V1>
+                        step.1.capability=phase336.read
+                        step.1.reason=Inspect current artifact under live contract
+                        step.1.input=read
+                        </AMPER_PLAN_V1>
+                    """.trimIndent(),
+                    selectedCapabilities = setOf(TitanCapabilities.REASONING)
+                )
+            )
+        }
+        val planner = SovereignPlanCoordinator(
+            runtime = runtime,
+            inference = inference,
+            actions = loop,
+            advertisedCapabilities = setOf(capability)
+        )
+
+        val plan = planner.create(
+            conversationId = ConversationId("phase339-live"),
+            userGoal = "Inspect delta artifact metadata and integrity"
+        ).getOrThrow()
+
+        val prompt = requests.single().prompt
+        assertTrue(prompt.contains("<GOAL_OUTCOME_STRATEGY_TRANSFER>"))
+        assertTrue(prompt.contains("candidate.1.capabilities=phase336.read"))
+        assertTrue(prompt.contains("authority=false"))
+        assertFalse(prompt.contains("phase339-history-goal"))
+        assertFalse(prompt.contains("phase339-history-plan"))
+        assertFalse(prompt.contains("secret-input"))
+        assertEquals(0, executions)
+        assertEquals(0, audit.snapshot().size)
+        assertEquals(PlanStepStatus.PLANNED, plan.steps.single().status)
+    }
+
+    @Test
     fun renderedTransferCannotCarryOldExecutionOrApprovalPayloads() {
         val model = MemoryBackedGoalOutcomeLearningModel(InMemoryMemoryOs())
         observeOutcome(
@@ -312,6 +387,15 @@ class GoalOutcomeStrategyTransferTest {
         ),
         planningBackendId = "phase336-planner"
     )
+
+    private fun provider(executions: () -> Unit): ToolProvider = object : ToolProvider {
+        override val descriptor: ToolDescriptor = descriptor()
+
+        override fun execute(input: String): Result<String> = runCatching {
+            executions()
+            "ok:" + input
+        }
+    }
 
     private fun descriptor(): ToolDescriptor = ToolDescriptor(
         id = ToolId("phase336-provider"),
