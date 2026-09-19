@@ -192,6 +192,7 @@ class AmperRuntime private constructor(
     val reflexDecisionTraining: ReflexDecisionTrainingCoordinator,
     val reflexDecisionEvaluation: ReflexDecisionEvaluationCoordinator,
     val reflexRuntimeCalibration: ReflexRuntimeCalibration,
+    val reflexLearningResourcePolicy: ReflexLearningResourcePolicy,
     val reflexDecisionActivationStore: ReflexDecisionRuntimeActivationStore,
     val reflexDecisionRuntime: ReflexDecisionRuntimeController,
     val reflexDecisionCortex: ReflexDecisionCortex,
@@ -424,6 +425,11 @@ class AmperRuntime private constructor(
                         ?.reflexDecision
                 }
             )
+            val reflexLearningResourcePolicy =
+                ResourceGovernorReflexLearningResourcePolicy(
+                    governor = governor,
+                    deviceStatusSource = deviceStatusSource
+                )
             val reflexDecisionActivationStore =
                 MemoryBackedReflexDecisionRuntimeActivationStore(memory)
             val reflexActivationGate = CanonicalReflexDecisionRuntimeActivationGate(
@@ -546,6 +552,7 @@ class AmperRuntime private constructor(
                 reflexDecisionTraining = reflexDecisionTraining,
                 reflexDecisionEvaluation = reflexDecisionEvaluation,
                 reflexRuntimeCalibration = reflexRuntimeCalibration,
+                reflexLearningResourcePolicy = reflexLearningResourcePolicy,
                 reflexDecisionActivationStore = reflexDecisionActivationStore,
                 reflexDecisionRuntime = reflexDecisionRuntime,
                 reflexDecisionCortex = reflexDecisionCortex,
