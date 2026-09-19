@@ -1396,3 +1396,48 @@ The integrated execution chain is now:
 Reflex/System-1 -> Native System-2 -> bounded inference/planning -> TitanAction/TitanPlan parsing ->
 live ToolDescriptor binding -> SovereignActionLoop -> AuthorityGate -> explicit approval when needed ->
 durable receipts. Phase546-550 now moves to closed-loop self-evolution rather than more Reflex tuning.
+
+
+### Completion checkpoint — Phase546-550: Closed-Loop Self-Evolution
+Phase546 reconnects AMPER's existing verified-evolution machinery to live governed outcome evidence
+instead of inventing another self-modification stack. The autonomous cognitive executive can now
+escalate both repeated capability execution weakness and strongly evidenced hierarchical strategy
+repair weakness. The directive carries the typed weakness class and its evidence confidence, while
+authority denials, unavailable tools and pending approvals remain excluded from execution-competence
+evidence.
+
+Phase547 converts each eligible weakness into a frozen content-addressed benchmark baseline. Real
+execution reliability uses the exact governed executed/failed counts for the triggering capability;
+hierarchical repair uses the already-aggregated governed repair signal as its own one-sample strategy
+benchmark. Each weakness receives an immutable benchmark-suite identity and metric id tied to the
+capability and weakness kind, so candidate generation and sandbox evaluation target the actual live
+deficit rather than a generic synthetic score.
+
+Phase548 routes that baseline through the pre-existing autonomous evolution campaign:
+weakness -> model-generated data-only candidate blueprints -> injected sandbox -> benchmark/test/
+canonical-invariant evidence -> deterministic tournament -> canonical promotion proposal. Severe
+execution weakness may consider MODEL/CODE/STRATEGY/ARCHITECTURE candidates; hierarchical repair is
+scoped to STRATEGY/CODE/ARCHITECTURE. Candidate text itself never supplies benchmark truth,
+verification status, deployment identity or authority.
+
+Phase549 closes transactional promotion and deduplication. A deployment backend must expose the exact
+currently active revision + artifact SHA-256 before the campaign. Promotion still uses the existing
+checkpoint -> apply -> fresh canary -> commit path and automatically rolls back apply identity
+mismatch, failed canary or benchmark regression. A sovereign MemoryOs ledger records the exact live
+evidence digest and terminal stage, preventing unchanged outcomes from repeatedly mutating the system.
+After a committed promotion, new real governed outcomes are required before the same weakness can
+trigger another evolution cycle. The ledger is excluded from user-facing context retrieval.
+
+Phase550 exposes this entire path as AmperRuntime.closedLoopEvolutionExecutive(...), allowing the
+PersistentGoalExecutive/AutonomousCognitiveExecutive to consume it as the existing evolution port.
+Regression coverage drives a real weak capability through candidate generation, sandbox verification,
+tournament selection, deployment, canary and COMMITTED promotion; verifies unchanged evidence is
+deduplicated; proves DENIED/UNAVAILABLE/REQUIRES_CONFIRMATION do not become self-evolution weakness;
+and covers the hierarchical strategy benchmark path.
+
+The canonical authority chain is unchanged. Closed-loop self-evolution has no ToolFabric handle and
+cannot grant permissions, approve side effects or bypass ToolDescriptor/TitanPlan parsing. CODE and
+ARCHITECTURE candidates become live only through a concrete EvolutionDeploymentIdentityPort whose
+sandbox, exact artifact identity, rollback checkpoint and canary satisfy the existing verified
+promotion transaction. The next roadmap step is AGI-Mobile Qualification rather than another Reflex
+or scheduler expansion.
