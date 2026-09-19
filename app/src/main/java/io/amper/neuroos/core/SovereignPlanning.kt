@@ -494,10 +494,14 @@ class SovereignPlanCoordinator(
             allowedCapabilities = advertisedCapabilities,
             descriptors = descriptors
         ).getOrThrow()
-        val selection = EvidenceGroundedDeliberationEvaluator.select(
+        val canonicalSelection = EvidenceGroundedDeliberationEvaluator.select(
             candidates = candidates,
             strategies = runtime.strategies,
             allowedCapabilities = advertisedCapabilities
+        )
+        val selection = NativeSystem2PlanAlignmentPolicy.align(
+            canonical = canonicalSelection,
+            system2 = planningPrompt.system2Deliberation
         )
         val critique = critiqueSelection(
             conversationId = conversationId,
@@ -618,10 +622,14 @@ class SovereignPlanCoordinator(
         require(viableCandidates.isNotEmpty()) {
             "recovery plan repeated the failed capability sequence"
         }
-        val selection = EvidenceGroundedDeliberationEvaluator.select(
+        val canonicalSelection = EvidenceGroundedDeliberationEvaluator.select(
             candidates = viableCandidates,
             strategies = runtime.strategies,
             allowedCapabilities = advertisedCapabilities
+        )
+        val selection = NativeSystem2PlanAlignmentPolicy.align(
+            canonical = canonicalSelection,
+            system2 = planningPrompt.system2Deliberation
         )
         val critique = critiqueSelection(
             conversationId = plan.conversationId,
@@ -748,10 +756,14 @@ class SovereignPlanCoordinator(
             allowedCapabilities = advertisedCapabilities,
             descriptors = descriptors
         ).getOrThrow()
-        val selection = EvidenceGroundedDeliberationEvaluator.select(
+        val canonicalSelection = EvidenceGroundedDeliberationEvaluator.select(
             candidates = candidates,
             strategies = runtime.strategies,
             allowedCapabilities = advertisedCapabilities
+        )
+        val selection = NativeSystem2PlanAlignmentPolicy.align(
+            canonical = canonicalSelection,
+            system2 = planningPrompt.system2Deliberation
         )
         val critique = critiqueSelection(
             conversationId = plan.conversationId,
@@ -982,7 +994,8 @@ class SovereignPlanCoordinator(
 
     private data class PlanningPromptBundle(
         val prompt: String,
-        val transferCandidates: List<GoalStrategyPortfolioCandidate>
+        val transferCandidates: List<GoalStrategyPortfolioCandidate>,
+        val system2Deliberation: NativeSystem2Deliberation
     )
 
     private data class PlanningProtocolBundle(
@@ -1002,6 +1015,12 @@ class SovereignPlanCoordinator(
         contextRefreshAssessment: CognitiveContinuityAssessment? = null
     ): PlanningPromptBundle {
         require(promptBudgetChars in ConversationInferenceProfile.MIN_PROMPT_CHARS..ConversationInferenceProfile.MAX_PROMPT_CHARS)
+        val system2Deliberation = runtime.nativeSystem2.deliberateCaptured(
+            goal = userGoal,
+            state = cognitiveState,
+            allowedCapabilities = advertisedCapabilities,
+            descriptors = descriptors
+        ).getOrThrow()
         val capabilities = advertisedCapabilities
             .sortedBy { it.value }
             .take(8)
@@ -1042,6 +1061,7 @@ class SovereignPlanCoordinator(
             userGoal = userGoal,
             cognitiveState = cognitiveState,
             metacognitiveControl = metacognitiveControl,
+            system2Deliberation = system2Deliberation,
             charBudget = protocolBudget
         )
         val tail = buildString {
@@ -1064,7 +1084,8 @@ class SovereignPlanCoordinator(
         )
         return PlanningPromptBundle(
             prompt = grounded.take(conversationBudget) + tail,
-            transferCandidates = protocol.transferCandidates
+            transferCandidates = protocol.transferCandidates,
+            system2Deliberation = system2Deliberation
         )
     }
 
@@ -1074,6 +1095,7 @@ class SovereignPlanCoordinator(
         userGoal: String,
         cognitiveState: IntegratedCognitiveStatePacket,
         metacognitiveControl: MetacognitiveControlDirective,
+        system2Deliberation: NativeSystem2Deliberation,
         charBudget: Int
     ): PlanningProtocolBundle {
         require(metacognitiveControl.cognitiveStateDigest == cognitiveState.canonicalDigest) {
@@ -1081,10 +1103,27 @@ class SovereignPlanCoordinator(
         }
         val control = MetacognitiveControlRenderer.render(metacognitiveControl)
         val base = TitanDeliberationProtocol.instructions(capabilities, emptyList())
+        val availableSystem2Chars =
+            charBudget -
+                base.length -
+                control.length -
+                COGNITIVE_STATE_MIN_CHARS -
+                6
+        require(availableSystem2Chars >= NativeSystem2GuidanceRenderer.MIN_CHAR_BUDGET) {
+            "conversation prompt budget cannot preserve native System-2 guidance"
+        }
+        val system2Guidance = NativeSystem2GuidanceRenderer.render(
+            deliberation = system2Deliberation,
+            charBudget = minOf(
+                availableSystem2Chars,
+                NativeSystem2GuidanceRenderer.MAX_CHAR_BUDGET
+            )
+        )
         require(
-            base.length + 2 + control.length + 2 + COGNITIVE_STATE_MIN_CHARS <= charBudget
+            base.length + 2 + control.length + 2 + system2Guidance.length +
+                2 + COGNITIVE_STATE_MIN_CHARS <= charBudget
         ) {
-            "conversation prompt budget cannot preserve planning protocol, metacognition and cognitive state"
+            "conversation prompt budget cannot preserve planning protocol, metacognition, System-2 and cognitive state"
         }
         val allowed = capabilities.toSet()
         val selected = mutableListOf<ToolDescriptor>()
@@ -1096,14 +1135,15 @@ class SovereignPlanCoordinator(
                 val candidate = TitanDeliberationProtocol.instructions(capabilities, selected + descriptor)
                 if (
                     candidate.length + 2 + control.length + 2 +
-                        COGNITIVE_STATE_MIN_CHARS <= charBudget
+                        system2Guidance.length + 2 + COGNITIVE_STATE_MIN_CHARS <= charBudget
                 ) {
                     selected += descriptor
                 }
             }
 
         val protocol = TitanDeliberationProtocol.instructions(capabilities, selected)
-        val fixedPrefix = protocol + "\n\n" + control
+        val fixedPrefix =
+            protocol + "\n\n" + control + "\n\n" + system2Guidance
         val cognitiveAvailable = charBudget - fixedPrefix.length - 2
         require(cognitiveAvailable >= COGNITIVE_STATE_MIN_CHARS)
         val cognitiveBudget = minOf(
