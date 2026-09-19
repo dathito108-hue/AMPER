@@ -1141,14 +1141,17 @@ higher selection priority without altering their governed labels, while novel ca
 existing explicit coverage floor. Selection remains deterministic, privacy-preserving and bounded.
 
 Phase508 adapts continual-learning rate inside a conservative 0.018-0.040 band from measured
-curriculum difficulty. The exact curriculum digest, selected fresh-example ids and replay ids are
-bound into the V4 continual checkpoint identity, preventing a restart or later algorithm change from
-silently reusing a checkpoint trained under a different learning program.
+curriculum difficulty; newly observed capabilities never receive less than the established 0.03
+continual baseline. The exact curriculum digest, effective learning rate, selected fresh-example ids
+and replay ids are bound into the V4 continual checkpoint identity, preventing a restart or later
+algorithm change from silently reusing a checkpoint trained under a different learning program.
 
 Phase509 introduces lossless sparse ARL2 artifact encoding. Reflex still uses the same FP32 linear
-parameters at inference, but only non-zero weight cells are written to storage. Existing dense ARL1
-artifacts remain readable and keep the historical .arl1 file suffix, so installed champions can be
-recovered after upgrade without migration or retraining. No quantization error is introduced.
+parameters at inference, but only non-zero weight cells are written when that representation is
+smaller; otherwise the codec falls back to the legacy dense layout, so encoding never expands the
+artifact relative to the dense reference. Existing dense ARL1 artifacts remain readable and keep the
+historical .arl1 file suffix, so installed champions can be recovered after upgrade without migration
+or retraining. No quantization error is introduced.
 
 Phase510 closes the mobile knowledge-compression loop: active learning reduces fresh examples,
 Phase496 replay compresses historical rehearsal to a fixed bound, adaptive curriculum spends that
