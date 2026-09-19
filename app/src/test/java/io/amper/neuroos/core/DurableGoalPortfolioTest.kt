@@ -1,5 +1,7 @@
 package io.amper.neuroos.core
 
+import java.nio.charset.StandardCharsets
+import java.util.Base64
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -98,6 +100,90 @@ class DurableGoalPortfolioTest {
         assertFalse(pending.any { it.sourceGoalId == "goal-0" })
         assertFalse(pending.any { it.sourceGoalId == "goal-7" })
         assertTrue(pending.any { it.sourceGoalId == "goal-8" })
+    }
+
+    @Test
+    fun normalSelectionKeepsPriorityDominantBeforeStarvationThreshold() {
+        val portfolio = MemoryBackedDurableGoalPortfolio(InMemoryMemoryOs())
+        portfolio.observe(
+            listOf(
+                DurableGoalCandidate("goal-low", "Low priority", 0.10),
+                DurableGoalCandidate("goal-high", "High priority", 0.95)
+            ),
+            observedAtEpochMs = 1_000L
+        )
+
+        val selected = requireNotNull(
+            portfolio.selectNext(
+                selectedAtEpochMs =
+                    1_000L + MemoryBackedDurableGoalPortfolio.STARVATION_THRESHOLD_MS - 1L
+            )
+        )
+
+        assertEquals("goal-high", selected.sourceGoalId)
+        assertEquals(1, selected.selectionCount)
+        assertTrue(selected.lastSelectedAtEpochMs != null)
+    }
+
+    @Test
+    fun starvedGoalBeatsFreshHigherPriorityGoalAfterHardWaitBound() {
+        val portfolio = MemoryBackedDurableGoalPortfolio(InMemoryMemoryOs())
+        val threshold = MemoryBackedDurableGoalPortfolio.STARVATION_THRESHOLD_MS
+        portfolio.observe(
+            listOf(DurableGoalCandidate("goal-starved", "Old low priority goal", 0.05)),
+            observedAtEpochMs = 0L
+        )
+        portfolio.observe(
+            listOf(DurableGoalCandidate("goal-fresh", "Fresh high priority goal", 1.0)),
+            observedAtEpochMs = threshold - 1_000L
+        )
+
+        val selected = requireNotNull(
+            portfolio.selectNext(selectedAtEpochMs = threshold)
+        )
+
+        assertEquals("goal-starved", selected.sourceGoalId)
+        assertEquals(1, selected.selectionCount)
+        assertEquals(threshold, selected.lastSelectedAtEpochMs)
+    }
+
+    @Test
+    fun selectionMetadataPersistsAcrossFreshPortfolioInstance() {
+        val memory = InMemoryMemoryOs()
+        val first = MemoryBackedDurableGoalPortfolio(memory)
+        first.observe(
+            listOf(DurableGoalCandidate("goal-persist-selection", "Persist selection", 0.7)),
+            observedAtEpochMs = 10L
+        )
+        first.selectNext(selectedAtEpochMs = 20L)
+
+        val restored = requireNotNull(
+            MemoryBackedDurableGoalPortfolio(memory).get("goal-persist-selection")
+        )
+
+        assertEquals(1, restored.selectionCount)
+        assertEquals(20L, restored.lastSelectedAtEpochMs)
+    }
+
+    @Test
+    fun codecV2ReadsV1PortfolioWithZeroSelectionHistory() {
+        fun enc(value: String): String =
+            Base64.getUrlEncoder().withoutPadding()
+                .encodeToString(value.toByteArray(StandardCharsets.UTF_8))
+
+        val v1 = buildString {
+            appendLine("AMPER_DURABLE_GOAL_PORTFOLIO_V1")
+            append("GOAL\t")
+            append(enc("phase319-v1-goal")).append('\t')
+            append(enc("Old durable goal")).append('\t')
+            append("0.65\tPENDING\t100\t100\t~")
+        }
+
+        val restored = DurableGoalPortfolioCodec.decode(v1).getOrThrow().single()
+
+        assertEquals("phase319-v1-goal", restored.sourceGoalId)
+        assertEquals(0, restored.selectionCount)
+        assertNull(restored.lastSelectedAtEpochMs)
     }
 
     @Test
@@ -267,6 +353,9 @@ class DurableGoalPortfolioTest {
         assertEquals(PersistentGoalExecutiveStage.PLANNED, ran.checkpoint.stage)
         assertEquals(plannedId, ran.checkpoint.plannedPlanId)
         assertTrue(runtime.plans.load(plannedId) != null)
+        val selectedRecord = requireNotNull(runtime.goalPortfolio.get(durableId))
+        assertEquals(1, selectedRecord.selectionCount)
+        assertEquals(60L, selectedRecord.lastSelectedAtEpochMs)
     }
 
     @Test

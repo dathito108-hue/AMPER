@@ -388,6 +388,19 @@ unbounded mobile-memory growth. The portfolio stores goal metadata only, carries
 authority, and does not execute or approve plan steps.
 
 
+### Implemented checkpoint — Phase316-320
+Phase316 extends each durable pending goal with restart-safe selection count and last-selected
+timestamp metadata. Phase317 keeps priority as the dominant scheduling signal while a goal is within
+its normal wait window. Phase318 adds a deterministic hard anti-starvation bound: once a pending goal
+has waited at least 24 hours since first observation or its previous selection, starved goals are
+chosen by oldest wait anchor before priority, preventing an endless stream of newer high-priority work
+from suppressing older objectives forever. Phase319 upgrades the portfolio payload to V2 while
+retaining V1 decoding with zero selection history. Phase320 routes PersistentGoalExecutive selection
+through this durable selector and records selection before checkpoint handoff, so process restart
+cannot reset fairness. Goal scheduling metadata remains orchestration-only and cannot widen
+capabilities, grant authority, or approve side effects.
+
+
 ### Implemented checkpoint — Phase311-315
 Phase311 adds a bounded durable goal portfolio that normalizes goal id, objective and priority into
 Memory OS rather than relying only on the in-memory GoalSystem. Phase312 wires the portfolio into

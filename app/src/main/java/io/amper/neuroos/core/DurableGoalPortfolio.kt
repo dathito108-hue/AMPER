@@ -27,7 +27,9 @@ data class DurableGoalRecord(
     val status: DurableGoalStatus,
     val firstSeenAtEpochMs: Long,
     val updatedAtEpochMs: Long,
-    val completedAtEpochMs: Long? = null
+    val completedAtEpochMs: Long? = null,
+    val selectionCount: Int = 0,
+    val lastSelectedAtEpochMs: Long? = null
 ) {
     init {
         require(sourceGoalId.isNotBlank() && sourceGoalId.length <= MAX_GOAL_ID_CHARS)
@@ -35,6 +37,13 @@ data class DurableGoalRecord(
         require(priority in 0.0..1.0)
         require(firstSeenAtEpochMs >= 0L)
         require(updatedAtEpochMs >= firstSeenAtEpochMs)
+        require(selectionCount >= 0)
+        require((selectionCount == 0) == (lastSelectedAtEpochMs == null)) {
+            "durable goal selection count/timestamp must be present together"
+        }
+        lastSelectedAtEpochMs?.let {
+            require(it >= firstSeenAtEpochMs) { "durable goal selection predates first observation" }
+        }
         require((status == DurableGoalStatus.COMPLETED) == (completedAtEpochMs != null)) {
             "completed durable goal requires completion timestamp"
         }
@@ -56,6 +65,11 @@ interface DurableGoalPortfolio {
     ): List<DurableGoalRecord>
 
     fun pending(limit: Int = MemoryBackedDurableGoalPortfolio.MAX_PENDING): List<DurableGoalRecord>
+
+    fun selectNext(
+        excludedGoalId: String? = null,
+        selectedAtEpochMs: Long = System.currentTimeMillis()
+    ): DurableGoalRecord?
 
     fun markCompleted(
         sourceGoalId: String,
@@ -130,6 +144,49 @@ class MemoryBackedDurableGoalPortfolio(
     }
 
     @Synchronized
+    override fun selectNext(
+        excludedGoalId: String?,
+        selectedAtEpochMs: Long
+    ): DurableGoalRecord? {
+        require(selectedAtEpochMs >= 0L)
+        val records = loadMutable()
+        val candidates = records.values
+            .asSequence()
+            .filter {
+                it.status == DurableGoalStatus.PENDING &&
+                    it.sourceGoalId != excludedGoalId
+            }
+            .toList()
+        if (candidates.isEmpty()) return null
+
+        val starved = candidates.filter {
+            waitingAgeMs(it, selectedAtEpochMs) >= STARVATION_THRESHOLD_MS
+        }
+        val selected = if (starved.isNotEmpty()) {
+            starved.sortedWith(
+                compareBy<DurableGoalRecord> { waitAnchorEpochMs(it) }
+                    .thenByDescending { it.priority }
+                    .thenBy { it.sourceGoalId }
+            ).first()
+        } else {
+            candidates.sortedWith(
+                compareByDescending<DurableGoalRecord> { it.priority }
+                    .thenBy { waitAnchorEpochMs(it) }
+                    .thenBy { it.sourceGoalId }
+            ).first()
+        }
+
+        val updated = selected.copy(
+            selectionCount = selected.selectionCount + 1,
+            lastSelectedAtEpochMs = maxOf(selected.firstSeenAtEpochMs, selectedAtEpochMs),
+            updatedAtEpochMs = maxOf(selected.updatedAtEpochMs, selectedAtEpochMs)
+        )
+        records[selected.sourceGoalId] = updated
+        persist(bounded(records.values))
+        return updated
+    }
+
+    @Synchronized
     override fun markCompleted(
         sourceGoalId: String,
         completedAtEpochMs: Long
@@ -167,6 +224,12 @@ class MemoryBackedDurableGoalPortfolio(
         linkedMapOf<String, DurableGoalRecord>().also { target ->
             snapshot().forEach { target[it.sourceGoalId] = it }
         }
+
+    private fun waitAnchorEpochMs(record: DurableGoalRecord): Long =
+        record.lastSelectedAtEpochMs ?: record.firstSeenAtEpochMs
+
+    private fun waitingAgeMs(record: DurableGoalRecord, now: Long): Long =
+        (now - waitAnchorEpochMs(record)).coerceAtLeast(0L)
 
     private fun bounded(records: Collection<DurableGoalRecord>): List<DurableGoalRecord> {
         val pending = records
@@ -212,12 +275,14 @@ class MemoryBackedDurableGoalPortfolio(
         const val INDEX_KIND = "durable-goal-portfolio-v1"
         const val MAX_PENDING = 32
         const val MAX_COMPLETED_HISTORY = 64
+        const val STARVATION_THRESHOLD_MS = 24L * 60L * 60L * 1_000L
         private val INDEX_ID = MemoryId("durable-goal-portfolio:index")
     }
 }
 
 internal object DurableGoalPortfolioCodec {
-    private const val VERSION = "AMPER_DURABLE_GOAL_PORTFOLIO_V1"
+    private const val VERSION_V1 = "AMPER_DURABLE_GOAL_PORTFOLIO_V1"
+    private const val VERSION = "AMPER_DURABLE_GOAL_PORTFOLIO_V2"
 
     fun encode(records: List<DurableGoalRecord>): String = buildString {
         appendLine(VERSION)
@@ -229,28 +294,51 @@ internal object DurableGoalPortfolioCodec {
             append(record.status.name).append('\t')
             append(record.firstSeenAtEpochMs).append('\t')
             append(record.updatedAtEpochMs).append('\t')
-            append(record.completedAtEpochMs?.toString() ?: "~")
+            append(record.completedAtEpochMs?.toString() ?: "~").append('\t')
+            append(record.selectionCount).append('\t')
+            append(record.lastSelectedAtEpochMs?.toString() ?: "~")
             appendLine()
         }
     }.trimEnd()
 
     fun decode(content: String): Result<List<DurableGoalRecord>> = runCatching {
         val lines = content.lineSequence().filter { it.isNotBlank() }.toList()
-        require(lines.firstOrNull() == VERSION) { "unsupported durable goal portfolio state" }
+        val version = lines.firstOrNull()
+        require(version == VERSION || version == VERSION_V1) {
+            "unsupported durable goal portfolio state"
+        }
         val records = lines.drop(1).map { line ->
             val parts = line.split('\t')
-            require(parts.size == 8 && parts[0] == "GOAL") {
-                "invalid durable goal portfolio record"
+            require(parts[0] == "GOAL") { "invalid durable goal portfolio record" }
+            when (version) {
+                VERSION -> {
+                    require(parts.size == 10) { "invalid V2 durable goal portfolio record" }
+                    DurableGoalRecord(
+                        sourceGoalId = dec(parts[1]),
+                        objective = dec(parts[2]),
+                        priority = parts[3].toDouble(),
+                        status = DurableGoalStatus.valueOf(parts[4]),
+                        firstSeenAtEpochMs = parts[5].toLong(),
+                        updatedAtEpochMs = parts[6].toLong(),
+                        completedAtEpochMs = parts[7].takeUnless { it == "~" }?.toLong(),
+                        selectionCount = parts[8].toInt(),
+                        lastSelectedAtEpochMs = parts[9].takeUnless { it == "~" }?.toLong()
+                    )
+                }
+                VERSION_V1 -> {
+                    require(parts.size == 8) { "invalid V1 durable goal portfolio record" }
+                    DurableGoalRecord(
+                        sourceGoalId = dec(parts[1]),
+                        objective = dec(parts[2]),
+                        priority = parts[3].toDouble(),
+                        status = DurableGoalStatus.valueOf(parts[4]),
+                        firstSeenAtEpochMs = parts[5].toLong(),
+                        updatedAtEpochMs = parts[6].toLong(),
+                        completedAtEpochMs = parts[7].takeUnless { it == "~" }?.toLong()
+                    )
+                }
+                else -> error("unsupported durable goal portfolio version")
             }
-            DurableGoalRecord(
-                sourceGoalId = dec(parts[1]),
-                objective = dec(parts[2]),
-                priority = parts[3].toDouble(),
-                status = DurableGoalStatus.valueOf(parts[4]),
-                firstSeenAtEpochMs = parts[5].toLong(),
-                updatedAtEpochMs = parts[6].toLong(),
-                completedAtEpochMs = parts[7].takeUnless { it == "~" }?.toLong()
-            )
         }
         require(records.map { it.sourceGoalId }.toSet().size == records.size) {
             "durable goal portfolio ids must be unique"
