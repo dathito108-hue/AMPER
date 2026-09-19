@@ -839,3 +839,23 @@ canonical NativeTrainingPipeline evaluation/admission/promotion path. Evaluation
 upgraded backward-compatibly, checkpoint comparison uses only metrics relevant to the model capability
 profile, and Reflex candidate/baseline comparison requires the same holdout payload. No evaluator can
 execute tools, grant authority or make a checkpoint live.
+
+
+### Implemented checkpoint — Phase446-450
+Phase446 adds a typed NativeReflexDecisionPort for an admitted AMPER-owned System-1 checkpoint. The
+runtime port receives only the same hashed lexical features used by Reflex training plus the current
+live capability set; it has no ToolFabric, approval or authority handle. Phase447 adds a canonical
+runtime activation gate that recomputes eligibility from immutable checkpoint lineage, AMPER-owned
+reflex-decision-only contract, held-out admission and the existing NativeTrainingPipeline promotion
+candidate, and requires the runtime weight SHA-256 to match the checkpoint exactly. Phase448 introduces
+CanonicalReflexActionArgumentBinder: the learned model may predict only ACTION-vs-ESCALATE and a
+capability; raw tool input is never accepted from model output. The existing deterministic Reflex
+parser must independently recognize the same request/capability and produce the contract-valid input,
+otherwise the turn escalates to System-2. Phase449 adds CanonicalReflexDecisionRuntimeController with
+atomic in-process activation/rollback. Missing model, runtime failure, unsupported capability,
+low-confidence/uncertain action or failed argument binding cannot execute a tool; runtime failure falls
+back to the deterministic bootstrap and unsafe learned output escalates. Phase450 wires the controller
+as AmperRuntime.reflexDecisionCortex while exposing reflexDecisionRuntime for explicit checkpoint
+activation. This is the first runtime bridge from an admitted learned System-1 checkpoint into the
+assistant fast path, without changing SovereignActionLoop, ToolDescriptor, AuthorityGate or explicit
+approval semantics.
