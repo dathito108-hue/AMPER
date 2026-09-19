@@ -173,18 +173,10 @@ class MemoryBackedDurableGoalPortfolio(
     ): DurableGoalRecord? {
         require(selectedAtEpochMs >= 0L)
         val records = loadMutable()
-        val candidates = records.values
-            .asSequence()
-            .filter {
-                it.status == DurableGoalStatus.PENDING &&
-                    it.sourceGoalId != excludedGoalId
-            }
-            .toList()
-        if (candidates.isEmpty()) return null
-
         val selected = DurableGoalArbitrationPolicy.select(
-            records = candidates,
-            nowEpochMs = selectedAtEpochMs
+            records = records.values,
+            nowEpochMs = selectedAtEpochMs,
+            excludedGoalId = excludedGoalId
         )?.goal ?: return null
 
         val updated = selected.copy(
