@@ -679,9 +679,9 @@ internal fun nativeSystem2Sha256(value: String): String =
 
 private fun normalizeSystem2Goal(value: String): String =
     value.trim()
-        .lowercase()
+        .lowercase(java.util.Locale.ROOT)
         .replace(Regex("\\s+"), " ")
-        .take(2048)
+        .take(1024)
 
 private fun six(value: Double): String =
     java.lang.String.format(java.util.Locale.ROOT, "%.6f", value)
