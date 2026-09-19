@@ -692,6 +692,23 @@ class MemoryBackedNativeTrainingPipeline(
         val run = requireNotNull(successfulRunFor(checkpointId)) {
             "checkpoint was not produced by a successful native training run"
         }
+        val checkpoint = requireNotNull(foundation.getCheckpoint(checkpointId)) {
+            "checkpoint lineage is unavailable"
+        }
+        val contract = requireNotNull(foundation.getContract(checkpoint.contractId)) {
+            "checkpoint model contract is unavailable"
+        }
+        if (TitanCapabilities.REFLEX_DECISION in contract.capabilities) {
+            require(
+                ReflexDecisionEvaluationProjectionBinding.matches(
+                    memory = memory,
+                    checkpointId = checkpointId,
+                    evaluation = evaluation
+                )
+            ) {
+                "reflex-decision checkpoint requires specialized holdout evaluation projection"
+            }
+        }
         val manifest = requireNotNull(getManifest(run.manifestId))
         val admission = foundation.admit(
             checkpointId = checkpointId,

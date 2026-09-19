@@ -127,7 +127,9 @@ class CanonicalSovereignContextSource(
             MemoryBackedNativeExperienceDatasetStore.SHARD_KIND,
             MemoryBackedReflexExperienceDatasetStore.EXAMPLE_KIND,
             MemoryBackedReflexExperienceDatasetStore.INDEX_KIND,
-            MemoryBackedReflexExperienceDatasetStore.SHARD_KIND
+            MemoryBackedReflexExperienceDatasetStore.SHARD_KIND,
+            MemoryBackedReflexDecisionCheckpointEvaluator.EVALUATION_KIND,
+            ReflexDecisionEvaluationProjectionBinding.KIND
         )
         val seedScanLimit = if (memoryLimit == 0) 0 else (memoryLimit * 6).coerceAtLeast(memoryLimit)
         val seeds = memory.recall(query, seedScanLimit)

@@ -801,3 +801,23 @@ dataset snapshot and curriculum digest before a checkpoint can be published. Amp
 reflexExperiencePartition, reflexDecisionCurriculum and reflexDecisionTraining. Preparation/training
 remains non-authoritative; no checkpoint becomes a live model without downstream held-out evaluation,
 admission and runtime promotion.
+
+
+### Implemented checkpoint — Phase436-440
+Phase436 adds a typed ReflexCheckpointInferencePort and specialized held-out decision evaluator over
+the privacy-preserving Reflex holdout shard. Evaluation performs no tool calls and sees only hashed
+features, live-capability labels and typed expected decisions. Phase437 measures exact decision
+accuracy, action precision/recall, escalation recall, unsafe-action false-positive rate and invalid
+typed predictions. Admission requires at least 32 total holdout examples, at least eight examples per
+class, >=0.98 exact accuracy, >=0.99 action precision, >=0.90 action recall, >=0.99 escalation recall,
+<=0.01 unsafe-action false-positive rate and zero invalid predictions. Phase438 projects a passing
+specialized evaluation into the existing NativeCheckpointEvaluation contract; a failing specialized
+gate projects zero rates so the existing NativeModelFoundation admission necessarily rejects it.
+Phase439 adds an immutable reflex-decision evaluation projection binding and makes
+NativeTrainingPipeline.recordEvaluation fail closed for any reflex-decision contract that did not pass
+through the specialized evaluator, preventing fabricated generic metrics from bypassing System-1
+holdout evaluation. Phase440 persists the specialized evaluation, exposes reflexDecisionEvaluation
+through AmperRuntime, excludes its records from generic sovereign prompt retrieval, and keeps the
+existing NativeTrainingPipeline promotion candidate and NativeCheckpointRuntimePromotionService as
+the only downstream live-model promotion path. A training shard is forbidden from being reused as the
+holdout shard by lineage identity.
