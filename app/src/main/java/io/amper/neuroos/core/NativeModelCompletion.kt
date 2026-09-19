@@ -287,6 +287,60 @@ class NativeMultimodalAdapterActivationService(
 }
 
 /**
+ * Fail-closed restart reconciliation for adapter-dependent runtime capabilities.
+ *
+ * This may only remove VISION/AUDIO from an AMPER-native descriptor when its durable projector
+ * pairing no longer supports that capability. It never adds a capability and therefore cannot
+ * substitute for adapter evidence/admission.
+ */
+class NativeRuntimeCapabilityReconciler(
+    private val catalog: InstalledModelCatalog,
+    private val registry: ModelRegistry,
+    private val projectors: MultimodalProjectorCatalog
+) {
+    @Synchronized
+    fun reconcile(): Int {
+        var changed = 0
+        catalog.list()
+            .filter { it.descriptor.id.value.startsWith("amper-native-") }
+            .forEach { current ->
+                val allowedAdapterCapabilities = projectors.get(current.descriptor.id)
+                    ?.expectedKinds
+                    ?.let(NativeRuntimeCapabilityAdmission::capabilitiesForKinds)
+                    .orEmpty()
+                val nextCapabilities = current.descriptor.capabilities.filterTo(linkedSetOf()) {
+                    it !in ADAPTER_CAPABILITIES || it in allowedAdapterCapabilities
+                }
+                require(nextCapabilities.isNotEmpty()) {
+                    "AMPER-native capability reconciliation cannot remove the entire runtime profile"
+                }
+                if (nextCapabilities == current.descriptor.capabilities) return@forEach
+
+                val updated = current.copy(
+                    descriptor = current.descriptor.copy(capabilities = nextCapabilities)
+                )
+                catalog.put(updated)
+                try {
+                    registry.register(updated.descriptor)
+                } catch (failure: Throwable) {
+                    runCatching { catalog.put(current) }.onFailure(failure::addSuppressed)
+                    runCatching { registry.register(current.descriptor) }.onFailure(failure::addSuppressed)
+                    throw failure
+                }
+                changed += 1
+            }
+        return changed
+    }
+
+    companion object {
+        private val ADAPTER_CAPABILITIES = setOf(
+            TitanCapabilities.VISION,
+            TitanCapabilities.AUDIO_UNDERSTANDING
+        )
+    }
+}
+
+/**
  * Phase229-230 soft preference for an installed AMPER-native model.
  *
  * This occupies only the low-priority turn-continuity lane. Explicit per-request or global user
