@@ -215,7 +215,8 @@ internal object SovereignPlanCodec {
     private const val VERSION_V3 = "AMPER_PLAN_STATE_V3"
     private const val VERSION_V4 = "AMPER_PLAN_STATE_V4"
     private const val VERSION_V5 = "AMPER_PLAN_STATE_V5"
-    private const val VERSION = "AMPER_PLAN_STATE_V6"
+    private const val VERSION_V6 = "AMPER_PLAN_STATE_V6"
+    private const val VERSION = "AMPER_PLAN_STATE_V7"
 
     fun encode(plan: SovereignPlan): String {
         val extendedPlanningState =
@@ -228,12 +229,17 @@ internal object SovereignPlanCodec {
         val continuityBinding =
             plan.planningCognitiveStateDigest != null ||
                 plan.planningExecutionContextDigest != null
+        val transferBinding = plan.goalTransferBinding != null
         require(
             (plan.planningCognitiveStateDigest == null) ==
                 (plan.planningExecutionContextDigest == null)
         ) { "persisted cognitive continuity binding requires both digests" }
+        require(!transferBinding || continuityBinding) {
+            "persisted goal transfer binding requires cognitive continuity state"
+        }
         val version = when {
-            continuityBinding -> VERSION
+            transferBinding -> VERSION
+            continuityBinding -> VERSION_V6
             extendedPlanningState -> VERSION_V5
             else -> VERSION_V4
         }
@@ -266,6 +272,20 @@ internal object SovereignPlanCodec {
             appendLine("COGNITIVE_STATE_DIGEST\t${requireNotNull(plan.planningCognitiveStateDigest)}")
             appendLine("EXECUTION_CONTEXT_DIGEST\t${requireNotNull(plan.planningExecutionContextDigest)}")
         }
+        plan.goalTransferBinding?.let { binding ->
+            appendLine(
+                "TRANSFER_CAPABILITIES\t" +
+                    binding.strategy.capabilities.joinToString(",") { enc(it.value) }
+            )
+            appendLine("TRANSFER_COGNITIVE_STATE_DIGEST\t${binding.cognitiveStateDigest}")
+            appendLine("TRANSFER_HISTORICAL_SUPPORT\t${binding.historicalSupport}")
+            appendLine("TRANSFER_CONTEXT_FIT\t${binding.contextFit}")
+            appendLine("TRANSFER_PROJECTED_SUPPORT\t${binding.projectedSupport}")
+            appendLine("TRANSFER_CALIBRATION_MULTIPLIER\t${binding.calibrationMultiplier}")
+            appendLine("TRANSFER_CALIBRATED_SUPPORT\t${binding.calibratedSupport}")
+            appendLine("TRANSFER_STALE\t${binding.staleHistoricalEvidence}")
+            appendLine("TRANSFER_BOUND_AT\t${binding.boundAtEpochMs}")
+        }
         plan.steps.forEach { step ->
             val outcome = step.outcome
             appendLine(
@@ -288,6 +308,7 @@ internal object SovereignPlanCodec {
         val version = lines.firstOrNull()
         require(
             version == VERSION ||
+                version == VERSION_V6 ||
                 version == VERSION_V5 ||
                 version == VERSION_V4 ||
                 version == VERSION_V3 ||
@@ -298,10 +319,15 @@ internal object SovereignPlanCodec {
         }
         val typedSideEffect = version != VERSION_V1
         val routeProvenance =
-            version == VERSION || version == VERSION_V5 || version == VERSION_V4 || version == VERSION_V3
-        val planBinding = version == VERSION || version == VERSION_V5 || version == VERSION_V4
-        val extendedPlanningState = version == VERSION || version == VERSION_V5
-        val continuityBinding = version == VERSION
+            version == VERSION || version == VERSION_V6 || version == VERSION_V5 ||
+                version == VERSION_V4 || version == VERSION_V3
+        val planBinding =
+            version == VERSION || version == VERSION_V6 || version == VERSION_V5 ||
+                version == VERSION_V4
+        val extendedPlanningState =
+            version == VERSION || version == VERSION_V6 || version == VERSION_V5
+        val continuityBinding = version == VERSION || version == VERSION_V6
+        val transferBinding = version == VERSION
         val scalars = linkedMapOf<String, String>()
         val stepLines = mutableListOf<List<String>>()
         lines.drop(1).forEach { line ->
@@ -340,6 +366,19 @@ internal object SovereignPlanCodec {
                     require(parts.size == 2) { "invalid persisted cognitive continuity scalar" }
                     require(scalars.put(parts[0], parts[1]) == null) { "duplicate persisted plan scalar" }
                 }
+                "TRANSFER_CAPABILITIES",
+                "TRANSFER_COGNITIVE_STATE_DIGEST",
+                "TRANSFER_HISTORICAL_SUPPORT",
+                "TRANSFER_CONTEXT_FIT",
+                "TRANSFER_PROJECTED_SUPPORT",
+                "TRANSFER_CALIBRATION_MULTIPLIER",
+                "TRANSFER_CALIBRATED_SUPPORT",
+                "TRANSFER_STALE",
+                "TRANSFER_BOUND_AT" -> {
+                    require(transferBinding) { "goal transfer binding is not valid for $version" }
+                    require(parts.size == 2) { "invalid persisted transfer binding scalar" }
+                    require(scalars.put(parts[0], parts[1]) == null) { "duplicate persisted plan scalar" }
+                }
                 else -> error("unknown persisted plan field")
             }
         }
@@ -357,6 +396,19 @@ internal object SovereignPlanCodec {
         }
         if (continuityBinding) {
             required += setOf("COGNITIVE_STATE_DIGEST", "EXECUTION_CONTEXT_DIGEST")
+        }
+        if (transferBinding) {
+            required += setOf(
+                "TRANSFER_CAPABILITIES",
+                "TRANSFER_COGNITIVE_STATE_DIGEST",
+                "TRANSFER_HISTORICAL_SUPPORT",
+                "TRANSFER_CONTEXT_FIT",
+                "TRANSFER_PROJECTED_SUPPORT",
+                "TRANSFER_CALIBRATION_MULTIPLIER",
+                "TRANSFER_CALIBRATED_SUPPORT",
+                "TRANSFER_STALE",
+                "TRANSFER_BOUND_AT"
+            )
         }
         require(scalars.keys.containsAll(required))
         require(stepLines.isNotEmpty()) { "persisted plan has no steps" }
@@ -465,6 +517,30 @@ internal object SovereignPlanCodec {
         } else {
             null
         }
+        val goalTransferBinding = if (transferBinding) {
+            GoalTransferPlanBinding(
+                strategy = StrategySignature(
+                    scalars.getValue("TRANSFER_CAPABILITIES")
+                        .split(',')
+                        .filter { it.isNotBlank() }
+                        .map { CapabilityId(dec(it)) }
+                ),
+                cognitiveStateDigest = scalars.getValue("TRANSFER_COGNITIVE_STATE_DIGEST"),
+                historicalSupport = scalars.getValue("TRANSFER_HISTORICAL_SUPPORT").toDouble(),
+                contextFit = scalars.getValue("TRANSFER_CONTEXT_FIT").toDouble(),
+                projectedSupport = scalars.getValue("TRANSFER_PROJECTED_SUPPORT").toDouble(),
+                calibrationMultiplier =
+                    scalars.getValue("TRANSFER_CALIBRATION_MULTIPLIER").toDouble(),
+                calibratedSupport = scalars.getValue("TRANSFER_CALIBRATED_SUPPORT").toDouble(),
+                staleHistoricalEvidence = scalars.getValue("TRANSFER_STALE").let {
+                    require(it == "true" || it == "false")
+                    it.toBoolean()
+                },
+                boundAtEpochMs = scalars.getValue("TRANSFER_BOUND_AT").toLong()
+            )
+        } else {
+            null
+        }
 
         SovereignPlan(
             id = PlanId(dec(scalars.getValue("ID"))),
@@ -482,7 +558,8 @@ internal object SovereignPlanCodec {
             counterfactualViability = counterfactualViability,
             counterfactualConfidence = counterfactualConfidence,
             planningCognitiveStateDigest = planningCognitiveStateDigest,
-            planningExecutionContextDigest = planningExecutionContextDigest
+            planningExecutionContextDigest = planningExecutionContextDigest,
+            goalTransferBinding = goalTransferBinding
         )
     }
 

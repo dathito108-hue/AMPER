@@ -19,6 +19,9 @@ data class GoalTransferCounterfactualAssessment(
     val contextFit: Double,
     val mismatchRisk: Double,
     val projectedSupport: Double,
+    val calibrationMultiplier: Double,
+    val calibratedSupport: Double,
+    val staleHistoricalEvidence: Boolean,
     val decision: GoalTransferValidationDecision
 ) {
     init {
@@ -32,8 +35,10 @@ data class GoalTransferCounterfactualAssessment(
             learningRisk,
             contextFit,
             mismatchRisk,
-            projectedSupport
+            projectedSupport,
+            calibratedSupport
         ).forEach { require(it in 0.0..1.0) }
+        require(calibrationMultiplier in 0.0..1.25)
         require(kotlin.math.abs((1.0 - contextFit) - mismatchRisk) < 1e-9)
     }
 
@@ -62,6 +67,7 @@ object GoalTransferCounterfactualValidator {
         candidates: Collection<GoalStrategyTransferCandidate>,
         state: IntegratedCognitiveStatePacket,
         descriptors: Collection<ToolDescriptor>,
+        calibration: GoalTransferCalibrationModel? = null,
         limit: Int = MAX_CANDIDATES
     ): List<GoalTransferCounterfactualAssessment> {
         require(limit in 0..MAX_CANDIDATES)
@@ -124,12 +130,21 @@ object GoalTransferCounterfactualValidator {
                 val projectedSupport = (
                     candidate.transferSupport * (0.50 + 0.50 * contextFit)
                     ).coerceIn(0.0, 1.0)
+                val calibrationAdjustment = GoalTransferCalibrationPolicy.adjust(
+                    candidate = candidate,
+                    snapshot = calibration?.snapshot(candidate.strategy),
+                    nowEpochMs = state.capturedAtEpochMs
+                )
+                val calibratedSupport = (
+                    projectedSupport * calibrationAdjustment.multiplier
+                    ).coerceIn(0.0, 1.0)
 
                 val decision = if (
                     coverage == 1.0 &&
                     learningRisk < HARD_LEARNING_RISK &&
+                    !calibrationAdjustment.suppressedByFailureStreak &&
                     contextFit >= MIN_CONTEXT_FIT &&
-                    projectedSupport >= MIN_PROJECTED_SUPPORT
+                    calibratedSupport >= MIN_PROJECTED_SUPPORT
                 ) {
                     GoalTransferValidationDecision.ACCEPT
                 } else {
@@ -148,14 +163,18 @@ object GoalTransferCounterfactualValidator {
                     contextFit = contextFit,
                     mismatchRisk = mismatchRisk,
                     projectedSupport = projectedSupport,
+                    calibrationMultiplier = calibrationAdjustment.multiplier,
+                    calibratedSupport = calibratedSupport,
+                    staleHistoricalEvidence = calibrationAdjustment.staleHistoricalEvidence,
                     decision = decision
                 )
             }
             .filter { it.decision == GoalTransferValidationDecision.ACCEPT }
             .sortedWith(
                 compareByDescending<GoalTransferCounterfactualAssessment> {
-                    it.projectedSupport
+                    it.calibratedSupport
                 }
+                    .thenByDescending { it.projectedSupport }
                     .thenByDescending { it.contextFit }
                     .thenByDescending { it.candidate.transferSupport }
                     .thenBy { it.candidate.strategy.canonical }
@@ -196,6 +215,9 @@ object GoalTransferCounterfactualValidator {
                         " context_fit=" + fmt(assessment.contextFit) +
                         " mismatch_risk=" + fmt(assessment.mismatchRisk) +
                         " projected_support=" + fmt(assessment.projectedSupport) +
+                        " calibration_multiplier=" + fmt(assessment.calibrationMultiplier) +
+                        " calibrated_support=" + fmt(assessment.calibratedSupport) +
+                        " stale_history=" + assessment.staleHistoricalEvidence +
                         " authority=false"
                 )
             }

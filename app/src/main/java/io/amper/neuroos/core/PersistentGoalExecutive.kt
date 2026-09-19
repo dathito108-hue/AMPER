@@ -220,6 +220,7 @@ class PersistentGoalExecutiveCoordinator(
     private val decomposer: GoalDecomposer? = null,
     private val adaptiveReplanner: GoalAdaptiveReplanner? = null,
     private val outcomeLearning: GoalOutcomeLearningModel? = null,
+    private val transferCalibration: GoalTransferCalibrationModel? = null,
     private val clock: () -> Long = System::currentTimeMillis
 ) {
     @Synchronized
@@ -500,6 +501,12 @@ class PersistentGoalExecutiveCoordinator(
             )
         }
         val saved = store.save(next)
+        runCatching {
+            transferCalibration?.observeTerminalPlan(
+                plan = terminalPlan,
+                observedAtEpochMs = now
+            )
+        }
         if (saved.stage == PersistentGoalExecutiveStage.COMPLETED) {
             markPortfolioCompleted(saved, now)
         } else {
@@ -549,24 +556,33 @@ class PersistentGoalExecutiveCoordinator(
         verificationConfidence: Double?,
         observedAtEpochMs: Long
     ) {
-        val learner = outcomeLearning ?: return
-        val records = portfolio?.snapshot().orEmpty()
-        val durable = records.singleOrNull { it.sourceGoalId == checkpoint.sourceGoalId }
-        val hierarchy = durable?.let {
-            hierarchyRootId(records, it.sourceGoalId)?.let { rootId ->
-                runCatching {
-                    DurableGoalHierarchyProgressPolicy.snapshot(records, rootId)
-                }.getOrNull()
+        val learner = outcomeLearning
+        if (learner != null) {
+            val records = portfolio?.snapshot().orEmpty()
+            val durable = records.singleOrNull { it.sourceGoalId == checkpoint.sourceGoalId }
+            val hierarchy = durable?.let {
+                hierarchyRootId(records, it.sourceGoalId)?.let { rootId ->
+                    runCatching {
+                        DurableGoalHierarchyProgressPolicy.snapshot(records, rootId)
+                    }.getOrNull()
+                }
+            }
+            runCatching {
+                learner.observe(
+                    checkpoint = checkpoint,
+                    terminalPlan = terminalPlan,
+                    outcome = outcome,
+                    hierarchy = hierarchy,
+                    hierarchyDepth = durable?.decompositionDepth ?: 0,
+                    verificationConfidence = verificationConfidence,
+                    observedAtEpochMs = observedAtEpochMs
+                )
             }
         }
         runCatching {
-            learner.observe(
-                checkpoint = checkpoint,
-                terminalPlan = terminalPlan,
+            transferCalibration?.observe(
+                plan = terminalPlan,
                 outcome = outcome,
-                hierarchy = hierarchy,
-                hierarchyDepth = durable?.decompositionDepth ?: 0,
-                verificationConfidence = verificationConfidence,
                 observedAtEpochMs = observedAtEpochMs
             )
         }
