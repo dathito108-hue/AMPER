@@ -59,6 +59,8 @@ import io.amper.neuroos.core.AndroidActivePerceptionPort
 import io.amper.neuroos.core.AndroidMultimodalProjectorImportService
 import io.amper.neuroos.core.AndroidPerceptionCapture
 import io.amper.neuroos.core.AndroidResourceGovernor
+import io.amper.neuroos.core.AndroidReflexLearningJobScheduler
+import io.amper.neuroos.core.AndroidReflexMaintenanceProcessRegistry
 import io.amper.neuroos.core.AndroidScreenVisionSession
 import io.amper.neuroos.core.AndroidVoiceConversationSession
 import io.amper.neuroos.core.AuditedToolFabric
@@ -104,6 +106,7 @@ import io.amper.neuroos.core.ProcessResidentAutonomyLoop
 import io.amper.neuroos.core.ProcessResidentReflexMaintenanceLoop
 import io.amper.neuroos.core.RuntimeSovereignStatusSource
 import io.amper.neuroos.core.ReflexBackgroundMaintenanceCoordinator
+import io.amper.neuroos.core.ReflexMaintenanceExecutionGate
 import io.amper.neuroos.core.ReflexNativeModelLifecycle
 import io.amper.neuroos.core.SovereignAssistantToolExposure
 import io.amper.neuroos.core.SovereignAssistantTurnCoordinator
@@ -132,20 +135,26 @@ class MainActivity : ComponentActivity() {
             val governor = remember { AndroidResourceGovernor(applicationContext) }
             val deviceStatusSource = remember { AndroidDeviceStatusSource(applicationContext) }
             val runtime = remember {
-                AmperRuntime.persistentEncrypted(
-                    filesDir,
-                    modelRegistry,
-                    governor,
-                    deviceStatusSource = deviceStatusSource
-                )
+                ReflexMaintenanceExecutionGate.exclusive {
+                    AmperRuntime.persistentEncrypted(
+                        filesDir,
+                        modelRegistry,
+                        governor,
+                        deviceStatusSource = deviceStatusSource
+                    )
+                }
             }
             val reflexArtifactStore = remember {
                 FileReflexLinearArtifactStore(File(sovereignDir, "native-reflex"))
             }
+            val reflexJobScheduler = remember {
+                AndroidReflexLearningJobScheduler(applicationContext)
+            }
             val reflexLifecycle = remember {
                 ReflexNativeModelLifecycle(
                     runtime = runtime,
-                    artifacts = reflexArtifactStore
+                    artifacts = reflexArtifactStore,
+                    maintenanceScheduler = reflexJobScheduler
                 )
             }
             val reflexMaintenanceCoordinator = remember {
@@ -435,11 +444,20 @@ class MainActivity : ComponentActivity() {
             val initialProfileModel = remember { catalog.list().firstOrNull() }
             val executor = remember { Executors.newSingleThreadExecutor() }
             DisposableEffect(Unit) {
+                AndroidReflexMaintenanceProcessRegistry.register(
+                    reflexMaintenanceCoordinator
+                )
+                reflexJobScheduler.reconcile(
+                    runtime.reflexLearningMaintenanceQueue.pending()
+                )
                 executor.execute {
                     runCatching { reflexLifecycle.maintain() }
                 }
                 reflexMaintenanceLoop.start()
                 onDispose {
+                    AndroidReflexMaintenanceProcessRegistry.unregister(
+                        reflexMaintenanceCoordinator
+                    )
                     reflexMaintenanceLoop.close()
                     runCatching { executor.execute { titan.unloadAll() } }
                     executor.shutdown()
