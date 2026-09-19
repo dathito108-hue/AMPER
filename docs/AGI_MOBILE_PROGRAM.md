@@ -1128,3 +1128,32 @@ admission, common-holdout champion comparison, historical anti-forgetting stabil
 the verified runtime replacement gate before becoming live. The former champion remains rollback
 standby. Hard-example priority is training evidence only and never changes ToolDescriptor binding,
 AuthorityGate, explicit approval, durable receipts or execution authority.
+
+
+### Completion checkpoint — Phase506-510
+Phase506 adds a deterministic adaptive curriculum over the active Reflex champion. AMPER scores the
+champion on bounded historical TRAINING evidence only and derives per-action-capability weakness,
+escalation weakness and uncertainty. These signals are scheduling inputs, not validation results;
+held-out admission and anti-forgetting evaluation remain independent.
+
+Phase507 feeds that curriculum back into active hard-example mining. Weak learned capabilities receive
+higher selection priority without altering their governed labels, while novel capabilities retain the
+existing explicit coverage floor. Selection remains deterministic, privacy-preserving and bounded.
+
+Phase508 adapts continual-learning rate inside a conservative 0.018-0.040 band from measured
+curriculum difficulty. The exact curriculum digest, selected fresh-example ids and replay ids are
+bound into the V4 continual checkpoint identity, preventing a restart or later algorithm change from
+silently reusing a checkpoint trained under a different learning program.
+
+Phase509 introduces lossless sparse ARL2 artifact encoding. Reflex still uses the same FP32 linear
+parameters at inference, but only non-zero weight cells are written to storage. Existing dense ARL1
+artifacts remain readable and keep the historical .arl1 file suffix, so installed champions can be
+recovered after upgrade without migration or retraining. No quantization error is introduced.
+
+Phase510 closes the mobile knowledge-compression loop: active learning reduces fresh examples,
+Phase496 replay compresses historical rehearsal to a fixed bound, adaptive curriculum spends that
+budget on weak skills, and sparse artifacts reduce checkpoint bytes without changing predictions.
+Every challenger still passes fresh held-out admission, common-holdout comparison, historical
+stability comparison and verified runtime replacement before activation. ToolDescriptor binding,
+deterministic argument reconstruction, SovereignActionLoop, AuthorityGate, explicit approval and
+durable execution receipts are unchanged.
