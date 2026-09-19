@@ -184,6 +184,7 @@ class PersistentGoalExecutiveCoordinator(
     private val executive: AutonomousCognitiveExecutive,
     private val store: PersistentGoalExecutiveStore,
     private val plans: SovereignPlanStore,
+    private val portfolio: DurableGoalPortfolio? = null,
     private val clock: () -> Long = System::currentTimeMillis
 ) {
     @Synchronized
@@ -368,7 +369,11 @@ class PersistentGoalExecutiveCoordinator(
                 }
             }
         }
-        store.save(next)
+        val saved = store.save(next)
+        if (saved.stage == PersistentGoalExecutiveStage.COMPLETED) {
+            markPortfolioCompleted(saved, now)
+        }
+        saved
     }
 
     @Synchronized
@@ -437,7 +442,11 @@ class PersistentGoalExecutiveCoordinator(
                 updatedAtEpochMs = now
             )
         }
-        store.save(next)
+        val saved = store.save(next)
+        if (saved.stage == PersistentGoalExecutiveStage.COMPLETED) {
+            markPortfolioCompleted(saved, now)
+        }
+        saved
     }
 
     @Synchronized
@@ -452,6 +461,27 @@ class PersistentGoalExecutiveCoordinator(
     }
 
     fun current(): PersistentGoalExecutiveCheckpoint? = store.load()
+
+    private fun markPortfolioCompleted(
+        checkpoint: PersistentGoalExecutiveCheckpoint,
+        completedAtEpochMs: Long
+    ) {
+        val goalPortfolio = portfolio ?: return
+        goalPortfolio.observe(
+            candidates = listOf(
+                DurableGoalCandidate(
+                    sourceGoalId = checkpoint.sourceGoalId,
+                    objective = checkpoint.objective,
+                    priority = checkpoint.priority
+                )
+            ),
+            observedAtEpochMs = completedAtEpochMs
+        )
+        goalPortfolio.markCompleted(
+            sourceGoalId = checkpoint.sourceGoalId,
+            completedAtEpochMs = completedAtEpochMs
+        )
+    }
 
     private fun terminalFailureCode(statuses: List<PlanStepStatus>): String {
         val material = statuses
@@ -474,22 +504,54 @@ class PersistentGoalExecutiveCoordinator(
             worldLimit = 0,
             workspaceLimit = 0
         )
-        val goal = snapshot.goals
-            .asSequence()
-            .filterNot { it.id.value == excludedGoalId }
-            .sortedWith(
-                compareByDescending<GoalState> { it.priority }
-                    .thenBy { it.id.value }
-            )
-            .firstOrNull()
-            ?: return null
         val now = clock().coerceAtLeast(0L)
+        val durable = portfolio?.let { goalPortfolio ->
+            goalPortfolio.observe(
+                candidates = snapshot.goals.map { goal ->
+                    DurableGoalCandidate(
+                        sourceGoalId = goal.id.value.take(DurableGoalRecord.MAX_GOAL_ID_CHARS),
+                        objective = goal.objective.take(DurableGoalRecord.MAX_OBJECTIVE_CHARS),
+                        priority = goal.priority
+                    )
+                },
+                observedAtEpochMs = now
+            )
+            goalPortfolio.pending()
+                .firstOrNull { it.sourceGoalId != excludedGoalId }
+        }
+
+        val sourceGoalId: String
+        val objective: String
+        val priority: Double
+        if (durable != null) {
+            sourceGoalId = durable.sourceGoalId
+            objective = durable.objective
+            priority = durable.priority
+        } else if (portfolio != null) {
+            return null
+        } else {
+            val goal = snapshot.goals
+                .asSequence()
+                .filterNot { it.id.value == excludedGoalId }
+                .sortedWith(
+                    compareByDescending<GoalState> { it.priority }
+                        .thenBy { it.id.value }
+                )
+                .firstOrNull()
+                ?: return null
+            sourceGoalId =
+                goal.id.value.take(PersistentGoalExecutiveCheckpoint.MAX_GOAL_ID_CHARS)
+            objective =
+                goal.objective.take(PersistentGoalExecutiveCheckpoint.MAX_OBJECTIVE_CHARS)
+            priority = goal.priority
+        }
+
         return store.save(
             PersistentGoalExecutiveCheckpoint(
-                sourceGoalId = goal.id.value.take(PersistentGoalExecutiveCheckpoint.MAX_GOAL_ID_CHARS),
-                objective = goal.objective.take(PersistentGoalExecutiveCheckpoint.MAX_OBJECTIVE_CHARS),
+                sourceGoalId = sourceGoalId,
+                objective = objective,
                 conversationId = conversationId,
-                priority = goal.priority,
+                priority = priority,
                 stage = PersistentGoalExecutiveStage.QUEUED,
                 updatedAtEpochMs = now
             )
