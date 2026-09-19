@@ -477,6 +477,25 @@ advisory: old inputs, outputs, approvals, request IDs and tool bindings cannot b
 new plan remains subject to current descriptor binding, AuthorityGate, confirmation, continuity and
 goal-satisfaction verification.
 
+### Implemented checkpoint — Phase341-345
+Phase341 adds a deterministic counterfactual validator in front of Phase336-340 goal-outcome
+strategy transfer. Every historical candidate is rebound to the exact current integrated cognitive
+state digest and the currently selected live ToolDescriptor capability surface before it can reach
+the planner. Phase342 derives current-context fit from world confidence, epistemic confidence,
+execution-attributable capability competence, planning-eligible perceptual grounding and overall
+readiness; current learning needs reduce fit and a severe need on any required capability hard-blocks
+transfer. Phase343 rejects strategies whose live capability coverage is incomplete or whose
+context/projected support falls below bounded thresholds instead of assuming historical similarity
+implies present applicability. Phase344 reranks surviving candidates by projected support under the
+current context. Historical authority-block counts remain diagnostic only and are deliberately absent
+from the viability formula, preventing transfer learning from preferring routes around permission or
+confirmation boundaries. Phase345 replaces direct historical transfer rendering with at most three
+counterfactually validated structural candidates after live contracts, cognition, skills,
+generalization and existing strategy evidence. Validation performs zero inference and zero tool
+execution, transfers no old input/output/request/approval/tool-binding data, and every resulting plan
+still passes canonical live binding, AuthorityGate, continuity, confirmation and terminal
+goal-satisfaction verification.
+
 ## CI budget policy
 
 GitHub Actions is a scarce verification resource.
