@@ -413,6 +413,12 @@ class PersistentGoalExecutiveCoordinator(
             }
         }
         val saved = store.save(next)
+        runCatching {
+            transferCalibration?.observeTerminalPlan(
+                plan = terminalPlan,
+                observedAtEpochMs = now
+            )
+        }
         if (saved.stage == PersistentGoalExecutiveStage.COMPLETED) {
             markPortfolioCompleted(saved, now)
             observeGoalOutcome(
