@@ -265,7 +265,8 @@ object AgiMobileCognitiveQualificationProbes {
                     match != null &&
                         match.novelContext &&
                         match.transferConfidence > 0.0 &&
-                        !match.authorityBearing
+                        !match.profile.authorityBearing &&
+                        !match.skill.authorityBearing
                 }
                 val blockedWithoutDescriptor = generalization.guidance(
                     goal = "novel missing descriptor context",
