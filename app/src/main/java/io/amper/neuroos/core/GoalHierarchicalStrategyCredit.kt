@@ -397,8 +397,11 @@ class MemoryBackedGoalHierarchicalStrategyCreditModel(
         val current = byId[checkpoint.sourceGoalId]
         var root = current
         val visited = linkedSetOf<String>()
-        while (root?.parentGoalId != null && visited.add(root.sourceGoalId)) {
-            root = byId[root.parentGoalId] ?: break
+        while (true) {
+            val node = root ?: break
+            val parentId = node.parentGoalId ?: break
+            if (!visited.add(node.sourceGoalId)) break
+            root = byId[parentId] ?: break
         }
         val goalFingerprint = GoalOutcomeFingerprint.of(checkpoint.objective)
         val rootFingerprint = GoalOutcomeFingerprint.of(
@@ -457,7 +460,9 @@ class MemoryBackedGoalHierarchicalStrategyCreditModel(
         candidateCapabilities: List<CapabilityId>
     ): Boolean = when (stats.componentKind) {
         GoalStrategyCreditComponentKind.STEP ->
-            stats.strategy.capabilities.singleOrNull() in candidateCapabilities
+            stats.strategy.capabilities.singleOrNull()?.let {
+                it in candidateCapabilities
+            } == true
         GoalStrategyCreditComponentKind.PREFIX ->
             candidateCapabilities.size >= stats.strategy.capabilities.size &&
                 candidateCapabilities.take(stats.strategy.capabilities.size) ==
