@@ -363,6 +363,17 @@ class SovereignPlanCoordinator(
         )
     }
 
+    fun goalDecomposer(
+        decompositionInference: CognitiveInferencePort = criticInference ?: inference
+    ): GoalDecomposer = InferenceGoalDecomposer(
+        inference = decompositionInference,
+        stateSource = runtime.integratedCognition,
+        allowedCapabilities = advertisedCapabilities,
+        descriptors = ::routedDescriptors,
+        maxPromptChars = minOf(maxPromptChars, 5_000),
+        maxOutputTokens = minOf(maxOutputTokens, 220)
+    )
+
     fun goalSatisfactionVerifier(
         verifierInference: CognitiveInferencePort = criticInference ?: inference
     ): GoalSatisfactionVerifier = InferenceGoalSatisfactionVerifier(
@@ -396,7 +407,8 @@ class SovereignPlanCoordinator(
         executive = autonomousExecutive(evolution, observation),
         store = runtime.persistentGoalExecutiveStore,
         plans = runtime.plans,
-        portfolio = runtime.goalPortfolio
+        portfolio = runtime.goalPortfolio,
+        decomposer = goalDecomposer()
     )
 
     fun create(

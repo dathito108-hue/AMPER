@@ -1,6 +1,7 @@
 package io.amper.neuroos.core
 
 import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import java.util.Base64
 
 data class DurableGoalCandidate(
@@ -20,6 +21,44 @@ enum class DurableGoalStatus {
     COMPLETED
 }
 
+enum class DurableGoalDecompositionState {
+    NONE,
+    ATOMIC,
+    DECOMPOSED
+}
+
+data class DurableGoalDecompositionSpec(
+    val index: Int,
+    val objective: String,
+    val priority: Double,
+    val dependsOnIndices: Set<Int> = emptySet()
+) {
+    init {
+        require(index in 1..DurableGoalRecord.MAX_DECOMPOSITION_CHILDREN)
+        require(objective.isNotBlank() && objective.length <= DurableGoalRecord.MAX_OBJECTIVE_CHARS)
+        require(priority in 0.0..1.0)
+        require(dependsOnIndices.size <= DurableGoalRecord.MAX_DECOMPOSITION_CHILDREN)
+        require(dependsOnIndices.all { it in 1 until index }) {
+            "decomposition dependencies may only reference earlier subgoals"
+        }
+    }
+}
+
+data class DurableGoalDecompositionApplication(
+    val parent: DurableGoalRecord,
+    val children: List<DurableGoalRecord>
+) {
+    init {
+        require(parent.decompositionState == DurableGoalDecompositionState.DECOMPOSED)
+        require(children.size in 2..DurableGoalRecord.MAX_DECOMPOSITION_CHILDREN)
+        require(children.all { it.decompositionDepth == parent.decompositionDepth + 1 })
+        require(parent.dependsOnGoalIds.containsAll(children.map { it.sourceGoalId }))
+    }
+
+    val authorityBearing: Boolean
+        get() = false
+}
+
 data class DurableGoalRecord(
     val sourceGoalId: String,
     val objective: String,
@@ -31,7 +70,9 @@ data class DurableGoalRecord(
     val selectionCount: Int = 0,
     val lastSelectedAtEpochMs: Long? = null,
     val dependsOnGoalIds: Set<String> = emptySet(),
-    val deadlineEpochMs: Long? = null
+    val deadlineEpochMs: Long? = null,
+    val decompositionState: DurableGoalDecompositionState = DurableGoalDecompositionState.NONE,
+    val decompositionDepth: Int = 0
 ) {
     init {
         require(sourceGoalId.isNotBlank() && sourceGoalId.length <= MAX_GOAL_ID_CHARS)
@@ -54,6 +95,9 @@ data class DurableGoalRecord(
             require(dependency != sourceGoalId) { "durable goal cannot depend on itself" }
         }
         deadlineEpochMs?.let { require(it >= 0L) }
+        require(decompositionDepth in 0..MAX_DECOMPOSITION_DEPTH) {
+            "durable goal decomposition depth exceeds bound"
+        }
         require((status == DurableGoalStatus.COMPLETED) == (completedAtEpochMs != null)) {
             "completed durable goal requires completion timestamp"
         }
@@ -66,6 +110,8 @@ data class DurableGoalRecord(
         const val MAX_GOAL_ID_CHARS = 256
         const val MAX_OBJECTIVE_CHARS = 1_024
         const val MAX_DEPENDENCIES = 8
+        const val MAX_DECOMPOSITION_CHILDREN = 4
+        const val MAX_DECOMPOSITION_DEPTH = 2
     }
 }
 
@@ -98,6 +144,17 @@ interface DurableGoalPortfolio {
         deadlineEpochMs: Long?,
         updatedAtEpochMs: Long = System.currentTimeMillis()
     ): DurableGoalRecord?
+
+    fun markAtomic(
+        sourceGoalId: String,
+        updatedAtEpochMs: Long = System.currentTimeMillis()
+    ): DurableGoalRecord?
+
+    fun applyDecomposition(
+        sourceGoalId: String,
+        specs: List<DurableGoalDecompositionSpec>,
+        updatedAtEpochMs: Long = System.currentTimeMillis()
+    ): DurableGoalDecompositionApplication?
 
     fun get(sourceGoalId: String): DurableGoalRecord?
 
@@ -273,6 +330,124 @@ class MemoryBackedDurableGoalPortfolio(
     }
 
     @Synchronized
+    override fun markAtomic(
+        sourceGoalId: String,
+        updatedAtEpochMs: Long
+    ): DurableGoalRecord? {
+        require(sourceGoalId.isNotBlank())
+        require(updatedAtEpochMs >= 0L)
+        val records = loadMutable()
+        val existing = records[sourceGoalId] ?: return null
+        require(existing.status == DurableGoalStatus.PENDING) {
+            "completed durable goal decomposition metadata is immutable"
+        }
+        val atomic = when (existing.decompositionState) {
+            DurableGoalDecompositionState.NONE -> existing.copy(
+                decompositionState = DurableGoalDecompositionState.ATOMIC,
+                updatedAtEpochMs = maxOf(existing.updatedAtEpochMs, updatedAtEpochMs)
+            )
+            DurableGoalDecompositionState.ATOMIC -> existing
+            DurableGoalDecompositionState.DECOMPOSED ->
+                error("decomposed durable goal cannot be reclassified atomic")
+        }
+        records[sourceGoalId] = atomic
+        val bounded = bounded(records.values)
+        persist(bounded)
+        return bounded.singleOrNull { it.sourceGoalId == sourceGoalId }
+    }
+
+    @Synchronized
+    override fun applyDecomposition(
+        sourceGoalId: String,
+        specs: List<DurableGoalDecompositionSpec>,
+        updatedAtEpochMs: Long
+    ): DurableGoalDecompositionApplication? {
+        require(sourceGoalId.isNotBlank())
+        require(updatedAtEpochMs >= 0L)
+        require(specs.size in 2..DurableGoalRecord.MAX_DECOMPOSITION_CHILDREN)
+        require(specs.map { it.index } == (1..specs.size).toList()) {
+            "decomposition subgoal indices must be contiguous from 1"
+        }
+
+        val records = loadMutable()
+        val parent = records[sourceGoalId] ?: return null
+        require(parent.status == DurableGoalStatus.PENDING) {
+            "completed durable goal cannot be decomposed"
+        }
+        require(parent.decompositionState == DurableGoalDecompositionState.NONE) {
+            "durable goal decomposition may be applied only once"
+        }
+        require(parent.decompositionDepth < DurableGoalRecord.MAX_DECOMPOSITION_DEPTH) {
+            "durable goal reached maximum decomposition depth"
+        }
+        val pendingCount = records.values.count { it.status == DurableGoalStatus.PENDING }
+        require(pendingCount + specs.size <= MAX_PENDING) {
+            "durable goal decomposition would exceed pending portfolio capacity"
+        }
+
+        val childDepth = parent.decompositionDepth + 1
+        val idsByIndex = specs.associate { spec ->
+            spec.index to childGoalId(
+                parentGoalId = parent.sourceGoalId,
+                depth = childDepth,
+                index = spec.index,
+                objective = spec.objective
+            )
+        }
+        require(idsByIndex.values.toSet().size == specs.size) {
+            "durable goal decomposition produced duplicate child ids"
+        }
+        require(idsByIndex.values.none(records::containsKey)) {
+            "durable goal decomposition child id already exists"
+        }
+
+        val children = specs.map { spec ->
+            DurableGoalRecord(
+                sourceGoalId = idsByIndex.getValue(spec.index),
+                objective = spec.objective,
+                priority = minOf(parent.priority, spec.priority),
+                status = DurableGoalStatus.PENDING,
+                firstSeenAtEpochMs = updatedAtEpochMs,
+                updatedAtEpochMs = updatedAtEpochMs,
+                dependsOnGoalIds = spec.dependsOnIndices
+                    .map(idsByIndex::getValue)
+                    .toSortedSet(),
+                deadlineEpochMs = parent.deadlineEpochMs,
+                decompositionState = DurableGoalDecompositionState.NONE,
+                decompositionDepth = childDepth
+            )
+        }
+        val parentDependencies = (parent.dependsOnGoalIds + children.map { it.sourceGoalId })
+            .toSortedSet()
+        require(parentDependencies.size <= DurableGoalRecord.MAX_DEPENDENCIES) {
+            "durable goal decomposition would exceed parent dependency bound"
+        }
+
+        children.forEach { records[it.sourceGoalId] = it }
+        val decomposedParent = parent.copy(
+            dependsOnGoalIds = parentDependencies,
+            decompositionState = DurableGoalDecompositionState.DECOMPOSED,
+            updatedAtEpochMs = maxOf(parent.updatedAtEpochMs, updatedAtEpochMs)
+        )
+        records[sourceGoalId] = decomposedParent
+        require(!hasDependencyCycle(records.values)) {
+            "durable goal decomposition must preserve an acyclic dependency graph"
+        }
+
+        val bounded = bounded(records.values)
+        require(children.all { child -> bounded.any { it.sourceGoalId == child.sourceGoalId } }) {
+            "bounded portfolio unexpectedly pruned decomposition children"
+        }
+        persist(bounded)
+        return DurableGoalDecompositionApplication(
+            parent = requireNotNull(bounded.singleOrNull { it.sourceGoalId == sourceGoalId }),
+            children = children.map { child ->
+                requireNotNull(bounded.singleOrNull { it.sourceGoalId == child.sourceGoalId })
+            }
+        )
+    }
+
+    @Synchronized
     override fun get(sourceGoalId: String): DurableGoalRecord? =
         snapshot().singleOrNull { it.sourceGoalId == sourceGoalId }
 
@@ -308,6 +483,22 @@ class MemoryBackedDurableGoalPortfolio(
         }
 
         return byId.keys.any(::visit)
+    }
+
+    private fun childGoalId(
+        parentGoalId: String,
+        depth: Int,
+        index: Int,
+        objective: String
+    ): String {
+        val material = "$parentGoalId\n$depth\n$index\n$objective"
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(material.toByteArray(StandardCharsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+            .take(24)
+        val suffix = "::subgoal:$depth:$index:$digest"
+        val prefixBudget = DurableGoalRecord.MAX_GOAL_ID_CHARS - suffix.length
+        return parentGoalId.take(prefixBudget.coerceAtLeast(1)) + suffix
     }
 
     private fun bounded(records: Collection<DurableGoalRecord>): List<DurableGoalRecord> {
@@ -362,7 +553,8 @@ class MemoryBackedDurableGoalPortfolio(
 internal object DurableGoalPortfolioCodec {
     private const val VERSION_V1 = "AMPER_DURABLE_GOAL_PORTFOLIO_V1"
     private const val VERSION_V2 = "AMPER_DURABLE_GOAL_PORTFOLIO_V2"
-    private const val VERSION = "AMPER_DURABLE_GOAL_PORTFOLIO_V3"
+    private const val VERSION_V3 = "AMPER_DURABLE_GOAL_PORTFOLIO_V3"
+    private const val VERSION = "AMPER_DURABLE_GOAL_PORTFOLIO_V4"
 
     fun encode(records: List<DurableGoalRecord>): String = buildString {
         appendLine(VERSION)
@@ -384,7 +576,9 @@ internal object DurableGoalPortfolioCodec {
                     enc(record.dependsOnGoalIds.sorted().joinToString("\n"))
                 }
             ).append('\t')
-            append(record.deadlineEpochMs?.toString() ?: "~")
+            append(record.deadlineEpochMs?.toString() ?: "~").append('\t')
+            append(record.decompositionState.name).append('\t')
+            append(record.decompositionDepth)
             appendLine()
         }
     }.trimEnd()
@@ -392,7 +586,12 @@ internal object DurableGoalPortfolioCodec {
     fun decode(content: String): Result<List<DurableGoalRecord>> = runCatching {
         val lines = content.lineSequence().filter { it.isNotBlank() }.toList()
         val version = lines.firstOrNull()
-        require(version == VERSION || version == VERSION_V2 || version == VERSION_V1) {
+        require(
+            version == VERSION ||
+                version == VERSION_V3 ||
+                version == VERSION_V2 ||
+                version == VERSION_V1
+        ) {
             "unsupported durable goal portfolio state"
         }
         val records = lines.drop(1).map { line ->
@@ -400,6 +599,30 @@ internal object DurableGoalPortfolioCodec {
             require(parts[0] == "GOAL") { "invalid durable goal portfolio record" }
             when (version) {
                 VERSION -> {
+                    require(parts.size == 14) { "invalid V4 durable goal portfolio record" }
+                    DurableGoalRecord(
+                        sourceGoalId = dec(parts[1]),
+                        objective = dec(parts[2]),
+                        priority = parts[3].toDouble(),
+                        status = DurableGoalStatus.valueOf(parts[4]),
+                        firstSeenAtEpochMs = parts[5].toLong(),
+                        updatedAtEpochMs = parts[6].toLong(),
+                        completedAtEpochMs = parts[7].takeUnless { it == "~" }?.toLong(),
+                        selectionCount = parts[8].toInt(),
+                        lastSelectedAtEpochMs = parts[9].takeUnless { it == "~" }?.toLong(),
+                        dependsOnGoalIds = parts[10]
+                            .takeUnless { it == "~" }
+                            ?.let(::dec)
+                            ?.lineSequence()
+                            ?.filter { it.isNotBlank() }
+                            ?.toSet()
+                            .orEmpty(),
+                        deadlineEpochMs = parts[11].takeUnless { it == "~" }?.toLong(),
+                        decompositionState = DurableGoalDecompositionState.valueOf(parts[12]),
+                        decompositionDepth = parts[13].toInt()
+                    )
+                }
+                VERSION_V3 -> {
                     require(parts.size == 12) { "invalid V3 durable goal portfolio record" }
                     DurableGoalRecord(
                         sourceGoalId = dec(parts[1]),
