@@ -59,7 +59,9 @@ data class SovereignPlan(
     val deliberationCandidateCount: Int = 1,
     val deliberationScore: Double? = null,
     val counterfactualViability: Double? = null,
-    val counterfactualConfidence: Double? = null
+    val counterfactualConfidence: Double? = null,
+    val planningCognitiveStateDigest: String? = null,
+    val planningExecutionContextDigest: String? = null
 ) {
     init {
         require(goal.isNotBlank())
@@ -75,6 +77,15 @@ data class SovereignPlan(
         require(deliberationScore == null || deliberationScore in 0.0..1.0)
         require(counterfactualViability == null || counterfactualViability in 0.0..1.0)
         require(counterfactualConfidence == null || counterfactualConfidence in 0.0..1.0)
+        require((planningCognitiveStateDigest == null) == (planningExecutionContextDigest == null)) {
+            "cognitive continuity binding requires both cognitive and execution-context digests"
+        }
+        planningCognitiveStateDigest?.let {
+            require(it.matches(Regex("[0-9a-f]{64}"))) { "invalid planning cognitive-state digest" }
+        }
+        planningExecutionContextDigest?.let {
+            require(it.matches(Regex("[0-9a-f]{64}"))) { "invalid planning execution-context digest" }
+        }
     }
 
     val complete: Boolean
@@ -93,6 +104,13 @@ sealed interface PlanAdvanceResult {
         val step: SovereignPlanStep,
         val proposal: ActionProposal
     ) : PlanAdvanceResult
+
+    data class ContextChanged(
+        val plan: SovereignPlan,
+        val assessment: CognitiveContinuityAssessment
+    ) : PlanAdvanceResult {
+        init { require(assessment.blocksExecution) }
+    }
 
     data class Complete(val plan: SovereignPlan) : PlanAdvanceResult
 }
@@ -363,6 +381,7 @@ class SovereignPlanCoordinator(
             allowedCapabilities = advertisedCapabilities,
             descriptors = descriptors
         )
+        val continuityBinding = CognitiveContinuityPolicy.bind(cognitiveState)
         val metacognitiveControl = MetacognitiveInferenceControlPolicy.derive(
             state = cognitiveState,
             profile = boundInferenceProfile
@@ -417,7 +436,9 @@ class SovereignPlanCoordinator(
             deliberationCandidateCount = selection.evaluated.size,
             deliberationScore = finalEvaluation.totalScore,
             counterfactualViability = finalEvaluation.counterfactualViability,
-            counterfactualConfidence = finalEvaluation.counterfactualConfidence
+            counterfactualConfidence = finalEvaluation.counterfactualConfidence,
+            planningCognitiveStateDigest = continuityBinding.cognitiveStateDigest,
+            planningExecutionContextDigest = continuityBinding.executionContextDigest
         )
         runCatching {
             runtime.skills.begin(
@@ -467,6 +488,7 @@ class SovereignPlanCoordinator(
             allowedCapabilities = advertisedCapabilities,
             descriptors = descriptors
         )
+        val continuityBinding = CognitiveContinuityPolicy.bind(cognitiveState)
         val metacognitiveControl = MetacognitiveInferenceControlPolicy.derive(
             state = cognitiveState,
             profile = boundInferenceProfile
@@ -533,7 +555,9 @@ class SovereignPlanCoordinator(
             deliberationCandidateCount = selection.evaluated.size,
             deliberationScore = finalEvaluation.totalScore,
             counterfactualViability = finalEvaluation.counterfactualViability,
-            counterfactualConfidence = finalEvaluation.counterfactualConfidence
+            counterfactualConfidence = finalEvaluation.counterfactualConfidence,
+            planningCognitiveStateDigest = continuityBinding.cognitiveStateDigest,
+            planningExecutionContextDigest = continuityBinding.executionContextDigest
         ).also { replacement ->
             runCatching {
                 runtime.skills.begin(
@@ -620,6 +644,11 @@ class SovereignPlanCoordinator(
             observeCompletedStrategy(plan)
         }
 
+        val continuity = assessContinuity(plan)
+        if (continuity.blocksExecution) {
+            return@runCatching PlanAdvanceResult.ContextChanged(plan, continuity)
+        }
+
         if (next.status == PlanStepStatus.REQUIRES_CONFIRMATION) {
             return@runCatching PlanAdvanceResult.PendingApproval(plan, next, next.proposal())
         }
@@ -642,9 +671,15 @@ class SovereignPlanCoordinator(
         }
     }
 
-    /** Revalidate and return the approval checkpoint binding before a durable claim is written. */
+    /** Revalidate cognitive context and the approval checkpoint before a durable claim is written. */
     fun approvalBinding(plan: SovereignPlan, stepIndex: Int): Result<ApprovedToolBinding> =
-        recoveryGuard.approvalBinding(plan, stepIndex)
+        runCatching {
+            val continuity = assessContinuity(plan)
+            require(!continuity.blocksExecution) {
+                "approval blocked because cognitive execution context changed"
+            }
+            recoveryGuard.approvalBinding(plan, stepIndex).getOrThrow()
+        }
 
     /** Execute one already-preflighted approval against its exact binding. */
     fun approveBound(
@@ -652,6 +687,10 @@ class SovereignPlanCoordinator(
         stepIndex: Int,
         binding: ApprovedToolBinding
     ): Result<PlanAdvanceResult.StepProcessed> = runCatching {
+        val continuity = assessContinuity(plan)
+        require(!continuity.blocksExecution) {
+            "approval blocked because cognitive execution context changed"
+        }
         val step = plan.steps.single { it.index == stepIndex }
         require(step.status == PlanStepStatus.REQUIRES_CONFIRMATION) {
             "plan step $stepIndex is not awaiting approval"
@@ -882,6 +921,18 @@ class SovereignPlanCoordinator(
     private fun routedDescriptors(): List<ToolDescriptor> = advertisedCapabilities
         .mapNotNull(actions::descriptorFor)
         .sortedBy { it.capability.value }
+
+    private fun assessContinuity(plan: SovereignPlan): CognitiveContinuityAssessment {
+        val current = runtime.integratedCognition.capture(
+            query = plan.goal,
+            allowedCapabilities = advertisedCapabilities,
+            descriptors = routedDescriptors()
+        )
+        return CognitiveContinuityPolicy.assess(
+            expectedExecutionContextDigest = plan.planningExecutionContextDigest,
+            current = current
+        )
+    }
 
     private fun renderRecoverySummary(
         failedPlan: SovereignPlan,
