@@ -38,7 +38,8 @@ data class IntegratedCognitiveStatePacket(
     val generalizedChains: List<GeneralizedSkillChain>,
     val learningNeeds: List<LearningNeed>,
     val readiness: IntegratedCognitiveReadiness,
-    val capturedAtEpochMs: Long
+    val capturedAtEpochMs: Long,
+    val perceptualEvidence: List<PerceptualGroundingEvidence> = emptyList()
 ) {
     init {
         require(queryDigest.matches(SHA256))
@@ -47,7 +48,9 @@ data class IntegratedCognitiveStatePacket(
         require(transferGuidance.size <= MAX_TRANSFER)
         require(generalizedChains.size <= MAX_CHAINS)
         require(learningNeeds.size <= MAX_NEEDS)
+        require(perceptualEvidence.size <= MAX_PERCEPTS)
         require(capturedAtEpochMs >= 0L)
+        require(perceptualEvidence.none { it.authorityBearing })
         require(skillGuidance.none { it.contract.authorityBearing })
         require(transferGuidance.none { it.profile.authorityBearing || it.skill.authorityBearing })
         require(generalizedChains.none { it.authorityBearing })
@@ -168,6 +171,19 @@ data class IntegratedCognitiveStatePacket(
                         fmt(it.confidence) + "|" + it.novelContext
                 )
             }
+        perceptualEvidence
+            .sortedWith(
+                compareBy<PerceptualGroundingEvidence> { it.modality.name }
+                    .thenBy { it.source }
+                    .thenBy { it.observedAtEpochMs }
+            )
+            .forEach {
+                add(
+                    "percept=" + it.modality.name + "|" + it.source + "|" + it.producer + "|" +
+                        it.summary + "|" + fmt(it.confidence) + "|" + it.observedAtEpochMs + "|" +
+                        it.freshness.name + "|" + it.planningEligible + "|" + fmt(it.queryRelevance)
+                )
+            }
         learningNeeds
             .sortedWith(
                 compareByDescending<LearningNeed> { it.severity }
@@ -197,6 +213,7 @@ data class IntegratedCognitiveStatePacket(
         const val MAX_TRANSFER = 4
         const val MAX_CHAINS = 3
         const val MAX_NEEDS = 8
+        const val MAX_PERCEPTS = WorldBackedPerceptualGroundingSource.MAX_EVIDENCE
         private val SHA256 = Regex("[0-9a-f]{64}")
 
         private fun fmt(value: Double): String =
@@ -220,6 +237,8 @@ interface IntegratedCognitiveStateSource {
  * Phase253 derives bounded uncertainty/readiness and active-learning pressure.
  * Phase254 gives planning a single packet digest and shared advisory evidence.
  * Phase255 gives the independent critic the exact same packet rather than recapturing mutable state.
+ * Phase261-265 additionally bind typed, freshness-aware perception.* world evidence into the same
+ * packet/digest so live device observations cannot drift between planner and critic.
  *
  * The packet is never persisted, contains no ToolProvider handles or approval bits, and cannot grant
  * authority. Live ToolDescriptor binding and AuthorityGate remain external and authoritative.
@@ -229,6 +248,7 @@ class CanonicalIntegratedCognitiveStateSource(
     private val skills: SkillGenesisModel,
     private val generalization: SkillGeneralizationModel,
     private val autonomousLearning: AutonomousLearningModel,
+    private val perceptualGrounding: PerceptualGroundingSource? = null,
     private val clock: () -> Long = System::currentTimeMillis
 ) : IntegratedCognitiveStateSource {
     override fun capture(
@@ -248,6 +268,10 @@ class CanonicalIntegratedCognitiveStateSource(
             worldLimit = 4,
             workspaceLimit = 6
         )
+        val percepts = perceptualGrounding?.capture(
+            query = query,
+            limit = IntegratedCognitiveStatePacket.MAX_PERCEPTS
+        ).orEmpty()
         val worldStates = snapshot.structuredWorldStates
 
         val directSkills = skills.guidance(
@@ -290,7 +314,8 @@ class CanonicalIntegratedCognitiveStateSource(
             compositions = compositions,
             transfer = transfer,
             chains = chains,
-            needs = needs
+            needs = needs,
+            percepts = percepts
         )
 
         return IntegratedCognitiveStatePacket(
@@ -302,7 +327,8 @@ class CanonicalIntegratedCognitiveStateSource(
             generalizedChains = chains,
             learningNeeds = needs,
             readiness = readiness,
-            capturedAtEpochMs = clock()
+            capturedAtEpochMs = clock(),
+            perceptualEvidence = percepts
         )
     }
 
@@ -312,7 +338,8 @@ class CanonicalIntegratedCognitiveStateSource(
         compositions: List<SkillComposition>,
         transfer: List<GeneralizationGuidance>,
         chains: List<GeneralizedSkillChain>,
-        needs: List<LearningNeed>
+        needs: List<LearningNeed>,
+        percepts: List<PerceptualGroundingEvidence>
     ): IntegratedCognitiveReadiness {
         val epistemicValues = buildList {
             snapshot.semanticKnowledge.forEach { add(it.confidence) }
@@ -326,6 +353,16 @@ class CanonicalIntegratedCognitiveStateSource(
                 .forEach { add(it.confidence) }
             snapshot.worldPredictions.forEach { add(it.confidence) }
             snapshot.causalHypotheses.forEach { add(it.confidence) }
+            percepts
+                .filter { it.planningEligible }
+                .forEach { percept ->
+                    val freshnessWeight = when (percept.freshness) {
+                        PerceptualFreshness.FRESH -> 1.0
+                        PerceptualFreshness.RECENT -> 0.85
+                        PerceptualFreshness.STALE -> 0.0
+                    }
+                    add((percept.confidence * freshnessWeight).coerceIn(0.0, 1.0))
+                }
         }
         val skillValues = buildList {
             skills.forEach { add(it.contract.confidence * it.goalRelevance) }
@@ -359,11 +396,22 @@ class CanonicalIntegratedCognitiveStateSource(
         } else {
             1.0 - snapshot.worldPredictions.map { it.confidence }.average()
         }
-        val uncertainty = listOf(
+        val perceptualUncertainty = if (percepts.isEmpty()) {
+            null
+        } else {
+            val staleFraction =
+                percepts.count { !it.planningEligible }.toDouble() / percepts.size.toDouble()
+            val confidenceUncertainty =
+                1.0 - percepts.map { it.confidence }.average().coerceIn(0.0, 1.0)
+            (0.65 * staleFraction + 0.35 * confidenceUncertainty).coerceIn(0.0, 1.0)
+        }
+        val uncertaintyParts = mutableListOf(
             beliefUncertainty,
             worldUncertainty,
             predictionUncertainty
-        ).average().coerceIn(0.0, 1.0)
+        )
+        perceptualUncertainty?.let(uncertaintyParts::add)
+        val uncertainty = uncertaintyParts.average().coerceIn(0.0, 1.0)
 
         val learningPressure = needs.maxOfOrNull { it.severity }?.coerceIn(0.0, 1.0) ?: 0.0
         val evidenceReadiness = listOf(
@@ -433,6 +481,18 @@ object IntegratedCognitiveStateRenderer {
                     "prediction " + safe(it.targetKey.canonical, 96) + "=" +
                         safe(it.predictedValue, 80) +
                         " confidence=" + fmt(it.confidence)
+                )
+            }
+            packet.perceptualEvidence.take(4).forEach {
+                add(
+                    "perception modality=" + it.modality.name +
+                        " summary=" + safe(it.summary, 160) +
+                        " freshness=" + it.freshness.name +
+                        " confidence=" + fmt(it.confidence) +
+                        " relevance=" + fmt(it.queryRelevance) +
+                        " source=" + safe(it.source, 64) +
+                        " planning_eligible=" + it.planningEligible +
+                        " authority=false"
                 )
             }
             packet.skillGuidance.take(3).forEach {
