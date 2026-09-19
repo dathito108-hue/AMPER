@@ -375,6 +375,9 @@ class MemoryBackedClosedLoopEvolutionLedger(
         require(evidenceDigest.matches(SHA256))
         val entry = get(capability) ?: return false
         if (entry.evidenceDigest != evidenceDigest) return false
+        if (entry.terminalStage == EvolutionAutonomyCycleStage.RECOVERY_BLOCKED) {
+            return false
+        }
         if (entry.committedCount > 0) return true
         return entry.baselineRevisionDigest ==
             closedLoopEvolutionSha256(baselineRevision)
