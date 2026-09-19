@@ -271,7 +271,7 @@ class GoalDecompositionTest {
         )
         val roundTrip = DurableGoalPortfolioCodec.decode(encoded).getOrThrow().single()
 
-        assertTrue(encoded.startsWith("AMPER_DURABLE_GOAL_PORTFOLIO_V4"))
+        assertTrue(encoded.startsWith("AMPER_DURABLE_GOAL_PORTFOLIO_V5"))
         assertEquals(DurableGoalDecompositionState.ATOMIC, roundTrip.decompositionState)
         assertEquals(1, roundTrip.decompositionDepth)
         assertEquals(restored.dependsOnGoalIds, roundTrip.dependsOnGoalIds)

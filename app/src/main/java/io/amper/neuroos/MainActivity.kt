@@ -2014,6 +2014,15 @@ class MainActivity : ComponentActivity() {
                                                                 outcome.childGoalIds.size +
                                                                 " bounded subgoals"
                                                     }
+                                                    is PersistentGoalExecutiveResult.Replanned -> {
+                                                        planStatus =
+                                                            "Adaptive goal branch " +
+                                                                outcome.supersededGoalId.take(8) +
+                                                                " replaced by " +
+                                                                outcome.replacementGoalIds.size +
+                                                                " bounded alternative" +
+                                                                if (outcome.replacementGoalIds.size == 1) "" else "s"
+                                                    }
                                                     is PersistentGoalExecutiveResult.Deferred -> {
                                                         planStatus =
                                                             "Autonomous goal " +
