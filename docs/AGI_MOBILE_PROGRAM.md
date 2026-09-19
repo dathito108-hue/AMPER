@@ -698,3 +698,17 @@ the existing NativeModelFoundation and binds it to the shard's canonical dataset
 Phase405 exposes the planner through AmperRuntime as nativeExperienceCurriculum. The planner never
 invokes a trainer, never promotes a model, and carries no authority; it only turns verified internal
 experience into a reproducible dataset+curriculum bundle for the existing native training pipeline.
+
+
+### Implemented checkpoint — Phase406-410
+Phase406 adds deterministic assembly from a verified NativeExperienceTrainingBundle into the
+existing NativeDistillationManifest format. Phase407 binds explicit teacher snapshot ids and one
+AMPER-owned student contract, while reusing the bundle's exact immutable shard, curriculum and
+dataset snapshot digest. Phase408 derives a bounded NativeTrainingRecipe from explicit optimizer,
+precision, learning-rate and mobile target parameters and lets the existing pipeline revalidate
+teacher rights, capability coverage, dataset rights, parent lineage and Android arm64 targeting.
+Phase409 makes assembly idempotent across restart by accepting an existing manifest only when every
+configuration field matches and by delegating run identity checks to NativeTrainingPipeline.
+Phase410 prepares a PREPARED NativeTrainingRun but deliberately never calls NativeTrainerPort,
+evaluation, promotion or live model registration. The assembler is exposed through AmperRuntime as
+nativeExperienceTrainingAssembler and carries no execution or device authority.

@@ -184,6 +184,7 @@ class AmperRuntime private constructor(
     val nativeExperienceDatasets: NativeExperienceDatasetStore,
     val nativeExperienceCurriculum: NativeExperienceCurriculumPlanner,
     val nativeTrainingPipeline: NativeTrainingPipeline,
+    val nativeExperienceTrainingAssembler: NativeExperienceTrainingAssembler,
     val conversations: SovereignConversationCoordinator,
     val inferenceProfiles: ConversationInferenceProfileStore,
     val plans: SovereignPlanStore,
@@ -363,6 +364,11 @@ class AmperRuntime private constructor(
                 foundation = nativeModelFoundation,
                 experienceDatasets = nativeExperienceDatasets
             )
+            val nativeExperienceTrainingAssembler =
+                CanonicalNativeExperienceTrainingAssembler(
+                    foundation = nativeModelFoundation,
+                    pipeline = nativeTrainingPipeline
+                )
             val selfModel = CanonicalSelfModel()
             val evolutionGate = CanonicalEvolutionGate(selfModel)
             val autonomousEvolution = MemoryBackedAutonomousEvolutionModel(
@@ -457,6 +463,7 @@ class AmperRuntime private constructor(
                 nativeExperienceDatasets = nativeExperienceDatasets,
                 nativeExperienceCurriculum = nativeExperienceCurriculum,
                 nativeTrainingPipeline = nativeTrainingPipeline,
+                nativeExperienceTrainingAssembler = nativeExperienceTrainingAssembler,
                 conversations = conversations,
                 inferenceProfiles = inferenceProfiles,
                 plans = plans,
