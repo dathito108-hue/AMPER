@@ -2,6 +2,7 @@ package io.amper.neuroos.core
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -163,12 +164,21 @@ class ReflexRealModelTest {
         assertEquals(championId, runtime.reflexDecisionRuntime.active()?.checkpointId)
         assertEquals(1, runtime.reflexLearningCostModel.snapshot().samples)
 
-        allowTraining = true
-        val resumed = lifecycle.maintain().getOrThrow()
+        assertTrue(runtime.reflexLearningMaintenanceQueue.pending() != null)
 
-        assertEquals(ReflexNativeLifecycleStage.REPLACED, resumed.stage)
-        assertTrue(requireNotNull(resumed.checkpointId) != championId)
-        assertEquals(resumed.checkpointId, runtime.reflexDecisionRuntime.active()?.checkpointId)
+        allowTraining = true
+        val background = ReflexBackgroundMaintenanceCoordinator(
+            lifecycle = lifecycle,
+            queue = runtime.reflexLearningMaintenanceQueue,
+            clock = { 10_000L }
+        )
+        val resumed = background.tick(force = true).getOrThrow()
+
+        assertEquals(ReflexBackgroundMaintenanceStage.COMPLETED, resumed.stage)
+        assertEquals(ReflexNativeLifecycleStage.REPLACED, resumed.lifecycleStage)
+        val active = requireNotNull(runtime.reflexDecisionRuntime.active())
+        assertTrue(active.checkpointId != championId)
+        assertNull(runtime.reflexLearningMaintenanceQueue.pending())
         val cost = runtime.reflexLearningCostModel.snapshot()
         assertEquals(2, cost.samples)
         assertTrue(requireNotNull(cost.durationEwmaMs) > 0.0)

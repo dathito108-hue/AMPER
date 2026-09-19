@@ -101,7 +101,9 @@ import io.amper.neuroos.core.PlanAdvanceResult
 import io.amper.neuroos.core.PlanStepStatus
 import io.amper.neuroos.core.PreferredModelInferencePort
 import io.amper.neuroos.core.ProcessResidentAutonomyLoop
+import io.amper.neuroos.core.ProcessResidentReflexMaintenanceLoop
 import io.amper.neuroos.core.RuntimeSovereignStatusSource
+import io.amper.neuroos.core.ReflexBackgroundMaintenanceCoordinator
 import io.amper.neuroos.core.ReflexNativeModelLifecycle
 import io.amper.neuroos.core.SovereignAssistantToolExposure
 import io.amper.neuroos.core.SovereignAssistantTurnCoordinator
@@ -144,6 +146,18 @@ class MainActivity : ComponentActivity() {
                 ReflexNativeModelLifecycle(
                     runtime = runtime,
                     artifacts = reflexArtifactStore
+                )
+            }
+            val reflexMaintenanceCoordinator = remember {
+                ReflexBackgroundMaintenanceCoordinator(
+                    lifecycle = reflexLifecycle,
+                    queue = runtime.reflexLearningMaintenanceQueue,
+                    deviceStatusSource = deviceStatusSource
+                )
+            }
+            val reflexMaintenanceLoop = remember {
+                ProcessResidentReflexMaintenanceLoop(
+                    coordinator = reflexMaintenanceCoordinator
                 )
             }
             val perceptionCapture = remember {
@@ -424,7 +438,9 @@ class MainActivity : ComponentActivity() {
                 executor.execute {
                     runCatching { reflexLifecycle.maintain() }
                 }
+                reflexMaintenanceLoop.start()
                 onDispose {
+                    reflexMaintenanceLoop.close()
                     runCatching { executor.execute { titan.unloadAll() } }
                     executor.shutdown()
                 }
