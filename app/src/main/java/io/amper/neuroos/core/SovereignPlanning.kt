@@ -1126,8 +1126,16 @@ class SovereignPlanCoordinator(
             allowedCapabilities = selectedCapabilities,
             limit = GoalOutcomeStrategyTransfer.MAX_CANDIDATES
         )
-        for (count in outcomeTransfer.size downTo 1) {
-            val rendered = GoalOutcomeStrategyTransfer.render(outcomeTransfer.take(count))
+        val validatedTransfer = GoalTransferCounterfactualValidator.validate(
+            candidates = outcomeTransfer,
+            state = cognitiveState,
+            descriptors = selected,
+            limit = GoalTransferCounterfactualValidator.MAX_CANDIDATES
+        )
+        for (count in validatedTransfer.size downTo 1) {
+            val rendered = GoalTransferCounterfactualValidator.render(
+                validatedTransfer.take(count)
+            )
             val candidate = bounded + "\n\n" + rendered
             if (candidate.length <= charBudget) return candidate
         }
