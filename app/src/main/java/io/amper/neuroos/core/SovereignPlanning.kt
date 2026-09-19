@@ -1109,21 +1109,25 @@ class SovereignPlanCoordinator(
                 control.length -
                 COGNITIVE_STATE_MIN_CHARS -
                 6
-        require(availableSystem2Chars >= NativeSystem2GuidanceRenderer.MIN_CHAR_BUDGET) {
-            "conversation prompt budget cannot preserve native System-2 guidance"
-        }
-        val system2Guidance = NativeSystem2GuidanceRenderer.render(
-            deliberation = system2Deliberation,
-            charBudget = minOf(
-                availableSystem2Chars,
-                NativeSystem2GuidanceRenderer.MAX_CHAR_BUDGET
+        val system2Guidance = if (
+            availableSystem2Chars >= NativeSystem2GuidanceRenderer.MIN_CHAR_BUDGET
+        ) {
+            NativeSystem2GuidanceRenderer.render(
+                deliberation = system2Deliberation,
+                charBudget = minOf(
+                    availableSystem2Chars,
+                    NativeSystem2GuidanceRenderer.MAX_CHAR_BUDGET
+                )
             )
-        )
+        } else {
+            ""
+        }
+        val system2Block = if (system2Guidance.isBlank()) "" else "\n\n" + system2Guidance
         require(
-            base.length + 2 + control.length + 2 + system2Guidance.length +
+            base.length + 2 + control.length + system2Block.length +
                 2 + COGNITIVE_STATE_MIN_CHARS <= charBudget
         ) {
-            "conversation prompt budget cannot preserve planning protocol, metacognition, System-2 and cognitive state"
+            "conversation prompt budget cannot preserve planning protocol, metacognition and cognitive state"
         }
         val allowed = capabilities.toSet()
         val selected = mutableListOf<ToolDescriptor>()
@@ -1134,8 +1138,8 @@ class SovereignPlanCoordinator(
             .forEach { descriptor ->
                 val candidate = TitanDeliberationProtocol.instructions(capabilities, selected + descriptor)
                 if (
-                    candidate.length + 2 + control.length + 2 +
-                        system2Guidance.length + 2 + COGNITIVE_STATE_MIN_CHARS <= charBudget
+                    candidate.length + 2 + control.length + system2Block.length +
+                        2 + COGNITIVE_STATE_MIN_CHARS <= charBudget
                 ) {
                     selected += descriptor
                 }
@@ -1143,7 +1147,7 @@ class SovereignPlanCoordinator(
 
         val protocol = TitanDeliberationProtocol.instructions(capabilities, selected)
         val fixedPrefix =
-            protocol + "\n\n" + control + "\n\n" + system2Guidance
+            protocol + "\n\n" + control + system2Block
         val cognitiveAvailable = charBudget - fixedPrefix.length - 2
         require(cognitiveAvailable >= COGNITIVE_STATE_MIN_CHARS)
         val cognitiveBudget = minOf(
