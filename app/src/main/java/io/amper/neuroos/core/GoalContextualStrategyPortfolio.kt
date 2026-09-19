@@ -168,7 +168,8 @@ interface GoalContextualStrategyPortfolio {
  */
 class MemoryBackedGoalContextualStrategyPortfolio(
     private val memory: MemoryOs,
-    private val hierarchicalCredit: GoalHierarchicalStrategyCreditModel? = null
+    private val hierarchicalCredit: GoalHierarchicalStrategyCreditModel? = null,
+    private val repairValidation: GoalRepairValidationModel? = null
 ) : GoalContextualStrategyPortfolio {
     @Synchronized
     override fun rank(
@@ -191,13 +192,19 @@ class MemoryBackedGoalContextualStrategyPortfolio(
             historical = indexed,
             nowEpochMs = nowEpochMs
         )
-        return hierarchicalCredit?.let { credit ->
+        val credited = hierarchicalCredit?.let { credit ->
             GoalHierarchicalStrategyCreditPolicy.apply(
                 goal = goal,
                 candidates = ranked,
                 credit = credit
             )
         } ?: ranked
+        return repairValidation?.let { validation ->
+            GoalRepairRefinementPolicy.apply(
+                candidates = credited,
+                validation = validation
+            )
+        } ?: credited
     }
 
     @Synchronized
