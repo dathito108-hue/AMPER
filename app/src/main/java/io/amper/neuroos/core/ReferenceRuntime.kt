@@ -187,6 +187,9 @@ class AmperRuntime private constructor(
     val nativeExperienceTraining: NativeExperienceTrainingCoordinator,
     val nativeTrainingPipeline: NativeTrainingPipeline,
     val reflexExperienceDatasets: ReflexExperienceDatasetStore,
+    val reflexExperiencePartition: ReflexExperiencePartitioner,
+    val reflexDecisionCurriculum: ReflexDecisionCurriculumPlanner,
+    val reflexDecisionTraining: ReflexDecisionTrainingCoordinator,
     val reflexDecisionCortex: ReflexDecisionCortex,
     val conversations: SovereignConversationCoordinator,
     val inferenceProfiles: ConversationInferenceProfileStore,
@@ -365,10 +368,22 @@ class AmperRuntime private constructor(
                 store = nativeExperienceDatasets,
                 foundation = nativeModelFoundation
             )
+            val reflexExperienceDatasets = MemoryBackedReflexExperienceDatasetStore(
+                memory = memory,
+                foundation = nativeModelFoundation
+            )
+            val reflexExperiencePartition = DeterministicReflexExperiencePartitioner(
+                store = reflexExperienceDatasets
+            )
+            val reflexDecisionCurriculum = EvidenceReflexDecisionCurriculumPlanner(
+                store = reflexExperienceDatasets,
+                foundation = nativeModelFoundation
+            )
             val nativeTrainingPipeline = MemoryBackedNativeTrainingPipeline(
                 memory = memory,
                 foundation = nativeModelFoundation,
-                experienceDatasets = nativeExperienceDatasets
+                experienceDatasets = nativeExperienceDatasets,
+                reflexExperienceDatasets = reflexExperienceDatasets
             )
             val nativeExperienceTraining = CanonicalNativeExperienceTrainingCoordinator(
                 datasets = nativeExperienceDatasets,
@@ -376,9 +391,11 @@ class AmperRuntime private constructor(
                 foundation = nativeModelFoundation,
                 training = nativeTrainingPipeline
             )
-            val reflexExperienceDatasets = MemoryBackedReflexExperienceDatasetStore(
-                memory = memory,
-                foundation = nativeModelFoundation
+            val reflexDecisionTraining = CanonicalReflexDecisionTrainingCoordinator(
+                partitioner = reflexExperiencePartition,
+                curriculum = reflexDecisionCurriculum,
+                foundation = nativeModelFoundation,
+                training = nativeTrainingPipeline
             )
             val reflexDecisionCortex: ReflexDecisionCortex = DeterministicReflexDecisionCortex
             val selfModel = CanonicalSelfModel()
@@ -478,6 +495,9 @@ class AmperRuntime private constructor(
                 nativeExperienceTraining = nativeExperienceTraining,
                 nativeTrainingPipeline = nativeTrainingPipeline,
                 reflexExperienceDatasets = reflexExperienceDatasets,
+                reflexExperiencePartition = reflexExperiencePartition,
+                reflexDecisionCurriculum = reflexDecisionCurriculum,
+                reflexDecisionTraining = reflexDecisionTraining,
                 reflexDecisionCortex = reflexDecisionCortex,
                 conversations = conversations,
                 inferenceProfiles = inferenceProfiles,

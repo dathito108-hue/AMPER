@@ -104,6 +104,11 @@ interface ReflexExperienceDatasetStore {
         limit: Int = 256
     ): ReflexExperienceDatasetShard
 
+    fun materializeShardFromExamples(
+        id: NativeDatasetShardId,
+        exampleIds: List<ReflexExperienceExampleId>
+    ): ReflexExperienceDatasetShard
+
     fun getShard(id: NativeDatasetShardId): ReflexExperienceDatasetShard?
 }
 
@@ -227,13 +232,41 @@ class MemoryBackedReflexExperienceDatasetStore(
         require(minExamples > 0)
         require(limit in minExamples..MAX_SHARD_EXAMPLES)
         getShard(id)?.let { return it }
-        require(foundation.getDatasetShard(id) == null) {
-            "native dataset id already belongs to another dataset"
-        }
         val examples = recentExamples(limit)
             .sortedBy { it.id.value }
         require(examples.size >= minExamples) {
             "insufficient reflex decision experience examples"
+        }
+        return materializeShardFromExamples(
+            id = id,
+            exampleIds = examples.map { it.id }
+        )
+    }
+
+    @Synchronized
+    override fun materializeShardFromExamples(
+        id: NativeDatasetShardId,
+        exampleIds: List<ReflexExperienceExampleId>
+    ): ReflexExperienceDatasetShard {
+        require(exampleIds.isNotEmpty())
+        require(exampleIds.size <= MAX_SHARD_EXAMPLES)
+        require(exampleIds.distinct().size == exampleIds.size)
+        val normalizedIds = exampleIds.sortedBy { it.value }
+
+        getShard(id)?.let { existing ->
+            require(existing.exampleIds == normalizedIds) {
+                "reflex experience shard id is already bound to different examples"
+            }
+            return existing
+        }
+        require(foundation.getDatasetShard(id) == null) {
+            "native dataset id already belongs to another dataset"
+        }
+
+        val examples = normalizedIds.map { exampleId ->
+            requireNotNull(getExample(exampleId)) {
+                "reflex experience shard references missing example: " + exampleId.value
+            }
         }
         val payload = examples.joinToString(
             separator = "\n",
@@ -251,7 +284,7 @@ class MemoryBackedReflexExperienceDatasetStore(
         )
         val shard = ReflexExperienceDatasetShard(
             manifest = manifest,
-            exampleIds = examples.map { it.id },
+            exampleIds = normalizedIds,
             payload = payload
         )
         memory.transaction {
