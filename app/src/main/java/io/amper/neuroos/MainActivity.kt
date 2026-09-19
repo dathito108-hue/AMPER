@@ -68,6 +68,7 @@ import io.amper.neuroos.core.InstalledModelDetachService
 import io.amper.neuroos.core.InstalledModelRegistryBootstrap
 import io.amper.neuroos.core.ModelCapabilityProfile
 import io.amper.neuroos.core.ModelId
+import io.amper.neuroos.core.NativeCheckpointRuntimePromotionService
 import io.amper.neuroos.core.LlamaNativeTextEngine
 import io.amper.neuroos.core.LlamaNativeTextInferenceBackend
 import io.amper.neuroos.core.MtmdNativeInferenceBackend
@@ -189,6 +190,15 @@ class MainActivity : ComponentActivity() {
             val detachManager = remember {
                 InstalledModelDetachService(catalog, modelRegistry, titan::unload)
             }
+            remember {
+                NativeCheckpointRuntimePromotionService(
+                    foundation = runtime.nativeModelFoundation,
+                    training = runtime.nativeTrainingPipeline,
+                    catalog = catalog,
+                    registry = modelRegistry,
+                    unloadRuntime = titan::unload
+                )
+            }
             val modelRoutingPreferences = remember {
                 getSharedPreferences("amper-model-routing", Context.MODE_PRIVATE)
             }
@@ -258,21 +268,3 @@ class MainActivity : ComponentActivity() {
                     actions = actionLoop,
                     advertisedCapabilities = assistantCapabilities,
                     maxOutputTokens = 256
-                )
-            }
-            val planner = remember {
-                PersistentSovereignPlanCoordinator(
-                    delegate = SovereignPlanCoordinator(
-                        runtime = runtime,
-                        inference = inferencePort,
-                        actions = actionLoop,
-                        advertisedCapabilities = assistantCapabilities,
-                        maxOutputTokens = 256,
-                        criticInference = inferencePort
-                    ),
-                    store = runtime.plans
-                )
-            }
-            val planHistory = remember { SovereignPlanHistory(runtime.plans) }
-            val recoveryConsole = remember {
-                io.amper.neuroos.core.SovereignRecoveryConsole(runtime.plans, planner)
