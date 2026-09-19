@@ -125,11 +125,39 @@ class MemoryBackedGoalOutcomeLearningModel(
         require(terminalPlan.complete)
         require(observedAtEpochMs >= 0L)
         require(hierarchyDepth in 0..DurableGoalRecord.MAX_DECOMPOSITION_DEPTH)
-        if (outcome == GoalOutcomeEvidenceKind.VERIFIED_SUCCESS) {
-            require(checkpoint.lastVerificationVerdict == GoalSatisfactionVerdict.SATISFIED)
-            require(verificationConfidence != null && verificationConfidence >=
-                GoalSatisfactionProtocol.MIN_SATISFIED_CONFIDENCE)
-            require(terminalPlan.steps.all { it.status == PlanStepStatus.EXECUTED })
+        when (outcome) {
+            GoalOutcomeEvidenceKind.VERIFIED_SUCCESS -> {
+                require(checkpoint.stage == PersistentGoalExecutiveStage.COMPLETED)
+                require(checkpoint.lastVerificationVerdict == GoalSatisfactionVerdict.SATISFIED)
+                require(verificationConfidence != null && verificationConfidence >=
+                    GoalSatisfactionProtocol.MIN_SATISFIED_CONFIDENCE)
+                require(terminalPlan.steps.all { it.status == PlanStepStatus.EXECUTED })
+            }
+            GoalOutcomeEvidenceKind.EXECUTION_EXHAUSTED -> {
+                require(checkpoint.stage == PersistentGoalExecutiveStage.RECOVERY_EXHAUSTED)
+                require(terminalPlan.steps.all {
+                    it.status == PlanStepStatus.FAILED ||
+                        it.status == PlanStepStatus.MALFORMED ||
+                        it.status == PlanStepStatus.UNAVAILABLE
+                })
+            }
+            GoalOutcomeEvidenceKind.EVIDENCE_EXHAUSTED -> {
+                require(checkpoint.stage == PersistentGoalExecutiveStage.FOLLOW_UP_EXHAUSTED)
+                require(checkpoint.lastVerificationVerdict == GoalSatisfactionVerdict.FOLLOW_UP_REQUIRED)
+                require(terminalPlan.steps.all { it.status == PlanStepStatus.EXECUTED })
+            }
+            GoalOutcomeEvidenceKind.AUTHORITY_BLOCKED -> {
+                require(checkpoint.stage == PersistentGoalExecutiveStage.RECOVERY_BLOCKED)
+                require(terminalPlan.steps.none { it.status == PlanStepStatus.EXECUTED })
+                require(terminalPlan.steps.any {
+                    it.status == PlanStepStatus.DENIED || it.status == PlanStepStatus.REJECTED
+                })
+            }
+            GoalOutcomeEvidenceKind.PARTIAL_EXECUTION_BLOCKED -> {
+                require(checkpoint.stage == PersistentGoalExecutiveStage.PARTIAL_EXECUTION_BLOCKED)
+                require(terminalPlan.steps.any { it.status == PlanStepStatus.EXECUTED })
+                require(terminalPlan.steps.any { it.status != PlanStepStatus.EXECUTED })
+            }
         }
 
         val digest = observationDigest(
