@@ -46,12 +46,18 @@ data class GoalStrategyCreditStats(
         require(authorityNeutral >= 0)
         require(partialNeutral >= 0)
         require(lastObservedAtEpochMs >= 0L)
-        require(abs(cumulativeCredit) <= observations.toDouble() + 1e-9)
+        require(comparableObservations >= 0)
+        require(abs(cumulativeCredit) <= comparableObservations.toDouble() + 1e-9)
     }
 
+    val comparableObservations: Int
+        get() = observations - authorityNeutral - partialNeutral
+
     val meanCredit: Double
-        get() = if (observations == 0) 0.0
-        else (cumulativeCredit / observations.toDouble()).coerceIn(-1.0, 1.0)
+        get() = if (comparableObservations == 0) 0.0
+        else (
+            cumulativeCredit / comparableObservations.toDouble()
+            ).coerceIn(-1.0, 1.0)
 
     val executionReliability: Double?
         get() = (executionSuccesses + executionFailures).takeIf { it > 0 }?.let {
@@ -64,7 +70,8 @@ data class GoalStrategyCreditStats(
         }
 
     val evidenceConfidence: Double
-        get() = observations.toDouble() / (observations.toDouble() + 4.0)
+        get() = comparableObservations.toDouble() /
+            (comparableObservations.toDouble() + 4.0)
 
     val authorityBearing: Boolean
         get() = false
