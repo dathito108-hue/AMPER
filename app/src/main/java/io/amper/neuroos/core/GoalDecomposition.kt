@@ -207,7 +207,7 @@ class InferenceGoalDecomposer(
     init {
         require(allowedCapabilities.isNotEmpty())
         require(maxPromptChars in 2_000..8_000)
-        require(maxOutputTokens in 32..256)
+        require(maxOutputTokens in 16..256)
     }
 
     override fun decompose(goal: DurableGoalRecord): Result<GoalDecompositionAssessment> =
