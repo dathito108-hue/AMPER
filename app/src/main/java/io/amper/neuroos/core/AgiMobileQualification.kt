@@ -182,6 +182,7 @@ data class AgiMobileQualificationEvidence(
     val samples: Int,
     val assertionsPassed: Int,
     val assertionsTotal: Int,
+    val subjectDigest: String,
     val sourceEvidenceDigest: String,
     val observedAtEpochMs: Long
 ) {
@@ -192,6 +193,7 @@ data class AgiMobileQualificationEvidence(
         require(assertionsPassed >= 0)
         require(assertionsTotal > 0)
         require(assertionsPassed <= assertionsTotal)
+        require(subjectDigest.matches(SHA256))
         require(sourceEvidenceDigest.matches(SHA256))
         require(observedAtEpochMs >= 0L)
     }
@@ -209,6 +211,7 @@ data class AgiMobileQualificationEvidence(
                 samples.toString(),
                 assertionsPassed.toString(),
                 assertionsTotal.toString(),
+                subjectDigest,
                 sourceEvidenceDigest,
                 observedAtEpochMs.toString()
             ).joinToString("|")
@@ -435,7 +438,11 @@ class CanonicalAgiMobileQualificationRunner(
                 ?: return@forEach
             if (probe.domain != expected.domain) return@forEach
             val evidence = probe.evaluate(subject).getOrNull() ?: return@forEach
-            if (evidence.probeId != expected.probeId || evidence.domain != expected.domain) {
+            if (
+                evidence.probeId != expected.probeId ||
+                evidence.domain != expected.domain ||
+                evidence.subjectDigest != subject.canonicalDigest
+            ) {
                 return@forEach
             }
             evidenceByProbe.putIfAbsent(expected.probeId, evidence)
@@ -499,13 +506,13 @@ class CanonicalAgiMobileQualificationRunner(
             .filter { it.hardBlocker }
             .filter { byDomain[it.domain]?.status != AgiMobileDomainStatus.QUALIFIED }
             .map { it.domain }
-            .toSortedSet(compareBy { it.name })
+            .toSortedSet(compareBy<AgiMobileQualificationDomain> { it.name })
 
         val verdict = when {
-            results.any { it.status == AgiMobileDomainStatus.UNMEASURED } ->
-                AgiMobileQualificationVerdict.INCOMPLETE
             results.any { it.status == AgiMobileDomainStatus.FAILED } ->
                 AgiMobileQualificationVerdict.NOT_QUALIFIED
+            results.any { it.status == AgiMobileDomainStatus.UNMEASURED } ->
+                AgiMobileQualificationVerdict.INCOMPLETE
             else -> AgiMobileQualificationVerdict.QUALIFIED
         }
         val aggregate = if (results.all { it.score != null }) {
@@ -549,7 +556,7 @@ class NamedAgiMobileQualificationProbe(
     override fun evaluate(
         subject: AgiMobileQualificationSubject
     ): Result<AgiMobileQualificationEvidence> =
-        evaluator(subject).map { evidence ->
+        evaluator(subject).mapCatching { evidence ->
             require(evidence.probeId == id)
             require(evidence.domain == domain)
             evidence
