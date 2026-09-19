@@ -155,7 +155,8 @@ class ReflexLearningJobService : JobService() {
             ReflexBackgroundMaintenanceCoordinator(
                 lifecycle = lifecycle,
                 queue = runtime.reflexLearningMaintenanceQueue,
-                deviceStatusSource = deviceStatusSource
+                deviceStatusSource = deviceStatusSource,
+                telemetry = runtime.reflexLearningSchedulerTelemetry
             )
         }
 }
