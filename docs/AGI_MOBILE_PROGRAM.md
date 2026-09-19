@@ -119,6 +119,18 @@ artifact digests. Phase215 adds held-out admission gates for planning protocol, 
 compatibility, regression and generalization. An admitted foundation checkpoint is still not added to
 live ModelRegistry; distillation/training and native inference routing remain Phase216-230 work.
 
+### Implemented checkpoint — Phase216-220
+Phase216 freezes exact teacher snapshot identity, capability coverage and distillation rights; unknown
+teacher rights fail closed. Phase217 binds the AMPER student contract, dataset snapshot, curriculum,
+training recipe and a mobile deployment target (format, quantization, context and runtime-memory
+budget) into one immutable distillation manifest. Phase218 adds a pluggable NativeTrainerPort and
+publishes a checkpoint only when the trainer result is bound to the exact run/manifest and matches
+the requested mobile artifact format/quantization; trainer or artifact-contract failures publish no
+checkpoint. Phase219 records held-out evaluations and compares candidate checkpoints against a
+baseline with per-metric regression tolerance. Phase220 creates a non-authoritative promotion
+candidate only after foundation admission plus objective comparison; it intentionally does not
+register the checkpoint into live ModelRegistry.
+
 ### Mega-Phase 231-250 — Autonomous Evolution
 Self-benchmarking, candidate code/model generation, sandbox tournaments, automated promotion,
 rollback and architecture evolution.
