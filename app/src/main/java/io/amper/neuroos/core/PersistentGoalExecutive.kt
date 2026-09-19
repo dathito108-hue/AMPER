@@ -225,6 +225,7 @@ class PersistentGoalExecutiveCoordinator(
     private val hierarchicalStrategyCredit: GoalHierarchicalStrategyCreditModel? = null,
     private val repairValidation: GoalRepairValidationModel? = null,
     private val repairStrategyMemory: GoalRepairStrategyMemory? = null,
+    private val nativeExperienceDatasets: NativeExperienceDatasetStore? = null,
     private val clock: () -> Long = System::currentTimeMillis
 ) {
     @Synchronized
@@ -603,6 +604,18 @@ class PersistentGoalExecutiveCoordinator(
                 outcome = outcome,
                 observedAtEpochMs = observedAtEpochMs
             )
+        }
+        if (
+            outcome == GoalOutcomeEvidenceKind.VERIFIED_SUCCESS &&
+            verificationConfidence != null
+        ) {
+            runCatching {
+                nativeExperienceDatasets?.observeVerified(
+                    plan = terminalPlan,
+                    verificationConfidence = verificationConfidence,
+                    observedAtEpochMs = observedAtEpochMs
+                )
+            }
         }
         runCatching {
             repairStrategyMemory?.observe(

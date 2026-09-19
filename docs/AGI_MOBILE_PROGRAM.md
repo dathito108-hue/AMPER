@@ -670,3 +670,19 @@ malformed, unavailable, authority-blocked and partial-execution terminal plans. 
 remain unclassified before satisfaction verification; authority/user outcomes remain neutral where
 their owning learning policy specifies neutrality. This phase removes duplicated outcome semantics
 without adding a new planning influence layer.
+
+
+### Implemented checkpoint — Phase396-400
+Phase396 adds a verified-governed-experience schema for AMPER-native training. Only root-goal
+VERIFIED_SUCCESS outcomes at or above the satisfaction-confidence threshold are admitted. Raw goals,
+reasons, tool inputs, tool outputs, approvals and tool ids are never persisted in this dataset;
+examples contain only hashed goal fingerprints, ordered capability strategies and verification
+confidence. Phase397 wires persistent goal completion into the experience store with idempotent
+per-plan example identity. Phase398 materializes immutable GENERATED_INTERNAL dataset shards with
+real canonical payload bytes, SHA-256, example count, byte count and capability coverage, then
+registers the manifest through the existing NativeModelFoundation. Phase399 extends
+NativeTrainingRequest with optional generatedExperienceShards so a concrete NativeTrainerPort can
+consume AMPER-generated payloads rather than receiving metadata alone; existing external datasets
+remain compatible. Phase400 exposes the store through AmperRuntime, excludes its records from generic
+sovereign prompt context, and preserves the existing checkpoint/admission/promotion gates. Experience
+data is non-authoritative and cannot register or promote a live model by itself.
