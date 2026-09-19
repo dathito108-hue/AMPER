@@ -361,9 +361,12 @@ object GoalTransferCalibrationPolicy {
         } ?: 1.0
 
         val suppressed = snapshot?.let {
+            val freshSuccessAfterFailure =
+                candidate.latestSuccessfulObservedAtEpochMs > it.lastFailureAtEpochMs
             it.comparableAttempts >= 3 &&
                 it.consecutiveFailures >= 3 &&
-                (it.successRate ?: 0.0) < 0.34
+                (it.successRate ?: 0.0) < 0.34 &&
+                !freshSuccessAfterFailure
         } ?: false
 
         val multiplier = if (suppressed) {
