@@ -999,5 +999,6 @@ maximum capability surface while remaining bounded. Phase484 adds regression tes
 approval, exact provider binding, malformed-input rejection, side-effect classification and full
 manifest exposure. Phase485 preserves the existing canonical execution chain:
 typed contract -> live descriptor -> SovereignActionLoop -> bound AuditedToolFabric -> AuthorityGate ->
-platform launcher -> recorded ActionOutcome. No new authority, approval, receipt, or recovery path is
-introduced.
+platform launcher -> recorded ActionOutcome. Assistant side effects continue through
+DurableAssistantActionExecutor and the existing PlanExecutionReceipt ledger, while governed plans keep
+their existing receipt path. No new authority, approval, receipt, or recovery path is introduced.
