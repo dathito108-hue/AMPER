@@ -216,7 +216,8 @@ object ReflectivePlanCriticPrompt {
         structuredWorldStates: List<StructuredWorldState> = emptyList(),
         worldPredictions: List<WorldPrediction> = emptyList(),
         causalHypotheses: List<CausalWorldHypothesis> = emptyList(),
-        integratedCognitiveState: IntegratedCognitiveStatePacket? = null
+        integratedCognitiveState: IntegratedCognitiveStatePacket? = null,
+        metacognitiveControl: MetacognitiveControlDirective? = null
     ): String {
         require(userGoal.isNotBlank())
         require(charBudget >= ConversationInferenceProfile.MIN_PROMPT_CHARS)
@@ -233,6 +234,13 @@ object ReflectivePlanCriticPrompt {
             integratedCognitiveState?.context?.worldPredictions ?: worldPredictions
         val effectiveHypotheses =
             integratedCognitiveState?.context?.causalHypotheses ?: causalHypotheses
+        if (integratedCognitiveState != null && metacognitiveControl != null) {
+            require(
+                metacognitiveControl.cognitiveStateDigest == integratedCognitiveState.canonicalDigest
+            ) {
+                "reflective critic metacognitive control must bind the exact cognitive state"
+            }
+        }
 
         val fixedData = buildString {
             appendLine("<CURRENT_GOAL_DATA>")
@@ -252,6 +260,26 @@ object ReflectivePlanCriticPrompt {
                 )
                 appendLine("authority=false")
                 appendLine("</COGNITIVE_STATE_BINDING>")
+            }
+            metacognitiveControl?.let { control ->
+                appendLine("<METACOGNITIVE_CONTROL_BINDING>")
+                appendLine("cognitive_state_digest=" + control.cognitiveStateDigest)
+                appendLine("mode=" + control.mode.name)
+                appendLine("requested_candidate_count=" + control.requestedCandidateCount)
+                appendLine(
+                    "evidence_caution=" +
+                        "%.3f".format(java.util.Locale.US, control.evidenceCaution) +
+                        ";side_effect_caution=" +
+                        "%.3f".format(java.util.Locale.US, control.sideEffectCaution) +
+                        ";learning_pressure=" +
+                        "%.3f".format(java.util.Locale.US, control.learningPressure)
+                )
+                appendLine("authority=false")
+                appendLine(
+                    "instruction=Judge the selected plan against the frozen cognitive state and " +
+                        "current live contracts; higher caution must not be converted into authority."
+                )
+                appendLine("</METACOGNITIVE_CONTROL_BINDING>")
             }
             appendLine("<SELECTED_PLAN_DATA>")
             evaluation.candidate.steps.sortedBy { it.index }.forEach { step ->

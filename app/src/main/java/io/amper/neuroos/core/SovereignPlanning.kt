@@ -267,6 +267,10 @@ object TitanPlanProtocol {
  * no ToolFabric/AuthorityGate handle, may perform at most one critique/revision pass, and any revised
  * steps are re-parsed through TitanPlanProtocol so exact live binding and side-effect classification
  * remain authoritative.
+ * Phase256-260 derives one bounded metacognitive control directive from the integrated cognitive
+ * state and freezes it across planner plus critic. It may reduce temperature, vary bounded output
+ * budget and request deeper deliberation under uncertainty, but it never widens user profile limits,
+ * changes live tool contracts, grants authority, approves side effects or creates an inference loop.
  */
 class SovereignPlanCoordinator(
     private val runtime: AmperRuntime,
@@ -359,19 +363,24 @@ class SovereignPlanCoordinator(
             allowedCapabilities = advertisedCapabilities,
             descriptors = descriptors
         )
+        val metacognitiveControl = MetacognitiveInferenceControlPolicy.derive(
+            state = cognitiveState,
+            profile = boundInferenceProfile
+        )
         val prompt = buildPlanningPrompt(
             conversationId = conversationId,
             userGoal = userGoal,
             descriptors = descriptors,
             cognitiveState = cognitiveState,
+            metacognitiveControl = metacognitiveControl,
             promptBudgetChars = boundInferenceProfile.maxPromptChars
         )
         val response = inference.infer(
             InferenceRequest(
                 prompt = prompt,
                 requiredCapabilities = baselineCapabilities,
-                maxOutputTokens = boundInferenceProfile.maxOutputTokens,
-                temperature = boundInferenceProfile.temperature,
+                maxOutputTokens = metacognitiveControl.planningMaxOutputTokens,
+                temperature = metacognitiveControl.planningTemperature,
                 preferredCapabilityProfiles =
                     DeterministicInferenceCapabilityPolicy.planningProfile(baselineCapabilities),
                 userPreferredModelId = runtime.conversations.preferredModelId(conversationId),
@@ -394,6 +403,7 @@ class SovereignPlanCoordinator(
             selected = selection.selected,
             descriptors = descriptors,
             cognitiveState = cognitiveState,
+            metacognitiveControl = metacognitiveControl,
             profile = boundInferenceProfile
         )
         val finalEvaluation = postCriticEvaluation(selection.selected, critique)
@@ -457,11 +467,16 @@ class SovereignPlanCoordinator(
             allowedCapabilities = advertisedCapabilities,
             descriptors = descriptors
         )
+        val metacognitiveControl = MetacognitiveInferenceControlPolicy.derive(
+            state = cognitiveState,
+            profile = boundInferenceProfile
+        )
         val prompt = buildPlanningPrompt(
             conversationId = plan.conversationId,
             userGoal = plan.goal,
             descriptors = descriptors,
             cognitiveState = cognitiveState,
+            metacognitiveControl = metacognitiveControl,
             promptBudgetChars = boundInferenceProfile.maxPromptChars,
             recoveryDecision = decision
         )
@@ -469,8 +484,8 @@ class SovereignPlanCoordinator(
             InferenceRequest(
                 prompt = prompt,
                 requiredCapabilities = baselineCapabilities,
-                maxOutputTokens = boundInferenceProfile.maxOutputTokens,
-                temperature = boundInferenceProfile.temperature,
+                maxOutputTokens = metacognitiveControl.planningMaxOutputTokens,
+                temperature = metacognitiveControl.planningTemperature,
                 preferredCapabilityProfiles =
                     DeterministicInferenceCapabilityPolicy.planningProfile(baselineCapabilities),
                 userPreferredModelId = runtime.conversations.preferredModelId(plan.conversationId),
@@ -499,6 +514,7 @@ class SovereignPlanCoordinator(
             selected = selection.selected,
             descriptors = descriptors,
             cognitiveState = cognitiveState,
+            metacognitiveControl = metacognitiveControl,
             profile = boundInferenceProfile
         )
         val finalEvaluation = postCriticEvaluation(selection.selected, critique)
@@ -543,6 +559,7 @@ class SovereignPlanCoordinator(
         selected: DeliberationEvaluation,
         descriptors: List<ToolDescriptor>,
         cognitiveState: IntegratedCognitiveStatePacket,
+        metacognitiveControl: MetacognitiveControlDirective,
         profile: BoundConversationInferenceProfile
     ): ReflectivePlanCritique {
         val structural = ReflectivePlanCriticGate.structuralVerify(
@@ -558,14 +575,15 @@ class SovereignPlanCoordinator(
             allowedCapabilities = advertisedCapabilities,
             descriptors = descriptors,
             charBudget = profile.maxPromptChars,
-            integratedCognitiveState = cognitiveState
+            integratedCognitiveState = cognitiveState,
+            metacognitiveControl = metacognitiveControl
         )
         val response = critic.infer(
             InferenceRequest(
                 prompt = prompt,
                 requiredCapabilities = baselineCapabilities,
-                maxOutputTokens = profile.maxOutputTokens,
-                temperature = profile.temperature,
+                maxOutputTokens = metacognitiveControl.criticMaxOutputTokens,
+                temperature = metacognitiveControl.criticTemperature,
                 sessionRoutingPreference = profile.sessionRoutingPreference
             )
         ).getOrThrow()
@@ -691,6 +709,7 @@ class SovereignPlanCoordinator(
         userGoal: String,
         descriptors: List<ToolDescriptor>,
         cognitiveState: IntegratedCognitiveStatePacket,
+        metacognitiveControl: MetacognitiveControlDirective,
         promptBudgetChars: Int,
         recoveryDecision: StrategyRecoveryDecision? = null
     ): String {
@@ -720,6 +739,7 @@ class SovereignPlanCoordinator(
             descriptors = descriptors,
             userGoal = userGoal,
             cognitiveState = cognitiveState,
+            metacognitiveControl = metacognitiveControl,
             charBudget = protocolBudget
         )
         val tail = buildString {
@@ -747,11 +767,18 @@ class SovereignPlanCoordinator(
         descriptors: List<ToolDescriptor>,
         userGoal: String,
         cognitiveState: IntegratedCognitiveStatePacket,
+        metacognitiveControl: MetacognitiveControlDirective,
         charBudget: Int
     ): String {
+        require(metacognitiveControl.cognitiveStateDigest == cognitiveState.canonicalDigest) {
+            "metacognitive control must bind the exact cognitive state"
+        }
+        val control = MetacognitiveControlRenderer.render(metacognitiveControl)
         val base = TitanDeliberationProtocol.instructions(capabilities, emptyList())
-        require(base.length + 2 + COGNITIVE_STATE_MIN_CHARS <= charBudget) {
-            "conversation prompt budget cannot preserve planning protocol and cognitive state"
+        require(
+            base.length + 2 + control.length + 2 + COGNITIVE_STATE_MIN_CHARS <= charBudget
+        ) {
+            "conversation prompt budget cannot preserve planning protocol, metacognition and cognitive state"
         }
         val allowed = capabilities.toSet()
         val selected = mutableListOf<ToolDescriptor>()
@@ -761,13 +788,17 @@ class SovereignPlanCoordinator(
             .sortedBy { it.capability.value }
             .forEach { descriptor ->
                 val candidate = TitanDeliberationProtocol.instructions(capabilities, selected + descriptor)
-                if (candidate.length + 2 + COGNITIVE_STATE_MIN_CHARS <= charBudget) {
+                if (
+                    candidate.length + 2 + control.length + 2 +
+                        COGNITIVE_STATE_MIN_CHARS <= charBudget
+                ) {
                     selected += descriptor
                 }
             }
 
         val protocol = TitanDeliberationProtocol.instructions(capabilities, selected)
-        val cognitiveAvailable = charBudget - protocol.length - 2
+        val fixedPrefix = protocol + "\n\n" + control
+        val cognitiveAvailable = charBudget - fixedPrefix.length - 2
         require(cognitiveAvailable >= COGNITIVE_STATE_MIN_CHARS)
         val cognitiveBudget = minOf(
             COGNITIVE_STATE_MAX_CHARS,
@@ -777,7 +808,7 @@ class SovereignPlanCoordinator(
             cognitiveState,
             cognitiveBudget
         )
-        var bounded = protocol + "\n\n" + renderedCognitive
+        var bounded = fixedPrefix + "\n\n" + renderedCognitive
 
         val selectedCapabilities = selected.map { it.capability }.toSet()
         val skillGuidance = cognitiveState.skillGuidance.filter { guidance ->
