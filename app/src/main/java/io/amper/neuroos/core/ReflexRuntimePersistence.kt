@@ -198,7 +198,7 @@ private object ReflexRuntimeActivationCodec {
             ),
             checkpointId = requireNotNull(fields["checkpoint"])
                 .takeUnless { it == "~" }
-                ?.let(::NativeCheckpointId),
+                ?.let { NativeCheckpointId(it) },
             weightArtifactSha256 = requireNotNull(fields["weight"])
                 .takeUnless { it == "~" },
             activatedAtEpochMs = requireNotNull(fields["activated"])
