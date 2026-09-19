@@ -42,6 +42,79 @@ fun interface ReflexDecisionRuntimeActivationGate {
     fun validate(port: NativeReflexDecisionPort): Result<Unit>
 }
 
+fun interface ReflexDecisionRuntimeReplacementGate {
+    fun validate(
+        candidate: NativeReflexDecisionPort,
+        baselineCheckpointId: NativeCheckpointId
+    ): Result<Unit>
+}
+
+object RejectingReflexDecisionRuntimeReplacementGate : ReflexDecisionRuntimeReplacementGate {
+    override fun validate(
+        candidate: NativeReflexDecisionPort,
+        baselineCheckpointId: NativeCheckpointId
+    ): Result<Unit> = Result.failure(
+        IllegalStateException("Reflex runtime replacement gate is unavailable")
+    )
+}
+
+class CanonicalReflexDecisionRuntimeReplacementGate(
+    private val activationGate: ReflexDecisionRuntimeActivationGate,
+    private val training: NativeTrainingPipeline
+) : ReflexDecisionRuntimeReplacementGate {
+    override fun validate(
+        candidate: NativeReflexDecisionPort,
+        baselineCheckpointId: NativeCheckpointId
+    ): Result<Unit> = runCatching {
+        activationGate.validate(candidate).getOrThrow()
+        val promotion = training.promotionCandidate(
+            candidateCheckpointId = candidate.checkpointId,
+            baselineCheckpointId = baselineCheckpointId
+        )
+        require(promotion.promotable) {
+            "Reflex challenger is not promotable over the active champion"
+        }
+    }
+}
+
+data class ReflexRuntimeHealthPolicy(
+    val maxConsecutivePredictionFailures: Int = 3,
+    val maxPredictionLatencyMs: Double = 250.0,
+    val maxConsecutiveSlowPredictions: Int = 3
+) {
+    init {
+        require(maxConsecutivePredictionFailures > 0)
+        require(maxPredictionLatencyMs > 0.0 && maxPredictionLatencyMs.isFinite())
+        require(maxConsecutiveSlowPredictions > 0)
+    }
+}
+
+data class ReflexRuntimeHealthSnapshot(
+    val checkpointId: NativeCheckpointId?,
+    val totalPredictions: Long = 0L,
+    val predictionFailures: Long = 0L,
+    val consecutivePredictionFailures: Int = 0,
+    val slowPredictions: Long = 0L,
+    val consecutiveSlowPredictions: Int = 0,
+    val lastPredictionLatencyMs: Double = 0.0,
+    val maxPredictionLatencyMs: Double = 0.0,
+    val automaticRollbacks: Long = 0L
+) {
+    init {
+        require(totalPredictions >= 0L)
+        require(predictionFailures in 0L..totalPredictions)
+        require(consecutivePredictionFailures >= 0)
+        require(slowPredictions in 0L..totalPredictions)
+        require(consecutiveSlowPredictions >= 0)
+        require(lastPredictionLatencyMs >= 0.0 && lastPredictionLatencyMs.isFinite())
+        require(maxPredictionLatencyMs >= 0.0 && maxPredictionLatencyMs.isFinite())
+        require(automaticRollbacks >= 0L)
+    }
+
+    val authorityBearing: Boolean
+        get() = false
+}
+
 /**
  * Recomputes runtime eligibility from the canonical checkpoint/evaluation/promotion path.
  * A caller cannot activate a System-1 port by supplying a self-declared "admitted" flag.
@@ -133,6 +206,7 @@ interface ReflexDecisionRuntimeController : ReflexDecisionCortex {
     fun rollback(): ReflexDecisionRuntimeActivation?
     fun active(): ReflexDecisionRuntimeActivation?
     fun persistedIntent(): ReflexRuntimeActivationIntent?
+    fun health(): ReflexRuntimeHealthSnapshot
 }
 
 /**
@@ -146,11 +220,15 @@ interface ReflexDecisionRuntimeController : ReflexDecisionCortex {
  */
 class CanonicalReflexDecisionRuntimeController(
     private val activationGate: ReflexDecisionRuntimeActivationGate,
+    private val replacementGate: ReflexDecisionRuntimeReplacementGate =
+        RejectingReflexDecisionRuntimeReplacementGate,
     private val fallback: ReflexDecisionCortex = DeterministicReflexDecisionCortex,
     private val binder: ReflexActionArgumentBinder = CanonicalReflexActionArgumentBinder,
     private val activationStore: ReflexDecisionRuntimeActivationStore =
         VolatileReflexDecisionRuntimeActivationStore(),
-    private val clock: () -> Long = System::currentTimeMillis
+    private val healthPolicy: ReflexRuntimeHealthPolicy = ReflexRuntimeHealthPolicy(),
+    private val clock: () -> Long = System::currentTimeMillis,
+    private val monotonicNanos: () -> Long = System::nanoTime
 ) : ReflexDecisionRuntimeController {
     @Volatile
     private var activePort: NativeReflexDecisionPort? = null
@@ -158,10 +236,31 @@ class CanonicalReflexDecisionRuntimeController(
     @Volatile
     private var activation: ReflexDecisionRuntimeActivation? = null
 
+    @Volatile
+    private var standbyPort: NativeReflexDecisionPort? = null
+
+    @Volatile
+    private var standbyActivation: ReflexDecisionRuntimeActivation? = null
+
+    @Volatile
+    private var healthState = ReflexRuntimeHealthSnapshot(checkpointId = null)
+
     @Synchronized
     override fun activate(port: NativeReflexDecisionPort): Result<ReflexDecisionRuntimeActivation> =
         runCatching {
-            activationGate.validate(port).getOrThrow()
+            val currentActivation = activation
+            val replacing =
+                currentActivation != null &&
+                    currentActivation.checkpointId != port.checkpointId
+            if (replacing) {
+                replacementGate.validate(
+                    candidate = port,
+                    baselineCheckpointId = requireNotNull(currentActivation).checkpointId
+                ).getOrThrow()
+            } else {
+                activationGate.validate(port).getOrThrow()
+            }
+
             val activatedAt = clock()
             val next = ReflexDecisionRuntimeActivation(
                 checkpointId = port.checkpointId,
@@ -169,8 +268,20 @@ class CanonicalReflexDecisionRuntimeController(
                 activatedAtEpochMs = activatedAt
             )
             activationStore.persistActive(next, activatedAt)
+
+            if (replacing) {
+                standbyPort = activePort
+                standbyActivation = currentActivation
+            } else if (currentActivation == null) {
+                standbyPort = null
+                standbyActivation = null
+            }
             activePort = port
             activation = next
+            healthState = ReflexRuntimeHealthSnapshot(
+                checkpointId = next.checkpointId,
+                automaticRollbacks = healthState.automaticRollbacks
+            )
             next
         }
 
@@ -203,6 +314,12 @@ class CanonicalReflexDecisionRuntimeController(
         )
         activePort = port
         activation = restored
+        standbyPort = null
+        standbyActivation = null
+        healthState = ReflexRuntimeHealthSnapshot(
+            checkpointId = restored.checkpointId,
+            automaticRollbacks = healthState.automaticRollbacks
+        )
         restored
     }
 
@@ -213,12 +330,20 @@ class CanonicalReflexDecisionRuntimeController(
         activationStore.persistDisabled(now)
         activePort = null
         activation = null
+        standbyPort = null
+        standbyActivation = null
+        healthState = ReflexRuntimeHealthSnapshot(
+            checkpointId = null,
+            automaticRollbacks = healthState.automaticRollbacks
+        )
         return previous
     }
 
     override fun active(): ReflexDecisionRuntimeActivation? = activation
 
     override fun persistedIntent(): ReflexRuntimeActivationIntent? = activationStore.load()
+
+    override fun health(): ReflexRuntimeHealthSnapshot = healthState
 
     override fun decide(request: ReflexDecisionRequest): ReflexDecision {
         val port = activePort ?: return fallback.decide(request)
@@ -228,12 +353,35 @@ class CanonicalReflexDecisionRuntimeController(
             .sortedBy { it.value }
             .take(ReflexExperienceTrainingExample.MAX_AVAILABLE_CAPABILITIES)
             .toCollection(linkedSetOf())
-        val prediction = port.predict(
+        val startedAtNanos = monotonicNanos()
+        val predictionResult = port.predict(
             NativeReflexDecisionInput(
                 featureHashes = ReflexDecisionFeatureEncoder.encode(request.userInput),
                 availableCapabilities = available
             )
-        ).getOrElse {
+        )
+        val elapsedNanos = (monotonicNanos() - startedAtNanos).coerceAtLeast(0L)
+        val latencyMs = elapsedNanos.toDouble() / 1_000_000.0
+
+        val prediction = predictionResult.getOrElse {
+            val unhealthy = recordPredictionHealth(
+                port = port,
+                latencyMs = latencyMs,
+                failed = true
+            )
+            if (unhealthy) {
+                autoRollbackUnhealthy(port)
+            }
+            return fallback.decide(request)
+        }
+
+        val unhealthy = recordPredictionHealth(
+            port = port,
+            latencyMs = latencyMs,
+            failed = false
+        )
+        if (unhealthy) {
+            autoRollbackUnhealthy(port)
             return fallback.decide(request)
         }
 
@@ -264,6 +412,65 @@ class CanonicalReflexDecisionRuntimeController(
             input = proposal.input,
             reason = proposal.reason
         )
+    }
+
+    @Synchronized
+    private fun recordPredictionHealth(
+        port: NativeReflexDecisionPort,
+        latencyMs: Double,
+        failed: Boolean
+    ): Boolean {
+        if (activePort !== port) return false
+        val previous = healthState
+        val slow = latencyMs > healthPolicy.maxPredictionLatencyMs
+        val next = previous.copy(
+            checkpointId = port.checkpointId,
+            totalPredictions = previous.totalPredictions + 1L,
+            predictionFailures = previous.predictionFailures + if (failed) 1L else 0L,
+            consecutivePredictionFailures =
+                if (failed) previous.consecutivePredictionFailures + 1 else 0,
+            slowPredictions = previous.slowPredictions + if (slow) 1L else 0L,
+            consecutiveSlowPredictions =
+                if (slow) previous.consecutiveSlowPredictions + 1 else 0,
+            lastPredictionLatencyMs = latencyMs,
+            maxPredictionLatencyMs = maxOf(previous.maxPredictionLatencyMs, latencyMs)
+        )
+        healthState = next
+        return next.consecutivePredictionFailures >=
+            healthPolicy.maxConsecutivePredictionFailures ||
+            next.consecutiveSlowPredictions >=
+            healthPolicy.maxConsecutiveSlowPredictions
+    }
+
+    @Synchronized
+    private fun autoRollbackUnhealthy(port: NativeReflexDecisionPort) {
+        if (activePort !== port) return
+        val rollbackCount = healthState.automaticRollbacks + 1L
+        val previousPort = standbyPort
+        val previousActivation = standbyActivation
+        val now = clock()
+
+        if (previousPort != null && previousActivation != null) {
+            activationStore.persistActive(previousActivation, now)
+            activePort = previousPort
+            activation = previousActivation
+            standbyPort = null
+            standbyActivation = null
+            healthState = ReflexRuntimeHealthSnapshot(
+                checkpointId = previousActivation.checkpointId,
+                automaticRollbacks = rollbackCount
+            )
+        } else {
+            activationStore.persistDisabled(now)
+            activePort = null
+            activation = null
+            standbyPort = null
+            standbyActivation = null
+            healthState = ReflexRuntimeHealthSnapshot(
+                checkpointId = null,
+                automaticRollbacks = rollbackCount
+            )
+        }
     }
 
     private fun escalation(

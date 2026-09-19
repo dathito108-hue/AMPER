@@ -875,3 +875,20 @@ before clearing the in-memory port, preventing an older checkpoint from silently
 restart. Phase455 wires the MemoryOs-backed activation store into AmperRuntime, exposes the persisted
 intent through the runtime controller, and excludes activation records from generic sovereign prompt
 retrieval. Persistence carries no tool authority and cannot itself instantiate or approve a model.
+
+
+### Implemented checkpoint — Phase456-460
+Phase456 adds a baseline-aware Reflex runtime replacement gate. Initial activation still requires the
+canonical checkpoint/admission/promotion gate; replacing an active champion additionally requires the
+challenger to be promotable against that exact baseline through NativeTrainingPipeline comparison.
+Phase457 adds bounded runtime health telemetry for learned System-1 inference: total predictions,
+prediction failures, consecutive failures, slow predictions, consecutive slow calls, last/max latency
+and automatic rollback count. Phase458 enforces configurable operational failure/latency budgets
+(default three consecutive prediction failures or three predictions above 250 ms). Low confidence or
+argument-binding rejection remains task uncertainty and does not poison runtime health. Phase459 keeps
+the prior champion as an in-process standby during a validated replacement; if the challenger exceeds
+the health budget, AMPER durably restores the champion identity before switching the live port back.
+When no standby exists, the unhealthy learned model is durably disabled and assistant routing falls
+back to the deterministic Reflex bootstrap/System-2 path. Phase460 wires canonical replacement
+comparison into AmperRuntime. Explicit rollback still disables learned Reflex rather than restoring a
+standby, and no health/replacement mechanism changes tool authority, approval or safe argument binding.
