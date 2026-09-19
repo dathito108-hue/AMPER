@@ -13,8 +13,7 @@ class ReflexRealModelTest {
         val artifacts = InMemoryReflexLinearArtifactStore()
         val lifecycle = ReflexNativeModelLifecycle(
             runtime = runtime,
-            artifacts = artifacts,
-            clock = { 50_000L }
+            artifacts = artifacts
         )
 
         val report = lifecycle.maintain().getOrThrow()
