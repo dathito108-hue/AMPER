@@ -1097,3 +1097,34 @@ former champion as the existing automatic-rollback standby. Tests cover replay/h
 retention of an older device-status skill while learning a new web-search skill, and low-drift
 batching. Tool binding, AuthorityGate, explicit side-effect approval, durable receipts and all
 execution authority remain unchanged.
+
+
+### Completion checkpoint — Phase501-505
+Phase501 adds a privacy-preserving active-learning scorer over retained Reflex examples. The scorer
+never sees raw user text: it evaluates the current admitted champion directly against hashed features,
+live-capability sets and governed ACTION/ESCALATE labels already stored by the Reflex experience
+pipeline. Champion disagreement, uncertainty, low confidence and previously unseen action
+capabilities become explicit non-authoritative learning signals.
+
+Phase502 adds an evidence-quality gate. Examples below label-confidence 0.75 cannot satisfy the
+continual-learning class floors, and label confidence also scales hard-example priority. AMPER does
+not manufacture missing labels or turn model uncertainty into ground truth; insufficient
+high-quality governed evidence simply leaves the active champion unchanged.
+
+Phase503 adds deterministic hard-example mining. From up to 160 fresh examples AMPER trains on at
+most 96 high-value examples, preserving minimum ACTION/ESCALATE coverage and deterministic
+novel-capability coverage. Current champion errors and novel capabilities are selected ahead of
+already-mastered easy examples. The existing trainer still applies per-example label-confidence and
+class-balance weighting, while Phase496-500 replay supplies bounded historical rehearsal.
+
+Phase504 integrates the miner into continual lifecycle scheduling. Stable small windows continue to
+batch instead of retraining, but a sufficient concentration of champion disagreements, uncertainty
+or a novel capability can trigger learning as soon as the governed 24-ACTION/24-ESCALATE floors are
+met. Checkpoint identity is versioned with the exact selected hard-example ids plus replay ids, so
+restart/rejection behavior stays deterministic and content bound.
+
+Phase505 keeps promotion conservative: active-learning challengers still pass fresh held-out
+admission, common-holdout champion comparison, historical anti-forgetting stability comparison and
+the verified runtime replacement gate before becoming live. The former champion remains rollback
+standby. Hard-example priority is training evidence only and never changes ToolDescriptor binding,
+AuthorityGate, explicit approval, durable receipts or execution authority.
