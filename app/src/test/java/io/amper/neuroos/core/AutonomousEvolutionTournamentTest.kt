@@ -209,6 +209,33 @@ class AutonomousEvolutionTournamentTest {
     }
 
     @Test
+    fun baselineWithoutArtifactDigestCannotStartTournament() {
+        val fixture = fixture()
+        val unboundBaseline = fixture.baseline.copy(artifactDigest = null)
+        val candidate = candidate(
+            id = "candidate-unbound-baseline",
+            artifact = "4".repeat(64),
+            scores = mapOf(
+                "planning" to 0.99,
+                "generalization" to 0.90
+            )
+        )
+
+        val result = runCatching {
+            fixture.model.runTournament(
+                EvolutionTournamentId("tournament-unbound-baseline"),
+                unboundBaseline,
+                listOf(candidate)
+            )
+        }
+
+        assertTrue(result.isFailure)
+        assertTrue(
+            result.exceptionOrNull()?.message?.contains("content-addressed") == true
+        )
+    }
+
+    @Test
     fun runtimeExposesEvolutionTournamentSubsystem() {
         val runtime = AmperRuntime.reference()
         val suite = suite("runtime-suite")
