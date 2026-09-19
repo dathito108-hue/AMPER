@@ -222,7 +222,9 @@ data class AgiMobileQualificationEvidence(
     }
 }
 
-fun interface AgiMobileQualificationProbe {
+interface AgiMobileQualificationProbe {
+    val id: String
+    val domain: AgiMobileQualificationDomain
     fun evaluate(subject: AgiMobileQualificationSubject): Result<AgiMobileQualificationEvidence>
 }
 
@@ -429,8 +431,9 @@ class CanonicalAgiMobileQualificationRunner(
     ): AgiMobileQualificationReport {
         val evidenceByProbe = linkedMapOf<String, AgiMobileQualificationEvidence>()
         probes.forEach { probe ->
-            val expected = suite.criteria.firstOrNull { it.probeId == probeId(probe) }
+            val expected = suite.criteria.firstOrNull { it.probeId == probe.id }
                 ?: return@forEach
+            if (probe.domain != expected.domain) return@forEach
             val evidence = probe.evaluate(subject).getOrNull() ?: return@forEach
             if (evidence.probeId != expected.probeId || evidence.domain != expected.domain) {
                 return@forEach
@@ -531,17 +534,11 @@ class CanonicalAgiMobileQualificationRunner(
         return report
     }
 
-    /**
-     * Java/Kotlin fun-interface instances do not expose an id, so canonical probe identity is carried
-     * by a tiny marker wrapper rather than inferred from class names.
-     */
-    private fun probeId(probe: AgiMobileQualificationProbe): String =
-        (probe as? NamedAgiMobileQualificationProbe)?.id ?: ""
 }
 
 class NamedAgiMobileQualificationProbe(
-    val id: String,
-    val domain: AgiMobileQualificationDomain,
+    override val id: String,
+    override val domain: AgiMobileQualificationDomain,
     private val evaluator:
         (AgiMobileQualificationSubject) -> Result<AgiMobileQualificationEvidence>
 ) : AgiMobileQualificationProbe {
