@@ -70,7 +70,7 @@ class NativeExperienceTrainingCoordinatorTest {
         val training = MemoryBackedNativeTrainingPipeline(
             memory = memory,
             foundation = foundation,
-            experienceDatasets = datasets,
+            generatedDatasetResolver = NativeExperienceGeneratedDatasetResolver(datasets),
             clock = { 2_000L }
         )
         val contract = AmperNativeModelContract(

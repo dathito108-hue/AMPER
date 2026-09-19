@@ -379,11 +379,16 @@ class AmperRuntime private constructor(
                 store = reflexExperienceDatasets,
                 foundation = nativeModelFoundation
             )
+            val generatedDatasetResolver = CompositeNativeGeneratedDatasetResolver(
+                listOf(
+                    NativeExperienceGeneratedDatasetResolver(nativeExperienceDatasets),
+                    ReflexExperienceGeneratedDatasetResolver(reflexExperienceDatasets)
+                )
+            )
             val nativeTrainingPipeline = MemoryBackedNativeTrainingPipeline(
                 memory = memory,
                 foundation = nativeModelFoundation,
-                experienceDatasets = nativeExperienceDatasets,
-                reflexExperienceDatasets = reflexExperienceDatasets
+                generatedDatasetResolver = generatedDatasetResolver
             )
             val nativeExperienceTraining = CanonicalNativeExperienceTrainingCoordinator(
                 datasets = nativeExperienceDatasets,

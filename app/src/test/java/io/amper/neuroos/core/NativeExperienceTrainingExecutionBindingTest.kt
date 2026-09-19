@@ -102,7 +102,11 @@ class NativeExperienceTrainingExecutionBindingTest {
         )
         val bound = request
         assertNotNull(bound)
-        assertTrue(bound!!.generatedExperienceShards.isNotEmpty())
+        assertTrue(bound!!.generatedDatasetPayloads.isNotEmpty())
+        assertEquals(
+            NativeGeneratedDatasetKind.VERIFIED_GOAL_EXPERIENCE,
+            bound.generatedDatasetPayloads.single().kind
+        )
         assertEquals(bound.manifest.datasetSnapshotDigest, prepared.bundle.datasetSnapshotDigest)
         assertTrue(bound.executionBindingDigest.matches(Regex("[0-9a-f]{64}")))
     }

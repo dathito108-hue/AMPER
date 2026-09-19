@@ -122,7 +122,7 @@ class NativeExperienceDatasetTest {
             memory = memory,
             foundation = foundation,
             clock = { 2_000L },
-            experienceDatasets = store
+            generatedDatasetResolver = NativeExperienceGeneratedDatasetResolver(store)
         )
         val teacher = NativeTeacherSnapshot(
             id = NativeTeacherSnapshotId("phase399-teacher"),
@@ -179,8 +179,11 @@ class NativeExperienceDatasetTest {
         assertEquals(NativeTrainingRunStatus.FAILED, result.status)
         val request = captured
         assertNotNull(request)
-        assertEquals(1, request!!.generatedExperienceShards.size)
-        assertEquals(shard, request.generatedExperienceShards.single())
+        assertEquals(1, request!!.generatedDatasetPayloads.size)
+        val payload = request.generatedDatasetPayloads.single()
+        assertEquals(NativeGeneratedDatasetKind.VERIFIED_GOAL_EXPERIENCE, payload.kind)
+        assertEquals(shard.manifest, payload.manifest)
+        assertEquals(shard.payload, payload.payload)
     }
 
     private fun verifiedPlan(
