@@ -401,18 +401,20 @@ cannot reset fairness. Goal scheduling metadata remains orchestration-only and c
 capabilities, grant authority, or approve side effects.
 
 
-### Implemented checkpoint — Phase311-315
-Phase311 adds a bounded durable goal portfolio that normalizes goal id, objective and priority into
-Memory OS rather than relying only on the in-memory GoalSystem. Phase312 wires the portfolio into
-AmperRuntime and excludes its raw index record from ordinary planning recall. Phase313 mirrors live
-active goals into the portfolio and selects the highest-priority durable PENDING goal; if Android
-restarts and the live GoalSystem has not reconstructed prior goals yet, the persistent-goal
-executive can still resume from the encrypted portfolio. Phase314 marks the exact source goal
-COMPLETED only when persistent-goal completion is resolved, including independently verified
-SATISFIED completion; observing the same in-memory goal again does not resurrect a retained
-completion tombstone. Phase315 bounds the portfolio to 32 pending objectives plus 64 recent completed
-tombstones, preserving mobile memory discipline while retaining long-horizon continuity. The
-portfolio changes orchestration state only; it grants no tool, device, model or side-effect authority.
+### Implemented checkpoint — Phase321-325
+Phase321 adds up to eight durable prerequisite goal IDs and one optional absolute deadline to each
+pending portfolio goal. Phase322 makes dependency mutation fail closed: prerequisites must already
+exist, self-links are rejected, completed goal metadata is immutable and cycles are rejected before
+persistence. Missing/pruned prerequisite tombstones conservatively keep dependents blocked rather
+than assuming success. Phase323 adds bounded deadline urgency over a 24-hour horizon and combines it
+with durable priority only among runnable, non-starved goals. Phase324 preserves the hard Phase318
+anti-starvation lane above deadline urgency, so old runnable work cannot be suppressed by a stream of
+fresh urgent goals; dependencies remain a hard gate even for overdue/starved dependents. Phase325
+routes DurableGoalPortfolio.selectNext() through this combined arbitration and upgrades the portfolio
+payload to V3 while retaining canonical V1 and fairness-V2 decoding. Dependency/deadline/fairness
+metadata is scheduling evidence only and cannot bypass capability, authority, approval, resource or
+governed execution gates.
+
 
 ## CI budget policy
 
