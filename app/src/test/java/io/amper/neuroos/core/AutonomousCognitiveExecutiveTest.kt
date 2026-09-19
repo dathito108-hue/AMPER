@@ -109,6 +109,11 @@ class AutonomousCognitiveExecutiveTest {
         assertEquals(CognitiveExecutiveAction.OBSERVE, observeDirective.action)
         assertEquals(CognitiveExecutiveAction.EVOLVE, evolveDirective.action)
         assertEquals(capability, evolveDirective.triggeringCapability)
+        assertEquals(
+            LearningNeedKind.EXECUTION_RELIABILITY,
+            evolveDirective.triggeringNeedKind
+        )
+        assertEquals(0.80, requireNotNull(evolveDirective.triggeringEvidenceConfidence), 0.0001)
         assertEquals(CognitiveExecutiveAction.PRACTICE, practiceDirective.action)
         assertEquals(CognitiveExecutiveAction.PRACTICE, fallbackPractice.action)
         assertEquals(CognitiveExecutiveAction.PLAN, planDirective.action)
@@ -123,6 +128,41 @@ class AutonomousCognitiveExecutiveTest {
             assertEquals(64, it.cognitiveStateDigest.length)
             assertEquals(64, it.executionContextDigest.length)
         }
+    }
+
+    @Test
+    fun hierarchicalRepairWeaknessCanEscalateToEvolutionWithTypedEvidence() {
+        val base = baseState()
+        val state = base.copy(
+            perceptualEvidence = emptyList(),
+            learningNeeds = listOf(
+                need(
+                    LearningNeedKind.HIERARCHICAL_STRATEGY_REPAIR,
+                    severity = 0.91,
+                    confidence = 0.72
+                )
+            ),
+            readiness = base.readiness.copy(
+                worldConfidence = 0.82,
+                uncertainty = 0.18,
+                learningPressure = 0.91,
+                overallReadiness = 0.44
+            )
+        )
+
+        val directive = AutonomousCognitiveExecutivePolicy.decide(
+            state = state,
+            evolutionAvailable = true
+        )
+
+        assertEquals(CognitiveExecutiveAction.EVOLVE, directive.action)
+        assertEquals(capability, directive.triggeringCapability)
+        assertEquals(
+            LearningNeedKind.HIERARCHICAL_STRATEGY_REPAIR,
+            directive.triggeringNeedKind
+        )
+        assertEquals(0.72, requireNotNull(directive.triggeringEvidenceConfidence), 0.0001)
+        assertFalse(directive.authorityBearing)
     }
 
     @Test

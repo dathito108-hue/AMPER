@@ -15,7 +15,9 @@ data class CognitiveExecutiveDirective(
     val uncertainty: Double,
     val learningPressure: Double,
     val triggeringCapability: CapabilityId? = null,
-    val rationale: String
+    val rationale: String,
+    val triggeringNeedKind: LearningNeedKind? = null,
+    val triggeringEvidenceConfidence: Double? = null
 ) {
     init {
         require(cognitiveStateDigest.matches(SHA256))
@@ -23,6 +25,12 @@ data class CognitiveExecutiveDirective(
         require(overallReadiness in 0.0..1.0)
         require(uncertainty in 0.0..1.0)
         require(learningPressure in 0.0..1.0)
+        triggeringEvidenceConfidence?.let { require(it in 0.0..1.0) }
+        require(
+            (triggeringNeedKind == null) == (triggeringEvidenceConfidence == null)
+        ) {
+            "triggering need kind and evidence confidence must be supplied together"
+        }
         require(rationale.isNotBlank() && rationale.length <= 256)
     }
 
@@ -66,7 +74,10 @@ object AutonomousCognitiveExecutivePolicy {
 
         val evolutionNeed = state.learningNeeds
             .asSequence()
-            .filter { it.kind == LearningNeedKind.EXECUTION_RELIABILITY }
+            .filter {
+                it.kind == LearningNeedKind.EXECUTION_RELIABILITY ||
+                    it.kind == LearningNeedKind.HIERARCHICAL_STRATEGY_REPAIR
+            }
             .filter { it.severity >= EVOLUTION_SEVERITY }
             .filter { it.evidenceConfidence >= EVOLUTION_EVIDENCE_CONFIDENCE }
             .sortedWith(
@@ -91,14 +102,14 @@ object AutonomousCognitiveExecutivePolicy {
                 action = CognitiveExecutiveAction.EVOLVE
                 trigger = evolutionNeed.capability
                 rationale =
-                    "repeated governed execution weakness has sufficient evidence for one bounded evolution cycle"
+                    "governed execution or hierarchical strategy weakness has sufficient evidence for one bounded evolution cycle"
             }
             readiness.learningPressure >= PRACTICE_PRESSURE -> {
                 action = CognitiveExecutiveAction.PRACTICE
                 trigger = state.learningNeeds.maxByOrNull { it.severity }?.capability
                 rationale =
                     if (evolutionNeed != null && !evolutionAvailable) {
-                        "execution weakness is evidenced but evolution is unavailable; use bounded zero-tool practice"
+                        "governed execution/strategy weakness is evidenced but evolution is unavailable; use bounded zero-tool practice"
                     } else {
                         "current learning pressure warrants bounded zero-tool practice before goal planning"
                     }
@@ -118,6 +129,12 @@ object AutonomousCognitiveExecutivePolicy {
             uncertainty = readiness.uncertainty,
             learningPressure = readiness.learningPressure,
             triggeringCapability = trigger,
+            triggeringNeedKind = evolutionNeed
+                ?.takeIf { action == CognitiveExecutiveAction.EVOLVE }
+                ?.kind,
+            triggeringEvidenceConfidence = evolutionNeed
+                ?.takeIf { action == CognitiveExecutiveAction.EVOLVE }
+                ?.evidenceConfidence,
             rationale = rationale
         )
     }
