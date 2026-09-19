@@ -212,7 +212,7 @@ data class NativeTrainingRequest(
     val curriculum: NativeCurriculumManifest,
     val datasets: List<NativeDatasetShardManifest>,
     val parentCheckpoint: NativeCheckpointLineage?,
-    val generatedExperienceShards: List<NativeExperienceDatasetShard> = emptyList()
+    val generatedExperienceShards: List<GeneratedNativeDatasetShard> = emptyList()
 ) {
     init {
         require(teachers.isNotEmpty())
@@ -420,7 +420,8 @@ class MemoryBackedNativeTrainingPipeline(
     private val memory: MemoryOs,
     private val foundation: NativeModelFoundation,
     private val clock: () -> Long = System::currentTimeMillis,
-    private val experienceDatasets: NativeExperienceDatasetStore? = null
+    private val experienceDatasets: NativeExperienceDatasetStore? = null,
+    private val generatedDatasetStores: List<GeneratedNativeDatasetShardStore> = emptyList()
 ) : NativeTrainingPipeline {
     override fun putTeacher(snapshot: NativeTeacherSnapshot) {
         memory.rememberIfAbsent(
@@ -887,9 +888,21 @@ class MemoryBackedNativeTrainingPipeline(
                 requireNotNull(foundation.getCheckpoint(it))
             },
             generatedExperienceShards = manifest.datasetShardIds.mapNotNull { id ->
-                experienceDatasets?.getShard(id)
+                resolveGeneratedShard(id)
             }
         )
+    }
+
+    private fun resolveGeneratedShard(id: NativeDatasetShardId): GeneratedNativeDatasetShard? {
+        val stores = buildList<GeneratedNativeDatasetShardStore> {
+            experienceDatasets?.let(::add)
+            addAll(generatedDatasetStores)
+        }
+        val matches = stores.mapNotNull { it.getGeneratedShard(id) }
+        require(matches.map { it.manifest.sha256 }.distinct().size <= 1) {
+            "generated dataset shard resolver conflict for " + id.value
+        }
+        return matches.firstOrNull()
     }
 
     private fun persistRun(run: NativeTrainingRun) {

@@ -57,10 +57,10 @@ data class ReflexExperienceTrainingExample(
 }
 
 data class ReflexExperienceDatasetShard(
-    val manifest: NativeDatasetShardManifest,
+    override val manifest: NativeDatasetShardManifest,
     val exampleIds: List<ReflexExperienceExampleId>,
-    val payload: String
-) {
+    override val payload: String
+) : GeneratedNativeDatasetShard {
     init {
         require(manifest.rights == NativeDatasetRights.GENERATED_INTERNAL)
         require(manifest.targetCapabilities == setOf(TitanCapabilities.REFLEX_DECISION))
@@ -75,7 +75,7 @@ data class ReflexExperienceDatasetShard(
         get() = false
 }
 
-interface ReflexExperienceDatasetStore {
+interface ReflexExperienceDatasetStore : GeneratedNativeDatasetShardStore {
     fun observeExecuted(
         userInput: String,
         descriptors: Collection<ToolDescriptor>,
@@ -105,6 +105,9 @@ interface ReflexExperienceDatasetStore {
     ): ReflexExperienceDatasetShard
 
     fun getShard(id: NativeDatasetShardId): ReflexExperienceDatasetShard?
+
+    override fun getGeneratedShard(id: NativeDatasetShardId): GeneratedNativeDatasetShard? =
+        getShard(id)
 }
 
 /**

@@ -782,3 +782,18 @@ of creating a parallel trainer stack. Phase430 exposes the dataset through Amper
 records from generic sovereign prompt retrieval, and corrects Reflex side-effect telemetry so a
 proposal created with zero LLM passes plus one post-approval synthesis reports one inference pass.
 Decision experience is non-authoritative and cannot execute a tool, grant approval or promote a model.
+
+
+### Architecture consolidation checkpoint — Phase431-435
+Phase431 introduces GeneratedNativeDatasetShard as the single canonical payload contract for any
+AMPER-generated native-training dataset. Phase432 makes both verified goal-experience shards and
+Reflex/System-1 decision shards implement that contract without changing their domain-specific schemas
+or privacy boundaries. Phase433 generalizes NativeTrainingRequest.generatedExperienceShards to the
+shared contract, removing the type-level requirement that only goal-experience data can reach the
+trainer. Phase434 extends the existing MemoryBackedNativeTrainingPipeline with read-only generated
+dataset resolvers; the legacy verified-experience store remains compatible, Reflex shards resolve
+through the same pipeline, and conflicting payloads for one dataset id fail closed. Phase435 wires the
+runtime so both generated stores feed one NativeTrainingRequest -> NativeTrainerPort ->
+checkpoint/evaluation/admission path. No Reflex-specific trainer, checkpoint store, promotion path or
+authority surface is introduced. This closes the architecture duplication risk found in the
+post-Phase430 audit before learned System-1 training is added.

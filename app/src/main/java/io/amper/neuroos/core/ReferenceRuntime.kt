@@ -365,20 +365,21 @@ class AmperRuntime private constructor(
                 store = nativeExperienceDatasets,
                 foundation = nativeModelFoundation
             )
+            val reflexExperienceDatasets = MemoryBackedReflexExperienceDatasetStore(
+                memory = memory,
+                foundation = nativeModelFoundation
+            )
             val nativeTrainingPipeline = MemoryBackedNativeTrainingPipeline(
                 memory = memory,
                 foundation = nativeModelFoundation,
-                experienceDatasets = nativeExperienceDatasets
+                experienceDatasets = nativeExperienceDatasets,
+                generatedDatasetStores = listOf(reflexExperienceDatasets)
             )
             val nativeExperienceTraining = CanonicalNativeExperienceTrainingCoordinator(
                 datasets = nativeExperienceDatasets,
                 curriculum = nativeExperienceCurriculum,
                 foundation = nativeModelFoundation,
                 training = nativeTrainingPipeline
-            )
-            val reflexExperienceDatasets = MemoryBackedReflexExperienceDatasetStore(
-                memory = memory,
-                foundation = nativeModelFoundation
             )
             val reflexDecisionCortex: ReflexDecisionCortex = DeterministicReflexDecisionCortex
             val selfModel = CanonicalSelfModel()

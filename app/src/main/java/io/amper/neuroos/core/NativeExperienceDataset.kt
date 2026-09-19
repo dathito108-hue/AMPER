@@ -37,10 +37,10 @@ data class NativeExperienceTrainingExample(
 }
 
 data class NativeExperienceDatasetShard(
-    val manifest: NativeDatasetShardManifest,
+    override val manifest: NativeDatasetShardManifest,
     val exampleIds: List<NativeExperienceExampleId>,
-    val payload: String
-) {
+    override val payload: String
+) : GeneratedNativeDatasetShard {
     init {
         require(manifest.rights == NativeDatasetRights.GENERATED_INTERNAL)
         require(exampleIds.isNotEmpty())
@@ -54,7 +54,7 @@ data class NativeExperienceDatasetShard(
         get() = false
 }
 
-interface NativeExperienceDatasetStore {
+interface NativeExperienceDatasetStore : GeneratedNativeDatasetShardStore {
     fun observeVerified(
         plan: SovereignPlan,
         verificationConfidence: Double,
@@ -78,6 +78,9 @@ interface NativeExperienceDatasetStore {
         error("explicit native-experience shard selection is unavailable")
 
     fun getShard(id: NativeDatasetShardId): NativeExperienceDatasetShard?
+
+    override fun getGeneratedShard(id: NativeDatasetShardId): GeneratedNativeDatasetShard? =
+        getShard(id)
 }
 
 /**
