@@ -32,27 +32,45 @@ interface EvolutionDeploymentIdentityPort :
     EvolutionDeploymentPort,
     EvolutionRuntimeIdentityPort
 
+enum class ClosedLoopEvolutionEvidenceKind {
+    EXECUTION_RELIABILITY,
+    HIERARCHICAL_STRATEGY_REPAIR
+}
+
 data class ClosedLoopEvolutionEvidence(
     val capability: CapabilityId,
-    val executed: Int,
-    val failed: Int,
-    val successRate: Double,
+    val kind: ClosedLoopEvolutionEvidenceKind,
+    val baselineScore: Double,
+    val samples: Int,
     val evidenceConfidence: Double,
     val severity: Double,
-    val evidenceDigest: String
+    val evidenceDigest: String,
+    val executed: Int = 0,
+    val failed: Int = 0
 ) {
     init {
-        require(executed >= 0)
-        require(failed >= 0)
-        require(executed + failed >= MIN_EXECUTION_ATTEMPTS)
-        require(successRate in 0.0..1.0)
+        require(baselineScore in 0.0..1.0)
+        require(samples >= 1)
         require(evidenceConfidence in 0.0..1.0)
         require(severity in 0.0..1.0)
         require(evidenceDigest.matches(SHA256))
+        require(executed >= 0)
+        require(failed >= 0)
+        if (kind == ClosedLoopEvolutionEvidenceKind.EXECUTION_RELIABILITY) {
+            require(executed + failed == samples)
+            require(samples >= MIN_EXECUTION_ATTEMPTS)
+        }
     }
 
     val executionAttempts: Int
         get() = executed + failed
+
+    val successRate: Double?
+        get() = if (kind == ClosedLoopEvolutionEvidenceKind.EXECUTION_RELIABILITY) {
+            baselineScore
+        } else {
+            null
+        }
 
     val authorityBearing: Boolean
         get() = false
@@ -65,6 +83,8 @@ data class ClosedLoopEvolutionEvidence(
 
 object ClosedLoopEvolutionEvidencePolicy {
     const val TARGET_EXECUTION_SUCCESS_RATE = 0.80
+    const val TARGET_HIERARCHICAL_REPAIR_SCORE = 0.75
+    const val MIN_HIERARCHICAL_EVIDENCE_CONFIDENCE = 0.45
 
     fun from(
         directive: CognitiveExecutiveDirective,
@@ -72,6 +92,36 @@ object ClosedLoopEvolutionEvidencePolicy {
     ): ClosedLoopEvolutionEvidence? {
         if (directive.action != CognitiveExecutiveAction.EVOLVE) return null
         val capability = directive.triggeringCapability ?: return null
+
+        if (directive.triggeringNeedKind == LearningNeedKind.HIERARCHICAL_STRATEGY_REPAIR) {
+            val confidence = directive.triggeringEvidenceConfidence ?: return null
+            if (
+                confidence < MIN_HIERARCHICAL_EVIDENCE_CONFIDENCE ||
+                directive.learningPressure < AutonomousCognitiveExecutivePolicy.EVOLUTION_SEVERITY
+            ) {
+                return null
+            }
+            val score = (1.0 - directive.learningPressure).coerceIn(0.0, 1.0)
+            val digest = closedLoopEvolutionSha256(
+                listOf(
+                    "AMPER_CLOSED_LOOP_EVOLUTION_HIERARCHICAL_V1",
+                    capability.value,
+                    sixClosedLoop(score),
+                    sixClosedLoop(confidence),
+                    sixClosedLoop(directive.learningPressure)
+                ).joinToString("|")
+            )
+            return ClosedLoopEvolutionEvidence(
+                capability = capability,
+                kind = ClosedLoopEvolutionEvidenceKind.HIERARCHICAL_STRATEGY_REPAIR,
+                baselineScore = score,
+                samples = 1,
+                evidenceConfidence = confidence,
+                severity = directive.learningPressure,
+                evidenceDigest = digest
+            )
+        }
+
         val snapshot = competence.snapshot(capability) ?: return null
         if (snapshot.executionAttempts < ClosedLoopEvolutionEvidence.MIN_EXECUTION_ATTEMPTS) {
             return null
@@ -88,7 +138,7 @@ object ClosedLoopEvolutionEvidencePolicy {
         )
         val digest = closedLoopEvolutionSha256(
             listOf(
-                "AMPER_CLOSED_LOOP_EVOLUTION_EVIDENCE_V1",
+                "AMPER_CLOSED_LOOP_EVOLUTION_EXECUTION_V1",
                 capability.value,
                 snapshot.executed.toString(),
                 snapshot.failed.toString(),
@@ -99,50 +149,77 @@ object ClosedLoopEvolutionEvidencePolicy {
         )
         return ClosedLoopEvolutionEvidence(
             capability = capability,
-            executed = snapshot.executed,
-            failed = snapshot.failed,
-            successRate = successRate,
+            kind = ClosedLoopEvolutionEvidenceKind.EXECUTION_RELIABILITY,
+            baselineScore = successRate,
+            samples = snapshot.executionAttempts,
             evidenceConfidence = snapshot.evidenceConfidence,
             severity = severity,
-            evidenceDigest = digest
+            evidenceDigest = digest,
+            executed = snapshot.executed,
+            failed = snapshot.failed
         )
     }
 
     fun candidateKinds(
         evidence: ClosedLoopEvolutionEvidence
-    ): Set<AutonomousEvolutionCandidateKind> =
-        if (
-            evidence.executionAttempts >= 4 &&
-            evidence.successRate <= 0.50
-        ) {
-            AutonomousEvolutionCandidateKind.entries.toSet()
-        } else {
-            setOf(
-                AutonomousEvolutionCandidateKind.STRATEGY,
-                AutonomousEvolutionCandidateKind.CODE,
-                AutonomousEvolutionCandidateKind.MODEL
-            )
+    ): Set<AutonomousEvolutionCandidateKind> = when (evidence.kind) {
+        ClosedLoopEvolutionEvidenceKind.HIERARCHICAL_STRATEGY_REPAIR -> setOf(
+            AutonomousEvolutionCandidateKind.STRATEGY,
+            AutonomousEvolutionCandidateKind.CODE,
+            AutonomousEvolutionCandidateKind.ARCHITECTURE
+        )
+        ClosedLoopEvolutionEvidenceKind.EXECUTION_RELIABILITY -> {
+            if (
+                evidence.executionAttempts >= 4 &&
+                requireNotNull(evidence.successRate) <= 0.50
+            ) {
+                AutonomousEvolutionCandidateKind.entries.toSet()
+            } else {
+                setOf(
+                    AutonomousEvolutionCandidateKind.STRATEGY,
+                    AutonomousEvolutionCandidateKind.CODE,
+                    AutonomousEvolutionCandidateKind.MODEL
+                )
+            }
         }
+    }
 }
 
-object ClosedLoopExecutionBenchmark {
-    const val MIN_SAMPLES = ClosedLoopEvolutionEvidence.MIN_EXECUTION_ATTEMPTS
-    const val MIN_CANDIDATE_SCORE = ClosedLoopEvolutionEvidencePolicy.TARGET_EXECUTION_SUCCESS_RATE
-    const val REGRESSION_TOLERANCE = 0.02
+object ClosedLoopEvolutionBenchmark {
+    fun suite(evidence: ClosedLoopEvolutionEvidence): EvolutionBenchmarkSuite =
+        suite(evidence.capability, evidence.kind)
 
-    fun suite(capability: CapabilityId): EvolutionBenchmarkSuite {
+    fun suite(
+        capability: CapabilityId,
+        kind: ClosedLoopEvolutionEvidenceKind =
+            ClosedLoopEvolutionEvidenceKind.EXECUTION_RELIABILITY
+    ): EvolutionBenchmarkSuite {
         val capabilityHash = closedLoopEvolutionSha256(capability.value)
+        val prefix = when (kind) {
+            ClosedLoopEvolutionEvidenceKind.EXECUTION_RELIABILITY -> "live-execution-"
+            ClosedLoopEvolutionEvidenceKind.HIERARCHICAL_STRATEGY_REPAIR -> "live-hierarchical-"
+        }
         return EvolutionBenchmarkSuite(
-            id = EvolutionBenchmarkSuiteId(
-                "live-execution-" + capabilityHash.take(20)
-            ),
+            id = EvolutionBenchmarkSuiteId(prefix + capabilityHash.take(20)),
             metrics = listOf(
                 EvolutionBenchmarkMetric(
-                    id = metricId(capability),
+                    id = metricId(capability, kind),
                     weight = 1.0,
-                    minSamples = MIN_SAMPLES,
-                    minCandidateScore = MIN_CANDIDATE_SCORE,
-                    regressionTolerance = REGRESSION_TOLERANCE
+                    minSamples = when (kind) {
+                        ClosedLoopEvolutionEvidenceKind.EXECUTION_RELIABILITY ->
+                            ClosedLoopEvolutionEvidence.MIN_EXECUTION_ATTEMPTS
+                        ClosedLoopEvolutionEvidenceKind.HIERARCHICAL_STRATEGY_REPAIR -> 1
+                    },
+                    minCandidateScore = when (kind) {
+                        ClosedLoopEvolutionEvidenceKind.EXECUTION_RELIABILITY ->
+                            ClosedLoopEvolutionEvidencePolicy.TARGET_EXECUTION_SUCCESS_RATE
+                        ClosedLoopEvolutionEvidenceKind.HIERARCHICAL_STRATEGY_REPAIR ->
+                            ClosedLoopEvolutionEvidencePolicy.TARGET_HIERARCHICAL_REPAIR_SCORE
+                    },
+                    regressionTolerance = when (kind) {
+                        ClosedLoopEvolutionEvidenceKind.EXECUTION_RELIABILITY -> 0.02
+                        ClosedLoopEvolutionEvidenceKind.HIERARCHICAL_STRATEGY_REPAIR -> 0.03
+                    }
                 )
             ),
             createdAtEpochMs = 0L
@@ -155,23 +232,24 @@ object ClosedLoopExecutionBenchmark {
         observedAtEpochMs: Long
     ): EvolutionBaselineState {
         require(observedAtEpochMs >= 0L)
-        val suite = suite(evidence.capability)
+        val suite = suite(evidence)
         return EvolutionBaselineState(
             revision = identity.revision,
             benchmark = EvolutionBenchmarkSnapshot(
                 subjectId = EvolutionBenchmarkSubjectId(
                     "live-" +
                         closedLoopEvolutionSha256(
-                            identity.revision + "|" + evidence.capability.value
+                            identity.revision + "|" + evidence.capability.value + "|" +
+                                evidence.kind.name
                         ).take(24)
                 ),
                 suiteId = suite.id,
                 suiteDigest = suite.canonicalDigest,
                 metrics = mapOf(
-                    metricId(evidence.capability) to
+                    metricId(evidence.capability, evidence.kind) to
                         EvolutionMetricObservation(
-                            score = evidence.successRate,
-                            samples = evidence.executionAttempts
+                            score = evidence.baselineScore,
+                            samples = evidence.samples
                         )
                 ),
                 artifactDigest = identity.artifactDigest,
@@ -180,10 +258,18 @@ object ClosedLoopExecutionBenchmark {
         )
     }
 
-    fun metricId(capability: CapabilityId): EvolutionBenchmarkMetricId {
-        val safe = capability.value.take(88)
-        val suffix = closedLoopEvolutionSha256(capability.value).take(12)
-        return EvolutionBenchmarkMetricId("exec:$safe:$suffix")
+    fun metricId(
+        capability: CapabilityId,
+        kind: ClosedLoopEvolutionEvidenceKind =
+            ClosedLoopEvolutionEvidenceKind.EXECUTION_RELIABILITY
+    ): EvolutionBenchmarkMetricId {
+        val safe = capability.value.take(82)
+        val suffix = closedLoopEvolutionSha256(capability.value + "|" + kind.name).take(12)
+        val prefix = when (kind) {
+            ClosedLoopEvolutionEvidenceKind.EXECUTION_RELIABILITY -> "exec:"
+            ClosedLoopEvolutionEvidenceKind.HIERARCHICAL_STRATEGY_REPAIR -> "hier:"
+        }
+        return EvolutionBenchmarkMetricId(prefix + safe + ":" + suffix)
     }
 }
 
@@ -412,12 +498,12 @@ class ClosedLoopSelfEvolutionExecutivePort(
         }
         val activeIdentity = identity.current()
         val now = clock().coerceAtLeast(0L)
-        val baselineState = ClosedLoopExecutionBenchmark.baseline(
+        val baselineState = ClosedLoopEvolutionBenchmark.baseline(
             evidence = evidence,
             identity = activeIdentity,
             observedAtEpochMs = now
         )
-        val suite = ClosedLoopExecutionBenchmark.suite(evidence.capability)
+        val suite = ClosedLoopEvolutionBenchmark.suite(evidence.capability)
         evolution.putSuite(suite)
 
         if (
