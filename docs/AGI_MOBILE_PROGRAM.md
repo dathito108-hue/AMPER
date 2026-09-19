@@ -167,6 +167,19 @@ capability. Phase235 deterministically selects the objectively strongest eligibl
 a non-authoritative, non-live promotion proposal. Actual deployment/promotion execution remains
 Phase236+.
 
+### Implemented checkpoint — Phase236-240
+Phase236 upgrades tournament winners into immutable content-addressed promotion tickets carrying exact
+candidate kind, artifact digest, base/proposed revisions, benchmark identity and verified rollback
+identity. Phase237 captures and persists a rollback checkpoint before any live mutation, then requires
+the deployment receipt to match the exact artifact digest and proposed revision. Phase238 persists
+APPLIED state before running a fresh canary benchmark and commits only when the exact suite/artifact
+meets sample floors, score floors, regression tolerances and non-negative aggregate delta; only then
+does CanonicalEvolutionGate enter PROMOTED. Phase239 automatically restores the captured checkpoint on
+apply failure, identity mismatch, canary regression or explicit post-commit rollback. Phase240 keeps a
+bounded durable transaction index so restart recovery can roll back PREPARED/APPLIED/RECOVERY_REQUIRED
+transactions instead of assuming partial evolution is safe. Promotion transaction state remains
+non-authoritative for tools/device actions.
+
 ### 251+ — Open-ended mobile intelligence
 Integrate model, world state, memory, skills, multimodal perception and self-evolution; measure
 progress by capability/generalization benchmarks rather than phase count.
