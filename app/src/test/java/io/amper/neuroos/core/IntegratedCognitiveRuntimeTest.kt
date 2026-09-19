@@ -68,10 +68,24 @@ class IntegratedCognitiveRuntimeTest {
                 value = "ready",
                 confidence = 0.98,
                 provenance = Provenance(
-                    source = "phase251-test",
-                    producer = "independent-evidence",
+                    source = "phase251-test-a",
+                    producer = "independent-evidence-a",
                     observedAtEpochMs = 10_000L,
                     confidence = 0.98
+                )
+            )
+        )
+        runtime.epistemic.observe(
+            EpistemicClaim(
+                subject = "integrated",
+                predicate = "state",
+                value = "ready",
+                confidence = 0.97,
+                provenance = Provenance(
+                    source = "phase251-test-b",
+                    producer = "independent-evidence-b",
+                    observedAtEpochMs = 10_001L,
+                    confidence = 0.97
                 )
             )
         )
