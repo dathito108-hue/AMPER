@@ -374,6 +374,15 @@ class SovereignPlanCoordinator(
         evolution = evolution
     )
 
+    fun persistentGoalExecutive(
+        evolution: CognitiveExecutiveEvolutionPort? = null
+    ): PersistentGoalExecutiveCoordinator = PersistentGoalExecutiveCoordinator(
+        context = runtime.context,
+        executive = autonomousExecutive(evolution),
+        store = runtime.persistentGoalExecutiveStore,
+        plans = runtime.plans
+    )
+
     fun create(
         conversationId: ConversationId,
         userGoal: String
