@@ -310,6 +310,11 @@ class AmperRuntime private constructor(
             monotonicNanos = monotonicNanos
         )
 
+    fun agiMobileLongHorizonQualificationProbes(
+        subject: AgiMobileQualificationSubject
+    ): AgiMobileLongHorizonProbePack =
+        AgiMobileLongHorizonQualificationProbes.canonical(subject)
+
     /** Rewrap production encrypted memory under a new managed key alias. */
     fun rotateMemoryEncryption(newKeyId: String): Int =
         requireNotNull(memoryKeyRotator) { "memory key rotation is unavailable for this runtime" }(newKeyId)
