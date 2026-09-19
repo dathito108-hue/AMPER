@@ -415,6 +415,7 @@ class CanonicalReflexDecisionRuntimeController(
         val resourceDecision = resourcePolicy.evaluate(currentAdaptivePolicy)
         recordResourceDecision(port, resourceDecision)
         if (!resourceDecision.allowLearnedInference) {
+            applyResidencyHint(port, resourceDecision)
             return fallback.decide(request)
         }
         if (resourceDecision.minInterInferenceMs > 0L) {
@@ -426,6 +427,7 @@ class CanonicalReflexDecisionRuntimeController(
                 now - previous < resourceDecision.minInterInferenceMs
             ) {
                 recordThrottleSkip(port, resourceDecision)
+                applyResidencyHint(port, resourceDecision)
                 return fallback.decide(request)
             }
             lastLearnedInferenceAtEpochMs = now
@@ -640,6 +642,7 @@ class CanonicalReflexDecisionRuntimeController(
             activationStore.persistActive(previousActivation, now)
             activePort = previousPort
             activation = previousActivation
+            lastLearnedInferenceAtEpochMs = null
             standbyPort = null
             standbyActivation = null
             healthState = ReflexRuntimeHealthSnapshot(
@@ -650,6 +653,7 @@ class CanonicalReflexDecisionRuntimeController(
             activationStore.persistDisabled(now)
             activePort = null
             activation = null
+            lastLearnedInferenceAtEpochMs = null
             standbyPort = null
             standbyActivation = null
             healthState = ReflexRuntimeHealthSnapshot(
