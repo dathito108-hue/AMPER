@@ -3,6 +3,7 @@ package io.amper.neuroos.core
 enum class AutonomousGovernedPlanRunStage {
     COMPLETED,
     TERMINAL_RECOVERY,
+    EXECUTION_PAUSED,
     WAITING_APPROVAL,
     CONTEXT_REFRESHED,
     STEP_LIMIT
@@ -67,6 +68,21 @@ class AutonomousGovernedPlanRunner(
                     plan = advance.plan
                     if (plan.complete) {
                         return@runCatching resolveTerminal(plan, processed)
+                    }
+                    if (advance.outcome.status != ActionStatus.EXECUTED) {
+                        val paused = goals.pausePlannedExecution(
+                            planId = plan.id,
+                            failureCode = (
+                                "AUTONOMOUS_STEP_" + advance.outcome.status.name
+                                ).take(128)
+                        ).getOrThrow()
+                        return@runCatching AutonomousGovernedPlanRunResult(
+                            planId = planId,
+                            stage = AutonomousGovernedPlanRunStage.EXECUTION_PAUSED,
+                            processedSteps = processed,
+                            activePlanId = plan.id,
+                            goalCheckpointStage = paused.stage
+                        )
                     }
                 }
 
