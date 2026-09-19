@@ -192,6 +192,17 @@ canonical tournament. Phase245 automatically requests a canonical promotion tick
 while keeping live mutation exclusively inside the Phase236-240 promotion transaction path. Raw
 blueprint payloads are not persisted into sovereign planning memory.
 
+### Implemented checkpoint — Phase246-250
+Phase246 performs promotion crash recovery before any new autonomous evolution campaign may start and
+blocks new mutation while RECOVERY_REQUIRED remains unresolved. Phase247 reads a content-addressed
+canonical baseline and runs the existing benchmark-gap candidate campaign. Phase248 hands only the
+canonical immutable promotion ticket to the transactional Phase236-240 executor for checkpoint,
+exact apply and canary. Phase249 advances the benchmark baseline through an injected compare-and-set
+baseline port only after COMMITTED canary success; baseline advancement failure triggers post-commit
+rollback. Phase250 closes the loop under a strict four-cycle maximum with explicit NO_GAP,
+NO_CANDIDATE, NO_WINNER, ROLLED_BACK and RECOVERY_BLOCKED stop states. The orchestrator contains no
+ToolFabric path and cannot widen authority.
+
 ### 251+ — Open-ended mobile intelligence
 Integrate model, world state, memory, skills, multimodal perception and self-evolution; measure
 progress by capability/generalization benchmarks rather than phase count.

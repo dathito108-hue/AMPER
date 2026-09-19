@@ -191,6 +191,14 @@ class AmperRuntime private constructor(
     private val evolutionCampaignFactory:
         (CognitiveInferencePort, EvolutionSandboxRunner) ->
             MemoryBackedAutonomousEvolutionCampaignCoordinator,
+    private val evolutionAutonomyFactory:
+        (
+            CognitiveInferencePort,
+            EvolutionSandboxRunner,
+            EvolutionBaselinePort,
+            EvolutionDeploymentPort,
+            EvolutionCanaryEvaluator
+        ) -> AutonomousEvolutionOrchestrator,
     private val memoryKeyRotator: ((String) -> Int)? = null
 ) {
     fun tick(intent: String): TickReport = kernel.tick(intent)
@@ -207,6 +215,21 @@ class AmperRuntime private constructor(
         sandbox: EvolutionSandboxRunner
     ): MemoryBackedAutonomousEvolutionCampaignCoordinator =
         evolutionCampaignFactory(inference, sandbox)
+
+    fun evolutionAutonomy(
+        inference: CognitiveInferencePort,
+        sandbox: EvolutionSandboxRunner,
+        baseline: EvolutionBaselinePort,
+        deployment: EvolutionDeploymentPort,
+        canary: EvolutionCanaryEvaluator
+    ): AutonomousEvolutionOrchestrator =
+        evolutionAutonomyFactory(
+            inference,
+            sandbox,
+            baseline,
+            deployment,
+            canary
+        )
 
     /** Rewrap production encrypted memory under a new managed key alias. */
     fun rotateMemoryEncryption(newKeyId: String): Int =
@@ -402,6 +425,21 @@ class AmperRuntime private constructor(
                         evolution = autonomousEvolution,
                         generator = InferenceEvolutionCandidateGenerator(inference),
                         sandbox = sandbox
+                    )
+                },
+                evolutionAutonomyFactory = { inference, sandbox, baseline, deployment, canary ->
+                    AutonomousEvolutionOrchestrator(
+                        evolution = autonomousEvolution,
+                        campaign = MemoryBackedAutonomousEvolutionCampaignCoordinator(
+                            memory = memory,
+                            evolution = autonomousEvolution,
+                            generator = InferenceEvolutionCandidateGenerator(inference),
+                            sandbox = sandbox
+                        ),
+                        promotion = autonomousEvolutionPromotionExecutor,
+                        baseline = baseline,
+                        deployment = deployment,
+                        canary = canary
                     )
                 },
                 memoryKeyRotator = memoryKeyRotator
