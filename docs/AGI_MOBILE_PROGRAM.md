@@ -1224,3 +1224,38 @@ consume no evidence. Tests cover durable cost restoration, throughput-based dura
 cost-based limiting/deferral, recovery hysteresis and defer-then-resume behavior. Fresh held-out
 admission, common-holdout champion comparison, historical anti-forgetting stability comparison and
 verified runtime replacement remain mandatory, and execution authority remains unchanged.
+
+
+### Completion checkpoint — Phase521-525
+Phase521 adds one durable coalescing Reflex learning-maintenance ticket inside sovereign MemoryOs.
+A ticket contains only a content digest, reason set, priority, timing and attempt metadata; the actual
+privacy-preserving training examples remain in the governed Reflex dataset store. Repeated triggers
+for the same evidence collapse into one ticket, while newer evidence supersedes stale work instead of
+building an unbounded queue.
+
+Phase522 wires learning opportunities into ReflexNativeModelLifecycle. Initial-evidence and
+continual hard/fresh opportunities are queued before expensive work; resource deferral adds a reason
+to the same ticket. Successful activation/replacement clears the ticket, deterministic
+rejection/failure clears stale work, and evidence that no longer meets governed class/quality floors
+does not remain as background work.
+
+Phase523 adds a process-resident background maintenance coordinator and loop. Android starts it beside
+the existing Reflex lifecycle. Pending work is attempted after a quiet period, while charging may
+bypass queue delay. The attempt/backoff state is durably advanced before lifecycle execution, so a
+process restart cannot create a hot retry loop. Because checkpoint/run identities remain
+content-bound, replaying already-completed work after a crash stays idempotent. The durable ticket is
+restored automatically on the next app process start.
+
+Phase524 adds bounded artifact garbage collection. The Reflex artifact store can enumerate/prune only
+content-addressed model artifacts; lifecycle maintenance protects the active checkpoint plus the two
+nearest parent checkpoints and deletes at most eight other artifacts per successful/rejected
+maintenance cycle. Checkpoint lineage, dataset provenance, evaluations and promotion records remain
+in sovereign memory; pruning removes obsolete executable weight bytes only.
+
+Phase525 closes the long-running mobile maintenance loop: user turns still provide immediate learning
+opportunities, while deferred opportunities survive process restarts and can resume in quiet or
+charging windows without consuming evidence twice. Tests cover queue coalescing/restoration, newer
+evidence superseding stale work, background defer-then-resume and protected artifact pruning.
+Fresh held-out admission, common-holdout champion comparison, historical anti-forgetting stability,
+verified replacement, ToolDescriptor binding, AuthorityGate, explicit approval and durable execution
+receipts remain unchanged.
