@@ -516,8 +516,10 @@ class PersistentGoalExecutiveCoordinator(
                 },
                 observedAtEpochMs = now
             )
-            goalPortfolio.pending()
-                .firstOrNull { it.sourceGoalId != excludedGoalId }
+            goalPortfolio.selectNext(
+                excludedGoalId = excludedGoalId,
+                selectedAtEpochMs = now
+            )
         }
 
         val sourceGoalId: String
