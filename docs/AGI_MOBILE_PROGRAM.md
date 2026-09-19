@@ -518,6 +518,27 @@ zero inference and zero tool execution, cannot change live ToolDescriptors, Auth
 confirmation, continuity checks or goal verification, and cannot convert historical success into
 execution permission.
 
+### Implemented checkpoint — Phase351-355
+Phase351 adds a restart-safe contextual strategy portfolio above the Phase341-350 validated/calibrated
+transfer stack. Context is represented only by bounded hashed goal fingerprints; the portfolio stores
+strategy signatures, selection counts, governed outcome counters and cumulative realized-regret proxy,
+never raw goals, tool inputs/outputs, request IDs, tool IDs or approvals. Phase352 aggregates evidence
+from sufficiently similar goal contexts and estimates exploitation from current calibrated support plus
+contextual verified reward, with bounded regret penalty and evidence-confidence weighting. Phase353
+adds deterministic bounded exploration: an under-sampled strategy may receive at most a 0.12 bonus,
+that bonus decays with prior selections, and it is disabled when the strategy trails the best
+exploitation score by more than 0.12. Exploration only reorders already counterfactually validated
+guidance; it does not add capabilities, invoke inference, execute tools or alter authority. Phase354
+persists the exact planId-to-context/strategy decision before outcome learning and updates reward/regret
+only from the exact terminal plan. Verified success receives reward only after normal goal-satisfaction
+verification; zero-executed failure/evidence exhaustion are negative, while authority/user blocks and
+partial execution remain neutral diagnostics. Regret is explicitly a bounded realized proxy against
+the best exploitation estimate available at selection time, not a fabricated counterfactual outcome
+for an unchosen strategy. Phase355 feeds contextual reward/regret and bounded exploration back into
+future candidate ordering while preserving Phase346 exact transfer attribution, live ToolDescriptor
+binding, AuthorityGate, explicit confirmation, cognitive continuity, recovery limits and independent
+terminal goal verification.
+
 ## CI budget policy
 
 GitHub Actions is a scarce verification resource.

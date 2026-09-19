@@ -438,7 +438,8 @@ class SovereignPlanCoordinator(
         decomposer = goalDecomposer(),
         adaptiveReplanner = goalAdaptiveReplanner(),
         outcomeLearning = runtime.goalOutcomeLearning,
-        transferCalibration = runtime.goalTransferCalibration
+        transferCalibration = runtime.goalTransferCalibration,
+        strategyPortfolio = runtime.goalStrategyPortfolio
     )
 
     fun create(
@@ -519,9 +520,14 @@ class SovereignPlanCoordinator(
             planningExecutionContextDigest = continuityBinding.executionContextDigest,
             goalTransferBinding = transferBindingForSelected(
                 signature = finalEvaluation.candidate.signature,
-                assessments = planningPrompt.transferCandidates,
+                candidates = planningPrompt.transferCandidates,
                 boundAtEpochMs = cognitiveState.capturedAtEpochMs
             )
+        )
+        bindContextualStrategyPortfolio(
+            plan = plan,
+            candidates = planningPrompt.transferCandidates,
+            boundAtEpochMs = cognitiveState.capturedAtEpochMs
         )
         runCatching {
             runtime.skills.begin(
@@ -643,10 +649,15 @@ class SovereignPlanCoordinator(
             planningExecutionContextDigest = continuityBinding.executionContextDigest,
             goalTransferBinding = transferBindingForSelected(
                 signature = finalEvaluation.candidate.signature,
-                assessments = planningPrompt.transferCandidates,
+                candidates = planningPrompt.transferCandidates,
                 boundAtEpochMs = cognitiveState.capturedAtEpochMs
             )
         ).also { replacement ->
+            bindContextualStrategyPortfolio(
+                plan = replacement,
+                candidates = planningPrompt.transferCandidates,
+                boundAtEpochMs = cognitiveState.capturedAtEpochMs
+            )
             runCatching {
                 runtime.skills.begin(
                     plan = replacement,
@@ -766,10 +777,15 @@ class SovereignPlanCoordinator(
             planningExecutionContextDigest = continuityBinding.executionContextDigest,
             goalTransferBinding = transferBindingForSelected(
                 signature = finalEvaluation.candidate.signature,
-                assessments = planningPrompt.transferCandidates,
+                candidates = planningPrompt.transferCandidates,
                 boundAtEpochMs = cognitiveState.capturedAtEpochMs
             )
         ).also { replacement ->
+            bindContextualStrategyPortfolio(
+                plan = replacement,
+                candidates = planningPrompt.transferCandidates,
+                boundAtEpochMs = cognitiveState.capturedAtEpochMs
+            )
             require(replacement.id != plan.id)
             replacement.steps.forEach { replacementStep ->
                 require(plan.steps.none { it.requestId == replacementStep.requestId }) {
@@ -962,12 +978,12 @@ class SovereignPlanCoordinator(
 
     private data class PlanningPromptBundle(
         val prompt: String,
-        val transferCandidates: List<GoalTransferCounterfactualAssessment>
+        val transferCandidates: List<GoalStrategyPortfolioCandidate>
     )
 
     private data class PlanningProtocolBundle(
         val text: String,
-        val transferCandidates: List<GoalTransferCounterfactualAssessment>
+        val transferCandidates: List<GoalStrategyPortfolioCandidate>
     )
 
     private fun buildPlanningPrompt(
@@ -1178,15 +1194,20 @@ class SovereignPlanCoordinator(
             calibration = runtime.goalTransferCalibration,
             limit = GoalTransferCounterfactualValidator.MAX_CANDIDATES
         )
-        for (count in validatedTransfer.size downTo 1) {
-            val rendered = GoalTransferCounterfactualValidator.render(
-                validatedTransfer.take(count)
+        val portfolioTransfer = runtime.goalStrategyPortfolio.rank(
+            goal = userGoal,
+            candidates = validatedTransfer,
+            nowEpochMs = cognitiveState.capturedAtEpochMs
+        )
+        for (count in portfolioTransfer.size downTo 1) {
+            val rendered = GoalContextualStrategyPortfolioPolicy.render(
+                portfolioTransfer.take(count)
             )
             val candidate = bounded + "\n\n" + rendered
             if (candidate.length <= charBudget) {
                 return PlanningProtocolBundle(
                     text = candidate,
-                    transferCandidates = validatedTransfer.take(count)
+                    transferCandidates = portfolioTransfer.take(count)
                 )
             }
         }
@@ -1198,10 +1219,12 @@ class SovereignPlanCoordinator(
 
     private fun transferBindingForSelected(
         signature: StrategySignature,
-        assessments: List<GoalTransferCounterfactualAssessment>,
+        candidates: List<GoalStrategyPortfolioCandidate>,
         boundAtEpochMs: Long
     ): GoalTransferPlanBinding? =
-        assessments.firstOrNull { it.candidate.strategy == signature }?.let { assessment ->
+        candidates.firstOrNull {
+            it.assessment.candidate.strategy == signature
+        }?.assessment?.let { assessment ->
             GoalTransferPlanBinding(
                 strategy = assessment.candidate.strategy,
                 cognitiveStateDigest = assessment.cognitiveStateDigest,
@@ -1214,6 +1237,21 @@ class SovereignPlanCoordinator(
                 boundAtEpochMs = boundAtEpochMs
             )
         }
+
+    private fun bindContextualStrategyPortfolio(
+        plan: SovereignPlan,
+        candidates: List<GoalStrategyPortfolioCandidate>,
+        boundAtEpochMs: Long
+    ) {
+        if (plan.goalTransferBinding == null || candidates.isEmpty()) return
+        runCatching {
+            runtime.goalStrategyPortfolio.bind(
+                plan = plan,
+                rankedCandidates = candidates,
+                boundAtEpochMs = boundAtEpochMs
+            )
+        }
+    }
 
     private fun routedDescriptors(): List<ToolDescriptor> = advertisedCapabilities
         .mapNotNull(actions::descriptorFor)

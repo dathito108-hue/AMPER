@@ -221,6 +221,7 @@ class PersistentGoalExecutiveCoordinator(
     private val adaptiveReplanner: GoalAdaptiveReplanner? = null,
     private val outcomeLearning: GoalOutcomeLearningModel? = null,
     private val transferCalibration: GoalTransferCalibrationModel? = null,
+    private val strategyPortfolio: GoalContextualStrategyPortfolio? = null,
     private val clock: () -> Long = System::currentTimeMillis
 ) {
     @Synchronized
@@ -507,6 +508,12 @@ class PersistentGoalExecutiveCoordinator(
                 observedAtEpochMs = now
             )
         }
+        runCatching {
+            strategyPortfolio?.observeTerminalPlan(
+                plan = terminalPlan,
+                observedAtEpochMs = now
+            )
+        }
         if (saved.stage == PersistentGoalExecutiveStage.COMPLETED) {
             markPortfolioCompleted(saved, now)
         } else {
@@ -581,6 +588,13 @@ class PersistentGoalExecutiveCoordinator(
         }
         runCatching {
             transferCalibration?.observe(
+                plan = terminalPlan,
+                outcome = outcome,
+                observedAtEpochMs = observedAtEpochMs
+            )
+        }
+        runCatching {
+            strategyPortfolio?.observe(
                 plan = terminalPlan,
                 outcome = outcome,
                 observedAtEpochMs = observedAtEpochMs
