@@ -217,6 +217,9 @@ data class EvolutionPromotionProposal(
         require(suiteDigest.matches(Regex("[0-9a-f]{64}")))
         require(aggregateDelta > 0.0 && aggregateDelta.isFinite())
         require(rollbackToken.isNotBlank())
+        require(verifiedDecision.rollbackToken == rollbackToken) {
+            "promotion rollback token must match verified evolution decision"
+        }
         require(createdAtEpochMs >= 0L)
     }
 
