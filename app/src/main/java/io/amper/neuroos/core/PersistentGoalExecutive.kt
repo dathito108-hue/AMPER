@@ -556,26 +556,28 @@ class PersistentGoalExecutiveCoordinator(
         verificationConfidence: Double?,
         observedAtEpochMs: Long
     ) {
-        val learner = outcomeLearning ?: return
-        val records = portfolio?.snapshot().orEmpty()
-        val durable = records.singleOrNull { it.sourceGoalId == checkpoint.sourceGoalId }
-        val hierarchy = durable?.let {
-            hierarchyRootId(records, it.sourceGoalId)?.let { rootId ->
-                runCatching {
-                    DurableGoalHierarchyProgressPolicy.snapshot(records, rootId)
-                }.getOrNull()
+        val learner = outcomeLearning
+        if (learner != null) {
+            val records = portfolio?.snapshot().orEmpty()
+            val durable = records.singleOrNull { it.sourceGoalId == checkpoint.sourceGoalId }
+            val hierarchy = durable?.let {
+                hierarchyRootId(records, it.sourceGoalId)?.let { rootId ->
+                    runCatching {
+                        DurableGoalHierarchyProgressPolicy.snapshot(records, rootId)
+                    }.getOrNull()
+                }
             }
-        }
-        runCatching {
-            learner.observe(
-                checkpoint = checkpoint,
-                terminalPlan = terminalPlan,
-                outcome = outcome,
-                hierarchy = hierarchy,
-                hierarchyDepth = durable?.decompositionDepth ?: 0,
-                verificationConfidence = verificationConfidence,
-                observedAtEpochMs = observedAtEpochMs
-            )
+            runCatching {
+                learner.observe(
+                    checkpoint = checkpoint,
+                    terminalPlan = terminalPlan,
+                    outcome = outcome,
+                    hierarchy = hierarchy,
+                    hierarchyDepth = durable?.decompositionDepth ?: 0,
+                    verificationConfidence = verificationConfidence,
+                    observedAtEpochMs = observedAtEpochMs
+                )
+            }
         }
         runCatching {
             transferCalibration?.observe(
