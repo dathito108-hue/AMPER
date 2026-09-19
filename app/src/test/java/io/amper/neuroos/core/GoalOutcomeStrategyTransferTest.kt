@@ -253,10 +253,11 @@ class GoalOutcomeStrategyTransferTest {
         ).getOrThrow()
 
         val prompt = requests.single().prompt
-        assertTrue(prompt.contains("<GOAL_OUTCOME_COUNTERFACTUAL_TRANSFER>"))
+        assertTrue(prompt.contains("<GOAL_CONTEXTUAL_STRATEGY_PORTFOLIO>"))
         assertTrue(prompt.contains("candidate.1.capabilities=phase336.read"))
         assertTrue(prompt.contains("projected_support="))
         assertTrue(prompt.contains("calibrated_support="))
+        assertTrue(prompt.contains("portfolio_score="))
         assertTrue(prompt.contains("cognitive_state_digest="))
         assertTrue(prompt.contains("authority=false"))
         assertFalse(prompt.contains("phase339-history-goal"))
@@ -269,6 +270,11 @@ class GoalOutcomeStrategyTransferTest {
         assertEquals(StrategySignature.from(plan), transferBinding.strategy)
         assertEquals(plan.planningCognitiveStateDigest, transferBinding.cognitiveStateDigest)
         assertTrue(transferBinding.calibratedSupport > 0.0)
+        val portfolioDecision = requireNotNull(
+            runtime.goalStrategyPortfolio.decision(plan.id)
+        )
+        assertEquals(StrategySignature.from(plan), portfolioDecision.strategy)
+        assertFalse(portfolioDecision.authorityBearing)
     }
 
     @Test
