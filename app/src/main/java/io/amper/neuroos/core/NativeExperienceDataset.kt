@@ -50,7 +50,7 @@ data class NativeExperienceDatasetShard(
         require(manifest.sha256 == nativeExperienceSha256(payload))
     }
 
-    val authorityBearing: Boolean
+    override val authorityBearing: Boolean
         get() = false
 }
 
