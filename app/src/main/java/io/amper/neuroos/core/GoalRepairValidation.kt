@@ -387,17 +387,18 @@ class MemoryBackedGoalRepairValidationModel(
     override fun requalifiedTransferConfidence(strategy: StrategySignature): Double {
         val targetCapabilities = strategy.capabilities.distinct()
         if (targetCapabilities.isEmpty()) return 0.0
-        return targetCapabilities.map { capability ->
+        val scores = mutableListOf<Double>()
+        for (capability in targetCapabilities) {
             val snapshot = requalificationSnapshot(capability)
                 ?.takeIf { it.state == GoalRepairRequalificationState.REQUALIFIED }
-                ?: return@map 0.0
+                ?: return 0.0
             val similarity = structuralSimilarity(snapshot.strategy, strategy)
-            if (similarity < MIN_REQUALIFIED_TRANSFER_SIMILARITY) {
-                0.0
-            } else {
-                (snapshot.evidenceConfidence * (0.50 + 0.50 * similarity)).coerceIn(0.0, 1.0)
-            }
-        }.average().coerceIn(0.0, 1.0)
+            if (similarity < MIN_REQUALIFIED_TRANSFER_SIMILARITY) return 0.0
+            scores += (
+                snapshot.evidenceConfidence * (0.50 + 0.50 * similarity)
+                ).coerceIn(0.0, 1.0)
+        }
+        return scores.average().coerceIn(0.0, 1.0)
     }
 
     private fun structuralSimilarity(
