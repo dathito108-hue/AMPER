@@ -95,6 +95,7 @@ object ReflexActiveLearningMiner {
         fresh: List<ReflexExperienceTrainingExample>,
         champion: NativeReflexDecisionPort,
         seenActionCapabilities: Set<CapabilityId>,
+        curriculum: ReflexAdaptiveCurriculum? = null,
         minActionExamples: Int,
         minEscalationExamples: Int,
         maxExamples: Int
@@ -123,7 +124,8 @@ object ReflexActiveLearningMiner {
             example.id to assess(
                 example = example,
                 champion = champion,
-                seenActionCapabilities = seenActionCapabilities
+                seenActionCapabilities = seenActionCapabilities,
+                curriculum = curriculum
             )
         }
         val orderedActions = actionEligible.sortedWith(
@@ -199,7 +201,8 @@ object ReflexActiveLearningMiner {
     private fun assess(
         example: ReflexExperienceTrainingExample,
         champion: NativeReflexDecisionPort,
-        seenActionCapabilities: Set<CapabilityId>
+        seenActionCapabilities: Set<CapabilityId>,
+        curriculum: ReflexAdaptiveCurriculum?
     ): ReflexHardExampleAssessment {
         val prediction = champion.predict(
             NativeReflexDecisionInput(
@@ -226,9 +229,13 @@ object ReflexActiveLearningMiner {
             max(uncertainty, 1.0 - confidence).coerceIn(0.0, 1.0)
         }
         val noveltyFloor = if (novel) 0.95 else 0.0
-        val priority = max(modelDifficulty, noveltyFloor)
+        val basePriority = max(modelDifficulty, noveltyFloor)
             .times(example.labelConfidence)
             .coerceIn(0.0, 1.0)
+        val curriculumWeight = curriculum?.weightFor(example) ?: 1.0
+        val priority = (
+            1.0 - Math.pow(1.0 - basePriority, curriculumWeight)
+            ).coerceIn(0.0, 1.0)
 
         return ReflexHardExampleAssessment(
             exampleId = example.id,

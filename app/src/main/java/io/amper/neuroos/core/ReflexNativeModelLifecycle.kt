@@ -192,10 +192,19 @@ class ReflexNativeModelLifecycle(
             checkpointId = champion.checkpointId,
             weightArtifactSha256 = champion.weightArtifactSha256
         ).getOrThrow()
+        val historicalTraining = replay.exampleIds.mapNotNull(
+            runtime.reflexExperienceDatasets::getExample
+        )
+        val curriculum = ReflexAdaptiveCurriculumPlanner.plan(
+            champion = championPort,
+            historicalTraining = historicalTraining,
+            baseLearningRate = CONTINUAL_LEARNING_RATE
+        )
         val activeBatch = ReflexActiveLearningMiner.mine(
             fresh = fresh,
             champion = championPort,
             seenActionCapabilities = replay.seenActionCapabilities,
+            curriculum = curriculum,
             minActionExamples = MIN_CONTINUAL_ACTION_EXAMPLES,
             minEscalationExamples = MIN_CONTINUAL_ESCALATION_EXAMPLES,
             maxExamples = MAX_ACTIVE_LEARNING_EXAMPLES
@@ -212,6 +221,11 @@ class ReflexNativeModelLifecycle(
                 "champion active; waiting for enough high-quality governed evidence " +
                     "(label_confidence >= " + ReflexActiveLearningMiner.MIN_LABEL_CONFIDENCE + ")"
         )
+        val effectiveLearningRate = if (activeBatch.novelCapabilities.isNotEmpty()) {
+            maxOf(curriculum.learningRate, CONTINUAL_LEARNING_RATE)
+        } else {
+            curriculum.learningRate
+        }
         val drift = ReflexContinualDriftAnalyzer.analyze(
             fresh = fresh,
             replay = replay
@@ -242,8 +256,10 @@ class ReflexNativeModelLifecycle(
 
         val evidenceDigest = reflexLinearSha256(
             listOf(
-                "AMPER_REFLEX_CONTINUAL_V3_ACTIVE",
+                "AMPER_REFLEX_CONTINUAL_V4_CURRICULUM",
                 champion.checkpointId.value,
+                curriculum.canonicalDigest,
+                effectiveLearningRate.toString(),
                 activeBatch.selectedExampleIds
                     .map { it.value }
                     .sorted()
@@ -267,6 +283,7 @@ class ReflexNativeModelLifecycle(
             parentCheckpointId = champion.checkpointId,
             selectedExampleIds = activeBatch.selectedExampleIds,
             replayExampleIds = replay.exampleIds,
+            continualLearningRate = effectiveLearningRate,
             continual = true
         )
         val checkpoint = trainCheckpoint(
@@ -377,6 +394,8 @@ class ReflexNativeModelLifecycle(
                     " high-quality fresh examples (hard=" + activeBatch.hardExamples +
                     ", disagreements=" + activeBatch.disagreementExamples +
                     ", novel_capabilities=" + activeBatch.novelCapabilities.size +
+                    ", weak_capabilities=" + curriculum.weakCapabilities.size +
+                    ", lr=" + effectiveLearningRate +
                     "), replayed " + replay.exampleIds.size +
                     " prior examples, and replaced champion " + champion.checkpointId.value
         )
@@ -416,6 +435,7 @@ class ReflexNativeModelLifecycle(
         parentCheckpointId: NativeCheckpointId?,
         selectedExampleIds: List<ReflexExperienceExampleId>?,
         replayExampleIds: List<ReflexExperienceExampleId> = emptyList(),
+        continualLearningRate: Double = CONTINUAL_LEARNING_RATE,
         continual: Boolean
     ): ReflexDecisionTrainingSpec {
         val prefix = if (continual) "real-reflex-continual" else "real-reflex"
@@ -432,7 +452,7 @@ class ReflexNativeModelLifecycle(
             optimizer = "sgd-softmax",
             precision = ReflexLinearNativeTrainer.QUANTIZATION,
             maxSequenceTokens = 512,
-            learningRate = if (continual) CONTINUAL_LEARNING_RATE else 0.08,
+            learningRate = if (continual) continualLearningRate else 0.08,
             target = NativeMobileTargetProfile(
                 outputFormat = ReflexLinearNativeTrainer.OUTPUT_FORMAT,
                 quantization = ReflexLinearNativeTrainer.QUANTIZATION,
