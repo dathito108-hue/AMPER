@@ -183,6 +183,7 @@ class AmperRuntime private constructor(
     val autonomousEvolution: AutonomousEvolutionModel,
     val autonomousEvolutionPromotionExecutor: AutonomousEvolutionPromotionExecutor,
     val closedLoopEvolutionLedger: ClosedLoopEvolutionLedger,
+    val agiMobileQualificationStore: AgiMobileQualificationStore,
     val nativeModelFoundation: NativeModelFoundation,
     val nativeExperienceDatasets: NativeExperienceDatasetStore,
     val nativeExperiencePartition: NativeExperiencePartitioner,
@@ -289,6 +290,14 @@ class AmperRuntime private constructor(
                 )
             },
             maxCandidates = maxCandidates
+        )
+
+    fun agiMobileQualificationRunner(
+        suite: AgiMobileQualificationSuite = AgiMobileQualificationSuite.canonical()
+    ): CanonicalAgiMobileQualificationRunner =
+        CanonicalAgiMobileQualificationRunner(
+            suite = suite,
+            store = agiMobileQualificationStore
         )
 
     /** Rewrap production encrypted memory under a new managed key alias. */
@@ -506,6 +515,8 @@ class AmperRuntime private constructor(
                 )
             val closedLoopEvolutionLedger =
                 MemoryBackedClosedLoopEvolutionLedger(memory)
+            val agiMobileQualificationStore =
+                MemoryBackedAgiMobileQualificationStore(memory)
             val goals = CanonicalGoalSystem()
             val world = CanonicalWorldModel()
             val context = CanonicalSovereignContextSource(
@@ -593,6 +604,7 @@ class AmperRuntime private constructor(
                 autonomousEvolution = autonomousEvolution,
                 autonomousEvolutionPromotionExecutor = autonomousEvolutionPromotionExecutor,
                 closedLoopEvolutionLedger = closedLoopEvolutionLedger,
+                agiMobileQualificationStore = agiMobileQualificationStore,
                 nativeModelFoundation = nativeModelFoundation,
                 nativeExperienceDatasets = nativeExperienceDatasets,
                 nativeExperiencePartition = nativeExperiencePartition,
