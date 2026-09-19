@@ -101,15 +101,22 @@ class ReflexLearningJobService : JobService() {
     override fun onStartJob(params: JobParameters): Boolean {
         active = executor.submit {
             val scheduler = AndroidReflexLearningJobScheduler(applicationContext)
-            val coordinator = AndroidReflexMaintenanceProcessRegistry.current()
-                ?: restoreCoordinator()
-            AndroidReflexLearningJobScheduler.withoutReconcile {
-                coordinator.tick(force = true)
+            val outcome = runCatching {
+                val coordinator = AndroidReflexMaintenanceProcessRegistry.current()
+                    ?: restoreCoordinator()
+                AndroidReflexLearningJobScheduler.withoutReconcile {
+                    coordinator.tick(force = true).getOrThrow()
+                }
+                coordinator.pendingTicket()
             }
-            val pending = coordinator.pendingTicket()
             Handler(Looper.getMainLooper()).post {
-                jobFinished(params, false)
-                scheduler.reconcile(pending)
+                active = null
+                if (outcome.isSuccess) {
+                    jobFinished(params, false)
+                    scheduler.reconcile(outcome.getOrNull())
+                } else {
+                    jobFinished(params, true)
+                }
             }
         }
         return true
