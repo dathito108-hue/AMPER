@@ -434,7 +434,8 @@ class SovereignPlanCoordinator(
         portfolio = runtime.goalPortfolio,
         decomposer = goalDecomposer(),
         adaptiveReplanner = goalAdaptiveReplanner(),
-        outcomeLearning = runtime.goalOutcomeLearning
+        outcomeLearning = runtime.goalOutcomeLearning,
+        transferCalibration = runtime.goalTransferCalibration
     )
 
     fun create(
