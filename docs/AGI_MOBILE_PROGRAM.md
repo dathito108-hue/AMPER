@@ -233,13 +233,16 @@ or widen device/external authority.
 
 
 ### Implemented checkpoint — Phase261-265
-Phase261 projects canonical perception world facts into bounded typed perceptual grounding with modality,
-summary, provenance and confidence. Phase262 keeps raw image/audio bytes ephemeral and exposes only
-already-reduced summaries to cognition. Phase263 adds FRESH / RECENT / STALE semantics and excludes
-stale observations from planning eligibility. Phase264 fuses bounded perception into the integrated
-cognitive packet, readiness and canonical digest. Phase265 binds planner and independent critic to the
-exact same perceptual snapshot through that cognitive digest; perception remains authority=false and
-cannot trigger capture, execute tools or approve side effects.
+Phase261 projects canonical perception.* world observations into typed bounded perceptual evidence.
+Phase262 preserves source/producer/confidence provenance and continues to exclude raw image/audio
+attachment bytes from Memory OS and cognitive prompts. Phase263 classifies observations as FRESH,
+RECENT or STALE so old device state cannot silently remain planning-eligible. Phase264 fuses the
+bounded percept snapshot into the integrated cognitive digest/readiness and lets current perception
+contribute to world confidence and uncertainty. Phase265 gives the independent critic the exact same
+percept snapshot/digest seen by planning, eliminating live-perception drift across a single decision.
+Perceptual evidence remains authority=false and cannot itself trigger capture, execute a tool or
+grant device/external permission.
+
 
 ### Implemented checkpoint — Phase266-270
 Phase266 stores the exact integrated cognitive-state digest on each newly created/recovered plan for
@@ -253,17 +256,6 @@ previously valid side-effect approval path cannot outlive changed grounded conte
 legacy unbound plans on the pre-existing live ToolDescriptor/recovery revalidation path rather than
 inventing a historical digest. Continuity evidence is authority=false and never grants execution,
 approval or device authority.
-
-### Implemented checkpoint — Phase261-265
-Phase261 projects canonical perception.* world observations into typed bounded perceptual evidence.
-Phase262 preserves source/producer/confidence provenance and continues to exclude raw image/audio
-attachment bytes from Memory OS and cognitive prompts. Phase263 classifies observations as FRESH,
-RECENT or STALE so old device state cannot silently remain planning-eligible. Phase264 fuses the
-bounded percept snapshot into the integrated cognitive digest/readiness and lets current perception
-contribute to world confidence and uncertainty. Phase265 gives the independent critic the exact same
-percept snapshot/digest seen by planning, eliminating live-perception drift across a single decision.
-Perceptual evidence remains authority=false and cannot itself trigger capture, execute a tool or
-grant device/external permission.
 
 ## CI budget policy
 
