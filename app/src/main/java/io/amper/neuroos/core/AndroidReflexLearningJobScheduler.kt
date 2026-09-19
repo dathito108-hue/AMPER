@@ -21,6 +21,7 @@ class AndroidReflexLearningJobScheduler(
         appContext.getSystemService(Context.JOB_SCHEDULER_SERVICE) as JobScheduler
 
     override fun reconcile(ticket: ReflexLearningMaintenanceTicket?): Boolean {
+        if (reconcileSuppressed.get() == true) return false
         val now = clock().coerceAtLeast(0L)
         val plan = ReflexDeferredJobPlanner.plan(ticket, now)
         if (!plan.scheduled) {
@@ -49,6 +50,17 @@ class AndroidReflexLearningJobScheduler(
 
     companion object {
         const val JOB_ID = 0x414D5045
+        private val reconcileSuppressed = ThreadLocal.withInitial { false }
+
+        fun <T> withoutReconcile(block: () -> T): T {
+            val previous = reconcileSuppressed.get()
+            reconcileSuppressed.set(true)
+            return try {
+                block()
+            } finally {
+                reconcileSuppressed.set(previous)
+            }
+        }
     }
 }
 
@@ -91,7 +103,9 @@ class ReflexLearningJobService : JobService() {
             val scheduler = AndroidReflexLearningJobScheduler(applicationContext)
             val coordinator = AndroidReflexMaintenanceProcessRegistry.current()
                 ?: restoreCoordinator()
-            coordinator.tick(force = true)
+            AndroidReflexLearningJobScheduler.withoutReconcile {
+                coordinator.tick(force = true)
+            }
             val pending = coordinator.pendingTicket()
             Handler(Looper.getMainLooper()).post {
                 jobFinished(params, false)
