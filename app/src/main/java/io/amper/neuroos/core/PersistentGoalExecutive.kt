@@ -10,6 +10,7 @@ enum class PersistentGoalExecutiveStage {
     EVOLUTION_PAUSED,
     RECOVERY_QUEUED,
     RECOVERY_BLOCKED,
+    EXECUTION_PAUSED,
     PARTIAL_EXECUTION_BLOCKED,
     RECOVERY_EXHAUSTED,
     PLANNED,
@@ -53,6 +54,7 @@ data class PersistentGoalExecutiveCheckpoint(
         val planBoundStages = setOf(
             PersistentGoalExecutiveStage.PLANNED,
             PersistentGoalExecutiveStage.RECOVERY_BLOCKED,
+            PersistentGoalExecutiveStage.EXECUTION_PAUSED,
             PersistentGoalExecutiveStage.PARTIAL_EXECUTION_BLOCKED,
             PersistentGoalExecutiveStage.RECOVERY_EXHAUSTED,
             PersistentGoalExecutiveStage.COMPLETED
@@ -176,6 +178,8 @@ class PersistentGoalExecutiveCoordinator(
                         "planned goal is already handed off; resolve that terminal plan before replanning"
                     PersistentGoalExecutiveStage.RECOVERY_BLOCKED ->
                         "goal recovery is blocked by authority/user state or an unresolved side-effect claim"
+                    PersistentGoalExecutiveStage.EXECUTION_PAUSED ->
+                        "autonomous plan execution paused after a nonterminal step failure"
                     PersistentGoalExecutiveStage.PARTIAL_EXECUTION_BLOCKED ->
                         "goal recovery is blocked because part of the plan already executed"
                     PersistentGoalExecutiveStage.RECOVERY_EXHAUSTED ->
@@ -221,6 +225,39 @@ class PersistentGoalExecutiveCoordinator(
         )
         store.save(next)
         PersistentGoalExecutiveResult.Ran(next, run)
+    }
+
+    @Synchronized
+    fun pausePlannedExecution(
+        planId: PlanId,
+        failureCode: String
+    ): Result<PersistentGoalExecutiveCheckpoint> = runCatching {
+        require(failureCode.matches(Regex("[A-Z0-9_:-]{1,128}"))) {
+            "invalid autonomous execution failure code"
+        }
+        val current = requireNotNull(store.load()) {
+            "persistent goal executive has no active checkpoint"
+        }
+        require(current.stage == PersistentGoalExecutiveStage.PLANNED) {
+            "persistent goal executive is not awaiting autonomous plan execution"
+        }
+        require(current.plannedPlanId == planId) {
+            "paused plan does not match persistent goal handoff"
+        }
+        val plan = requireNotNull(plans.load(planId)) {
+            "paused persistent goal plan is unavailable from plan store"
+        }
+        require(!plan.complete) {
+            "terminal plan must be resolved instead of execution-paused"
+        }
+
+        store.save(
+            current.copy(
+                stage = PersistentGoalExecutiveStage.EXECUTION_PAUSED,
+                lastFailureCode = failureCode,
+                updatedAtEpochMs = clock().coerceAtLeast(current.updatedAtEpochMs)
+            )
+        )
     }
 
     @Synchronized
@@ -385,12 +422,14 @@ class PersistentGoalExecutiveCoordinator(
         private val BLOCKED_STAGES = setOf(
             PersistentGoalExecutiveStage.PLANNED,
             PersistentGoalExecutiveStage.RECOVERY_BLOCKED,
+            PersistentGoalExecutiveStage.EXECUTION_PAUSED,
             PersistentGoalExecutiveStage.PARTIAL_EXECUTION_BLOCKED,
             PersistentGoalExecutiveStage.RECOVERY_EXHAUSTED
         )
         private val PLAN_RESOLUTION_STAGES = setOf(
             PersistentGoalExecutiveStage.PLANNED,
             PersistentGoalExecutiveStage.RECOVERY_BLOCKED,
+            PersistentGoalExecutiveStage.EXECUTION_PAUSED,
             PersistentGoalExecutiveStage.PARTIAL_EXECUTION_BLOCKED,
             PersistentGoalExecutiveStage.RECOVERY_EXHAUSTED
         )
