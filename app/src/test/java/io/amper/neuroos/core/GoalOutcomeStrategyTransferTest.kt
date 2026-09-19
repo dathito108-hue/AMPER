@@ -258,6 +258,8 @@ class GoalOutcomeStrategyTransferTest {
         assertTrue(prompt.contains("projected_support="))
         assertTrue(prompt.contains("calibrated_support="))
         assertTrue(prompt.contains("portfolio_score="))
+        assertTrue(prompt.contains("hierarchical_credit="))
+        assertTrue(prompt.contains("hierarchical_confidence="))
         assertTrue(prompt.contains("cognitive_state_digest="))
         assertTrue(prompt.contains("authority=false"))
         assertFalse(prompt.contains("phase339-history-goal"))

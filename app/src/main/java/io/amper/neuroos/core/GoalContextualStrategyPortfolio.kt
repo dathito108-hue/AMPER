@@ -73,7 +73,11 @@ data class GoalStrategyPortfolioCandidate(
     val exploitationScore: Double,
     val explorationBonus: Double,
     val portfolioScore: Double,
-    val mode: GoalStrategyPortfolioMode
+    val mode: GoalStrategyPortfolioMode,
+    val hierarchicalCreditScore: Double = 0.0,
+    val hierarchicalCreditConfidence: Double = 0.0,
+    val hierarchicalMatchedComponents: Int = 0,
+    val hierarchicalCreditAdjustment: Double = 0.0
 ) {
     init {
         require(contextDigest.matches(Regex("[0-9a-f]{64}")))
@@ -85,6 +89,15 @@ data class GoalStrategyPortfolioCandidate(
         require(exploitationScore in 0.0..1.0)
         require(explorationBonus in 0.0..GoalContextualStrategyPortfolioPolicy.MAX_EXPLORATION_BONUS)
         require(portfolioScore in 0.0..1.0)
+        require(hierarchicalCreditScore in -1.0..1.0)
+        require(hierarchicalCreditConfidence in 0.0..1.0)
+        require(hierarchicalMatchedComponents >= 0)
+        require(
+            hierarchicalCreditAdjustment >=
+                -GoalHierarchicalStrategyCreditPolicy.MAX_PORTFOLIO_ADJUSTMENT &&
+                hierarchicalCreditAdjustment <=
+                    GoalHierarchicalStrategyCreditPolicy.MAX_PORTFOLIO_ADJUSTMENT
+        )
     }
 
     val authorityBearing: Boolean
@@ -154,7 +167,8 @@ interface GoalContextualStrategyPortfolio {
  * decays with prior contextual selections. Authority/user outcomes are neutral diagnostics.
  */
 class MemoryBackedGoalContextualStrategyPortfolio(
-    private val memory: MemoryOs
+    private val memory: MemoryOs,
+    private val hierarchicalCredit: GoalHierarchicalStrategyCreditModel? = null
 ) : GoalContextualStrategyPortfolio {
     @Synchronized
     override fun rank(
@@ -170,13 +184,20 @@ class MemoryBackedGoalContextualStrategyPortfolio(
         val contextDigest = GoalContextualStrategyPortfolioPolicy.contextDigest(fingerprint)
         val indexed = recentStats(MAX_INDEXED_STATS)
 
-        return GoalContextualStrategyPortfolioPolicy.rank(
+        val ranked = GoalContextualStrategyPortfolioPolicy.rank(
             candidates = candidates,
             contextDigest = contextDigest,
             contextFingerprint = fingerprint,
             historical = indexed,
             nowEpochMs = nowEpochMs
         )
+        return hierarchicalCredit?.let { credit ->
+            GoalHierarchicalStrategyCreditPolicy.apply(
+                goal = goal,
+                candidates = ranked,
+                credit = credit
+            )
+        } ?: ranked
     }
 
     @Synchronized
@@ -633,6 +654,10 @@ object GoalContextualStrategyPortfolioPolicy {
                         " regret_proxy=" + fmt(item.contextualRegretProxy) +
                         " exploitation=" + fmt(item.exploitationScore) +
                         " exploration_bonus=" + fmt(item.explorationBonus) +
+                        " hierarchical_credit=" + fmt(item.hierarchicalCreditScore) +
+                        " hierarchical_confidence=" + fmt(item.hierarchicalCreditConfidence) +
+                        " hierarchical_components=" + item.hierarchicalMatchedComponents +
+                        " hierarchical_adjustment=" + fmt(item.hierarchicalCreditAdjustment) +
                         " portfolio_score=" + fmt(item.portfolioScore) +
                         " authority=false"
                 )

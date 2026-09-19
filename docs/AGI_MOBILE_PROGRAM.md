@@ -539,6 +539,26 @@ future candidate ordering while preserving Phase346 exact transfer attribution, 
 binding, AuthorityGate, explicit confirmation, cognitive continuity, recovery limits and independent
 terminal goal verification.
 
+### Implemented checkpoint — Phase356-360
+Phase356 adds restart-safe hierarchical strategy credit assignment over exact governed terminal plans.
+Each observation is decomposed into individual STEP capability components, bounded PREFIX components
+and the complete SEQUENCE, and is attached only to hashed current/root goal fingerprints plus durable
+decomposition depth; raw goal IDs, tool inputs/outputs, tool IDs, request IDs and approvals are never
+persisted in this learning channel. Phase357 keeps execution credit separate from end-goal credit:
+verified success rewards executed steps/prefixes and the complete sequence, zero-executed failures
+penalize only the concrete failing execution components, and goal-evidence exhaustion preserves
+execution credit for steps/prefixes while penalizing only the complete sequence's goal contribution.
+Authority/user blocks and partial execution remain diagnostic-neutral. Phase358 feeds exact
+persistent-goal hierarchy lineage into credit observations and makes each plan outcome idempotent, so
+restart or later recovery bookkeeping cannot double-count the same plan. Phase359 aggregates only
+sufficiently similar hashed goal contexts and applies weighted step/prefix/sequence credit to future
+strategy candidates; sibling branches with dissimilar objectives therefore do not inherit each
+other's failure merely because they share a parent. Phase360 feeds the resulting hierarchical credit
+back into the contextual strategy portfolio with a hard ±0.10 score adjustment bound. Credit can
+reorder already counterfactually validated/calibrated candidates but cannot add capabilities, create
+plans, invoke inference, execute tools, grant authority, reuse approvals, alter continuity checks or
+replace independent goal-satisfaction verification.
+
 ## CI budget policy
 
 GitHub Actions is a scarce verification resource.
