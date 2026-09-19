@@ -118,7 +118,9 @@ data class GoalStrategyPortfolioDecision(
     val explorationBonus: Double,
     val portfolioScore: Double,
     val bestExploitationScore: Double,
-    val selectedAtEpochMs: Long
+    val selectedAtEpochMs: Long,
+    val repairMemorySupport: Double = 0.0,
+    val repairMemoryBonus: Double = 0.0
 ) {
     init {
         require(contextDigest.matches(Regex("[0-9a-f]{64}")))
@@ -129,6 +131,8 @@ data class GoalStrategyPortfolioDecision(
         require(portfolioScore in 0.0..1.0)
         require(bestExploitationScore in 0.0..1.0)
         require(selectedAtEpochMs >= 0L)
+        require(repairMemorySupport in 0.0..1.0)
+        require(repairMemoryBonus in 0.0..GoalRepairStrategyMemoryPolicy.MAX_PORTFOLIO_BONUS)
     }
 
     val authorityBearing: Boolean
@@ -251,7 +255,9 @@ class MemoryBackedGoalContextualStrategyPortfolio(
             explorationBonus = selected.explorationBonus,
             portfolioScore = selected.portfolioScore,
             bestExploitationScore = bestExploitation,
-            selectedAtEpochMs = boundAtEpochMs
+            selectedAtEpochMs = boundAtEpochMs,
+            repairMemorySupport = selected.repairMemorySupport,
+            repairMemoryBonus = selected.repairMemoryBonus
         )
         memory.remember(
             MemoryRecord(
@@ -708,7 +714,8 @@ object GoalContextualStrategyPortfolioPolicy {
 
 private object PortfolioCodec {
     private const val STATS_VERSION = "AMPER_GOAL_STRATEGY_PORTFOLIO_STATS_V1"
-    private const val DECISION_VERSION = "AMPER_GOAL_STRATEGY_PORTFOLIO_DECISION_V1"
+    private const val DECISION_VERSION_V1 = "AMPER_GOAL_STRATEGY_PORTFOLIO_DECISION_V1"
+    private const val DECISION_VERSION = "AMPER_GOAL_STRATEGY_PORTFOLIO_DECISION_V2"
     private const val OUTCOME_VERSION = "AMPER_GOAL_STRATEGY_PORTFOLIO_OUTCOME_V1"
 
     fun encodeStats(stats: GoalStrategyPortfolioStats): String = listOf(
@@ -761,12 +768,17 @@ private object PortfolioCodec {
         decision.explorationBonus.toString(),
         decision.portfolioScore.toString(),
         decision.bestExploitationScore.toString(),
-        decision.selectedAtEpochMs.toString()
+        decision.selectedAtEpochMs.toString(),
+        decision.repairMemorySupport.toString(),
+        decision.repairMemoryBonus.toString()
     ).joinToString("\t")
 
     fun decodeDecision(content: String): GoalStrategyPortfolioDecision? = runCatching {
         val p = content.split('\t')
-        require(p.size == 11 && p[0] == DECISION_VERSION)
+        require(
+            (p.size == 11 && p[0] == DECISION_VERSION_V1) ||
+                (p.size == 13 && p[0] == DECISION_VERSION)
+        )
         GoalStrategyPortfolioDecision(
             planId = PlanId(p[1]),
             contextDigest = p[2],
@@ -779,7 +791,9 @@ private object PortfolioCodec {
             explorationBonus = p[7].toDouble(),
             portfolioScore = p[8].toDouble(),
             bestExploitationScore = p[9].toDouble(),
-            selectedAtEpochMs = p[10].toLong()
+            selectedAtEpochMs = p[10].toLong(),
+            repairMemorySupport = if (p.size == 13) p[11].toDouble() else 0.0,
+            repairMemoryBonus = if (p.size == 13) p[12].toDouble() else 0.0
         )
     }.getOrNull()
 

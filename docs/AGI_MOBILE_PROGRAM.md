@@ -656,3 +656,18 @@ latter verifies persistent/root-goal satisfaction after an all-executed plan. Ph
 generic LearningConsolidation utility outside canonical runtime/planning; it must not become a second
 strategy-memory influence path without an explicit migration. No authority, tool admission, approval
 or execution semantics are widened by this cleanup.
+
+
+### Implemented checkpoint — Phase391-395
+Phase391 persists the exact repair-memory support and bounded portfolio bonus that influenced each
+selected GoalStrategyPortfolioDecision, with backward-compatible V1 decision decoding. Phase392
+attributes repair-memory success or failure only when the selected plan actually carried a non-zero
+repair-memory bonus; unselected candidates cannot receive credit or blame. Phase393 maintains
+restart-safe per-strategy regret calibration, with authority/user and partial-execution outcomes
+remaining neutral. Two consecutive attributed execution/evidence failures automatically demote the
+repair-memory multiplier to zero. Phase394 allows recovery only after a newer real-qualified success
+rebuilds an active distilled pattern; the memory re-enters as probationary support capped by a 0.25
+multiplier until it earns an attributed verified success. Phase395 multiplies distilled repair-memory
+support by this calibration before the existing +0.03 portfolio cap, so calibration can only reduce
+or suppress learned support and can never increase authority, hierarchical credit, tool admission or
+approval.

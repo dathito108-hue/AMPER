@@ -626,6 +626,17 @@ class PersistentGoalExecutiveCoordinator(
             )
         }
         runCatching {
+            val decision = strategyPortfolio?.decision(terminalPlan.id)
+            if (decision != null) {
+                repairStrategyMemory?.observeAttributedOutcome(
+                    plan = terminalPlan,
+                    outcome = outcome,
+                    decision = decision,
+                    observedAtEpochMs = observedAtEpochMs
+                )
+            }
+        }
+        runCatching {
             hierarchicalStrategyCredit?.observe(
                 checkpoint = checkpoint,
                 plan = terminalPlan,

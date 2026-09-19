@@ -34,6 +34,64 @@ data class GoalRepairStrategyPattern(
         get() = false
 }
 
+data class GoalRepairMemoryCalibrationSnapshot(
+    val strategy: StrategySignature,
+    val attributedSuccesses: Int = 0,
+    val attributedFailures: Int = 0,
+    val consecutiveAttributedFailures: Int = 0,
+    val cumulativeRegret: Double = 0.0,
+    val probationary: Boolean = false,
+    val lastAttributedSuccessAtEpochMs: Long = 0L,
+    val lastAttributedFailureAtEpochMs: Long = 0L,
+    val lastRecoveryAtEpochMs: Long = 0L
+) {
+    init {
+        require(attributedSuccesses >= 0)
+        require(attributedFailures >= 0)
+        require(consecutiveAttributedFailures >= 0)
+        require(consecutiveAttributedFailures <= attributedFailures)
+        require(cumulativeRegret >= 0.0)
+        require(lastAttributedSuccessAtEpochMs >= 0L)
+        require(lastAttributedFailureAtEpochMs >= 0L)
+        require(lastRecoveryAtEpochMs >= 0L)
+    }
+
+    val attributedAttempts: Int
+        get() = attributedSuccesses + attributedFailures
+
+    val successRate: Double?
+        get() = attributedAttempts.takeIf { it > 0 }?.let {
+            attributedSuccesses.toDouble() / it.toDouble()
+        }
+
+    val evidenceConfidence: Double
+        get() = attributedAttempts.toDouble() /
+            (attributedAttempts.toDouble() + 3.0)
+
+    val demoted: Boolean
+        get() = consecutiveAttributedFailures >=
+            MemoryBackedGoalRepairStrategyMemory.DEMOTION_FAILURE_STREAK
+
+    val calibrationMultiplier: Double
+        get() {
+            if (demoted) return 0.0
+            val rate = successRate ?: 1.0
+            val learned = (
+                (1.0 - evidenceConfidence) + rate * evidenceConfidence
+                ).coerceIn(0.0, 1.0)
+            val streakFactor = when (consecutiveAttributedFailures) {
+                0 -> 1.0
+                1 -> 0.50
+                else -> 0.0
+            }
+            val probationFactor = if (probationary) 0.25 else 1.0
+            return (learned * streakFactor * probationFactor).coerceIn(0.0, 1.0)
+        }
+
+    val authorityBearing: Boolean
+        get() = false
+}
+
 interface GoalRepairStrategyMemory {
     fun observe(
         plan: SovereignPlan,
@@ -41,7 +99,16 @@ interface GoalRepairStrategyMemory {
         observedAtEpochMs: Long = System.currentTimeMillis()
     ): GoalRepairStrategyPattern?
 
+    fun observeAttributedOutcome(
+        plan: SovereignPlan,
+        outcome: GoalOutcomeEvidenceKind,
+        decision: GoalStrategyPortfolioDecision,
+        observedAtEpochMs: Long = System.currentTimeMillis()
+    ): GoalRepairMemoryCalibrationSnapshot? = null
+
     fun snapshot(strategy: StrategySignature): GoalRepairStrategyPattern?
+
+    fun calibration(strategy: StrategySignature): GoalRepairMemoryCalibrationSnapshot? = null
 
     fun recent(limit: Int = 16): List<GoalRepairStrategyPattern>
 
@@ -157,6 +224,114 @@ class MemoryBackedGoalRepairStrategyMemory(
                 updateIndexLocked(strategy.digest, observedAtEpochMs)
             }
         }
+        if (
+            outcome == GoalOutcomeEvidenceKind.VERIFIED_SUCCESS &&
+            updated?.active == true
+        ) {
+            recoverDemotedCalibrationIfEligible(
+                strategy = strategy,
+                observedAtEpochMs = observedAtEpochMs
+            )
+        }
+        return updated
+    }
+
+    @Synchronized
+    override fun observeAttributedOutcome(
+        plan: SovereignPlan,
+        outcome: GoalOutcomeEvidenceKind,
+        decision: GoalStrategyPortfolioDecision,
+        observedAtEpochMs: Long
+    ): GoalRepairMemoryCalibrationSnapshot? {
+        require(plan.complete)
+        require(observedAtEpochMs >= 0L)
+        require(decision.planId == plan.id)
+        val strategy = StrategySignature.from(plan)
+        require(decision.strategy == strategy)
+        if (decision.repairMemoryBonus <= 0.0) return calibration(strategy)
+        if (
+            outcome == GoalOutcomeEvidenceKind.AUTHORITY_BLOCKED ||
+            outcome == GoalOutcomeEvidenceKind.PARTIAL_EXECUTION_BLOCKED
+        ) {
+            return calibration(strategy)
+        }
+
+        val markerId = attributionMarkerId(plan.id)
+        memory.get(markerId)
+            ?.takeIf { it.kind == ATTRIBUTION_MARKER_KIND }
+            ?.let { marker ->
+                val decoded = GoalRepairMemoryCalibrationCodec.decodeMarker(marker.content)
+                require(decoded != null)
+                require(decoded.strategyDigest == strategy.digest)
+                require(decoded.outcome == outcome)
+                return calibration(strategy)
+            }
+
+        val previous = calibration(strategy)
+            ?: GoalRepairMemoryCalibrationSnapshot(strategy)
+        val influence = (
+            decision.repairMemoryBonus / GoalRepairStrategyMemoryPolicy.MAX_PORTFOLIO_BONUS
+            ).coerceIn(0.0, 1.0)
+        val updated = when (outcome) {
+            GoalOutcomeEvidenceKind.VERIFIED_SUCCESS -> previous.copy(
+                attributedSuccesses = previous.attributedSuccesses + 1,
+                consecutiveAttributedFailures = 0,
+                probationary = false,
+                lastAttributedSuccessAtEpochMs = maxOf(
+                    previous.lastAttributedSuccessAtEpochMs,
+                    observedAtEpochMs
+                )
+            )
+            GoalOutcomeEvidenceKind.EXECUTION_EXHAUSTED,
+            GoalOutcomeEvidenceKind.EVIDENCE_EXHAUSTED -> previous.copy(
+                attributedFailures = previous.attributedFailures + 1,
+                consecutiveAttributedFailures =
+                    previous.consecutiveAttributedFailures + 1,
+                cumulativeRegret = previous.cumulativeRegret + influence,
+                probationary = false,
+                lastAttributedFailureAtEpochMs = maxOf(
+                    previous.lastAttributedFailureAtEpochMs,
+                    observedAtEpochMs
+                )
+            )
+            GoalOutcomeEvidenceKind.AUTHORITY_BLOCKED,
+            GoalOutcomeEvidenceKind.PARTIAL_EXECUTION_BLOCKED -> previous
+        }
+
+        memory.transaction {
+            remember(
+                MemoryRecord(
+                    id = calibrationId(strategy),
+                    kind = CALIBRATION_KIND,
+                    content = GoalRepairMemoryCalibrationCodec.encodeSnapshot(updated),
+                    importance = if (updated.demoted) 0.84 else 0.70,
+                    provenance = Provenance(
+                        source = "governed-repair-memory-attribution",
+                        producer = "goal-repair-strategy-memory",
+                        confidence = updated.evidenceConfidence,
+                        parents = setOf(decisionId(plan.id))
+                    ),
+                    createdAtEpochMs = observedAtEpochMs
+                )
+            )
+            remember(
+                MemoryRecord(
+                    id = markerId,
+                    kind = ATTRIBUTION_MARKER_KIND,
+                    content = GoalRepairMemoryCalibrationCodec.encodeMarker(
+                        strategyDigest = strategy.digest,
+                        outcome = outcome
+                    ),
+                    importance = 0.56,
+                    provenance = Provenance(
+                        source = "governed-repair-memory-attribution",
+                        producer = "goal-repair-strategy-memory-marker",
+                        confidence = 1.0
+                    ),
+                    createdAtEpochMs = observedAtEpochMs
+                )
+            )
+        }
         return updated
     }
 
@@ -164,6 +339,14 @@ class MemoryBackedGoalRepairStrategyMemory(
         memory.get(snapshotId(strategy))
             ?.takeIf { it.kind == SNAPSHOT_KIND }
             ?.let { GoalRepairStrategyMemoryCodec.decodePattern(it.content) }
+            ?.takeIf { it.strategy == strategy }
+
+    override fun calibration(
+        strategy: StrategySignature
+    ): GoalRepairMemoryCalibrationSnapshot? =
+        memory.get(calibrationId(strategy))
+            ?.takeIf { it.kind == CALIBRATION_KIND }
+            ?.let { GoalRepairMemoryCalibrationCodec.decodeSnapshot(it.content) }
             ?.takeIf { it.strategy == strategy }
 
     override fun recent(limit: Int): List<GoalRepairStrategyPattern> {
@@ -186,6 +369,10 @@ class MemoryBackedGoalRepairStrategyMemory(
     override fun support(strategy: StrategySignature): Double {
         val liveRequalification = repairValidation.requalifiedTransferConfidence(strategy)
         if (liveRequalification <= 0.0) return 0.0
+        val calibrationMultiplier = calibration(strategy)
+            ?.calibrationMultiplier
+            ?: 1.0
+        if (calibrationMultiplier <= 0.0) return 0.0
         return recent(MAX_INDEXED_PATTERNS)
             .asSequence()
             .filter { it.active }
@@ -197,11 +384,43 @@ class MemoryBackedGoalRepairStrategyMemory(
                 if (similarity < MIN_PATTERN_SIMILARITY) null else (
                     pattern.evidenceConfidence *
                         similarity *
-                        liveRequalification
+                        liveRequalification *
+                        calibrationMultiplier
                     ).coerceIn(0.0, 1.0)
             }
             .maxOrNull()
             ?: 0.0
+    }
+
+    private fun recoverDemotedCalibrationIfEligible(
+        strategy: StrategySignature,
+        observedAtEpochMs: Long
+    ) {
+        val previous = calibration(strategy) ?: return
+        if (!previous.demoted) return
+        if (observedAtEpochMs <= previous.lastAttributedFailureAtEpochMs) return
+        val recovered = previous.copy(
+            consecutiveAttributedFailures = 0,
+            probationary = true,
+            lastRecoveryAtEpochMs = maxOf(
+                previous.lastRecoveryAtEpochMs,
+                observedAtEpochMs
+            )
+        )
+        memory.remember(
+            MemoryRecord(
+                id = calibrationId(strategy),
+                kind = CALIBRATION_KIND,
+                content = GoalRepairMemoryCalibrationCodec.encodeSnapshot(recovered),
+                importance = 0.72,
+                provenance = Provenance(
+                    source = "governed-repair-memory-recovery",
+                    producer = "goal-repair-strategy-memory",
+                    confidence = recovered.evidenceConfidence
+                ),
+                createdAtEpochMs = observedAtEpochMs
+            )
+        )
     }
 
     private fun MemoryOs.updateIndexLocked(digest: String, now: Long) {
@@ -239,10 +458,22 @@ class MemoryBackedGoalRepairStrategyMemory(
     private fun markerId(planId: PlanId): MemoryId =
         MemoryId("goal-repair-strategy-memory-outcome:" + planId.value)
 
+    private fun calibrationId(strategy: StrategySignature): MemoryId =
+        MemoryId("goal-repair-memory-calibration:" + strategy.digest)
+
+    private fun attributionMarkerId(planId: PlanId): MemoryId =
+        MemoryId("goal-repair-memory-attribution:" + planId.value)
+
+    private fun decisionId(planId: PlanId): MemoryId =
+        MemoryId("goal-strategy-portfolio-decision:" + planId.value)
+
     companion object {
         const val SNAPSHOT_KIND = "goal-repair-strategy-memory-v1"
         const val OUTCOME_MARKER_KIND = "goal-repair-strategy-memory-outcome-v1"
         const val INDEX_KIND = "goal-repair-strategy-memory-index-v1"
+        const val CALIBRATION_KIND = "goal-repair-memory-calibration-v1"
+        const val ATTRIBUTION_MARKER_KIND = "goal-repair-memory-attribution-v1"
+        const val DEMOTION_FAILURE_STREAK = 2
         const val MIN_CONSECUTIVE_VERIFIED_SUCCESSES = 2
         const val MIN_PATTERN_SIMILARITY = 0.75
         const val MAX_INDEXED_PATTERNS = 32
@@ -339,6 +570,72 @@ private object GoalRepairStrategyMemoryCodec {
             strategyDigest = p[1],
             outcome = GoalOutcomeEvidenceKind.valueOf(p[2]),
             admitted = admitted
+        )
+    }.getOrNull()
+}
+
+
+private object GoalRepairMemoryCalibrationCodec {
+    private const val SNAPSHOT_VERSION = "AMPER_GOAL_REPAIR_MEMORY_CALIBRATION_V1"
+    private const val MARKER_VERSION = "AMPER_GOAL_REPAIR_MEMORY_ATTRIBUTION_V1"
+
+    data class Marker(
+        val strategyDigest: String,
+        val outcome: GoalOutcomeEvidenceKind
+    )
+
+    fun encodeSnapshot(snapshot: GoalRepairMemoryCalibrationSnapshot): String = listOf(
+        SNAPSHOT_VERSION,
+        snapshot.strategy.capabilities.joinToString(",") { it.value },
+        snapshot.attributedSuccesses.toString(),
+        snapshot.attributedFailures.toString(),
+        snapshot.consecutiveAttributedFailures.toString(),
+        snapshot.cumulativeRegret.toString(),
+        snapshot.probationary.toString(),
+        snapshot.lastAttributedSuccessAtEpochMs.toString(),
+        snapshot.lastAttributedFailureAtEpochMs.toString(),
+        snapshot.lastRecoveryAtEpochMs.toString()
+    ).joinToString("\t")
+
+    fun decodeSnapshot(content: String): GoalRepairMemoryCalibrationSnapshot? = runCatching {
+        val p = content.split('\t')
+        require(p.size == 10 && p[0] == SNAPSHOT_VERSION)
+        val probationary = when (p[6]) {
+            "true" -> true
+            "false" -> false
+            else -> error("invalid repair-memory probation flag")
+        }
+        GoalRepairMemoryCalibrationSnapshot(
+            strategy = StrategySignature(
+                p[1].split(',').filter { it.isNotBlank() }.map(::CapabilityId)
+            ),
+            attributedSuccesses = p[2].toInt(),
+            attributedFailures = p[3].toInt(),
+            consecutiveAttributedFailures = p[4].toInt(),
+            cumulativeRegret = p[5].toDouble(),
+            probationary = probationary,
+            lastAttributedSuccessAtEpochMs = p[7].toLong(),
+            lastAttributedFailureAtEpochMs = p[8].toLong(),
+            lastRecoveryAtEpochMs = p[9].toLong()
+        )
+    }.getOrNull()
+
+    fun encodeMarker(
+        strategyDigest: String,
+        outcome: GoalOutcomeEvidenceKind
+    ): String = listOf(
+        MARKER_VERSION,
+        strategyDigest,
+        outcome.name
+    ).joinToString("\t")
+
+    fun decodeMarker(content: String): Marker? = runCatching {
+        val p = content.split('\t')
+        require(p.size == 3 && p[0] == MARKER_VERSION)
+        require(p[1].matches(Regex("[0-9a-f]{64}")))
+        Marker(
+            strategyDigest = p[1],
+            outcome = GoalOutcomeEvidenceKind.valueOf(p[2])
         )
     }.getOrNull()
 }
