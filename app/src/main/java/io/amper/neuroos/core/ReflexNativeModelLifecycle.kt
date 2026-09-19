@@ -3,6 +3,7 @@ package io.amper.neuroos.core
 enum class ReflexNativeLifecycleStage {
     INSUFFICIENT_EVIDENCE,
     WAITING_FOR_FRESH_EVIDENCE,
+    RESOURCE_DEFERRED,
     DISABLED,
     TRAINING_FAILED,
     EVALUATION_REJECTED,
@@ -28,7 +29,9 @@ data class ReflexNativeLifecycleReport(
 
 class ReflexNativeModelLifecycle(
     private val runtime: AmperRuntime,
-    artifacts: ReflexLinearArtifactStore
+    artifacts: ReflexLinearArtifactStore,
+    private val learningResourcePolicy: ReflexLearningResourcePolicy =
+        runtime.reflexLearningResourcePolicy
 ) {
     private val trainer = ReflexLinearNativeTrainer(artifacts)
     private val resolver = ReflexLinearDecisionPortResolver(
@@ -97,15 +100,46 @@ class ReflexNativeModelLifecycle(
             )
         }
 
+        val initialResource = learningResourcePolicy.evaluate(
+            ReflexLearningDemand(
+                freshCandidates = examples.size,
+                replayCandidates = 0,
+                learningValue = 1.0,
+                hardExamples = examples.size,
+                disagreementExamples = examples.size,
+                novelCapabilities = examples
+                    .mapNotNull { it.targetCapability }
+                    .distinct()
+                    .size
+            )
+        )
+        if (!initialResource.allowTraining) {
+            return ReflexNativeLifecycleReport(
+                stage = ReflexNativeLifecycleStage.RESOURCE_DEFERRED,
+                checkpointId = null,
+                actionExamples = actionExamples,
+                escalationExamples = escalationExamples,
+                detail = initialResource.reason
+            )
+        }
+        val initialSelected = balancedInitialSelection(
+            examples = examples,
+            maxExamples = initialResource.maxFreshExamples
+        )
+
         ensureFoundation()
         val evidenceDigest = reflexLinearSha256(
-            examples.map { it.id.value }.sorted().joinToString("|")
+            listOf(
+                "AMPER_REFLEX_INITIAL_RESOURCE_V1",
+                initialResource.mode.name,
+                initialSelected.map { it.id.value }.sorted().joinToString(",")
+            ).joinToString("|")
         )
         val tag = evidenceDigest.take(20)
         val spec = trainingSpec(
             tag = tag,
             parentCheckpointId = null,
-            selectedExampleIds = null,
+            selectedExampleIds = initialSelected.map { it.id },
             continual = false
         )
         val checkpoint = trainCheckpoint(
@@ -184,7 +218,7 @@ class ReflexNativeModelLifecycle(
         }
 
         ensureFoundation()
-        val replay = stabilityPlanner.replayPlan(
+        val fullReplay = stabilityPlanner.replayPlan(
             championCheckpointId = champion.checkpointId,
             maxExamples = MAX_REPLAY_EXAMPLES
         )
@@ -192,19 +226,19 @@ class ReflexNativeModelLifecycle(
             checkpointId = champion.checkpointId,
             weightArtifactSha256 = champion.weightArtifactSha256
         ).getOrThrow()
-        val historicalTraining = replay.exampleIds.mapNotNull(
+        val fullHistoricalTraining = fullReplay.exampleIds.mapNotNull(
             runtime.reflexExperienceDatasets::getExample
         )
-        val curriculum = ReflexAdaptiveCurriculumPlanner.plan(
+        val fullCurriculum = ReflexAdaptiveCurriculumPlanner.plan(
             champion = championPort,
-            historicalTraining = historicalTraining,
+            historicalTraining = fullHistoricalTraining,
             baseLearningRate = CONTINUAL_LEARNING_RATE
         )
-        val activeBatch = ReflexActiveLearningMiner.mine(
+        val fullActiveBatch = ReflexActiveLearningMiner.mine(
             fresh = fresh,
             champion = championPort,
-            seenActionCapabilities = replay.seenActionCapabilities,
-            curriculum = curriculum,
+            seenActionCapabilities = fullReplay.seenActionCapabilities,
+            curriculum = fullCurriculum,
             minActionExamples = MIN_CONTINUAL_ACTION_EXAMPLES,
             minEscalationExamples = MIN_CONTINUAL_ESCALATION_EXAMPLES,
             maxExamples = MAX_ACTIVE_LEARNING_EXAMPLES
@@ -221,19 +255,14 @@ class ReflexNativeModelLifecycle(
                 "champion active; waiting for enough high-quality governed evidence " +
                     "(label_confidence >= " + ReflexActiveLearningMiner.MIN_LABEL_CONFIDENCE + ")"
         )
-        val effectiveLearningRate = if (activeBatch.novelCapabilities.isNotEmpty()) {
-            maxOf(curriculum.learningRate, CONTINUAL_LEARNING_RATE)
-        } else {
-            curriculum.learningRate
-        }
         val drift = ReflexContinualDriftAnalyzer.analyze(
             fresh = fresh,
-            replay = replay
+            replay = fullReplay
         )
         if (
             !drift.significant &&
             fresh.size < MIN_LOW_DRIFT_RETRAIN_EXAMPLES &&
-            !activeBatch.highValueSignal
+            !fullActiveBatch.highValueSignal
         ) {
             return ReflexNativeLifecycleReport(
                 stage = if (recovered) {
@@ -249,14 +278,84 @@ class ReflexNativeModelLifecycle(
                         "$MIN_LOW_DRIFT_RETRAIN_EXAMPLES (capability_delta=" +
                         drift.actionCapabilityDistributionDelta +
                         ", escalation_delta=" + drift.escalationShareDelta +
-                        ", hard=" + activeBatch.hardExamples +
-                        ", disagreements=" + activeBatch.disagreementExamples + ")"
+                        ", hard=" + fullActiveBatch.hardExamples +
+                        ", disagreements=" + fullActiveBatch.disagreementExamples + ")"
             )
+        }
+
+        val resourceDecision = learningResourcePolicy.evaluate(
+            ReflexLearningDemand(
+                freshCandidates = fullActiveBatch.eligibleExamples,
+                replayCandidates = fullReplay.exampleIds.size,
+                learningValue = fullActiveBatch.learningValue(),
+                hardExamples = fullActiveBatch.hardExamples,
+                disagreementExamples = fullActiveBatch.disagreementExamples,
+                novelCapabilities = fullActiveBatch.novelCapabilities.size
+            )
+        )
+        if (!resourceDecision.allowTraining) {
+            return ReflexNativeLifecycleReport(
+                stage = ReflexNativeLifecycleStage.RESOURCE_DEFERRED,
+                checkpointId = champion.checkpointId,
+                actionExamples = actionExamples,
+                escalationExamples = escalationExamples,
+                detail =
+                    resourceDecision.reason +
+                        "; learning_value=" + fullActiveBatch.learningValue() +
+                        "; champion remains active and evidence stays pending"
+            )
+        }
+
+        val replay = if (
+            resourceDecision.maxReplayExamples < fullReplay.exampleIds.size
+        ) {
+            stabilityPlanner.replayPlan(
+                championCheckpointId = champion.checkpointId,
+                maxExamples = resourceDecision.maxReplayExamples
+            )
+        } else {
+            fullReplay
+        }
+        val curriculum = if (replay.exampleIds == fullReplay.exampleIds) {
+            fullCurriculum
+        } else {
+            ReflexAdaptiveCurriculumPlanner.plan(
+                champion = championPort,
+                historicalTraining = replay.exampleIds.mapNotNull(
+                    runtime.reflexExperienceDatasets::getExample
+                ),
+                baseLearningRate = CONTINUAL_LEARNING_RATE
+            )
+        }
+        val activeBatch = if (
+            resourceDecision.maxFreshExamples >= fullActiveBatch.selectedExampleIds.size &&
+            curriculum == fullCurriculum
+        ) {
+            fullActiveBatch
+        } else {
+            requireNotNull(
+                ReflexActiveLearningMiner.mine(
+                    fresh = fresh,
+                    champion = championPort,
+                    seenActionCapabilities = replay.seenActionCapabilities,
+                    curriculum = curriculum,
+                    minActionExamples = MIN_CONTINUAL_ACTION_EXAMPLES,
+                    minEscalationExamples = MIN_CONTINUAL_ESCALATION_EXAMPLES,
+                    maxExamples = resourceDecision.maxFreshExamples
+                )
+            ) {
+                "resource-bounded Reflex batch lost required governed class coverage"
+            }
+        }
+        val effectiveLearningRate = if (activeBatch.novelCapabilities.isNotEmpty()) {
+            maxOf(curriculum.learningRate, CONTINUAL_LEARNING_RATE)
+        } else {
+            curriculum.learningRate
         }
 
         val evidenceDigest = reflexLinearSha256(
             listOf(
-                "AMPER_REFLEX_CONTINUAL_V4_CURRICULUM",
+                "AMPER_REFLEX_CONTINUAL_V5_RESOURCE_SCHEDULED",
                 champion.checkpointId.value,
                 curriculum.canonicalDigest,
                 effectiveLearningRate.toString(),
@@ -396,9 +495,42 @@ class ReflexNativeModelLifecycle(
                     ", novel_capabilities=" + activeBatch.novelCapabilities.size +
                     ", weak_capabilities=" + curriculum.weakCapabilities.size +
                     ", lr=" + effectiveLearningRate +
+                    ", resource_mode=" + resourceDecision.mode.name +
+                    ", fresh_budget=" + resourceDecision.maxFreshExamples +
+                    ", replay_budget=" + resourceDecision.maxReplayExamples +
                     "), replayed " + replay.exampleIds.size +
                     " prior examples, and replaced champion " + champion.checkpointId.value
         )
+    }
+
+    private fun balancedInitialSelection(
+        examples: List<ReflexExperienceTrainingExample>,
+        maxExamples: Int
+    ): List<ReflexExperienceTrainingExample> {
+        require(maxExamples >= MIN_TOTAL_ACTION_EXAMPLES + MIN_TOTAL_ESCALATION_EXAMPLES)
+        val actions = examples
+            .filter { it.targetDisposition == ReflexDecisionDisposition.PROPOSE_ACTION }
+            .sortedBy { it.id.value }
+        val escalations = examples
+            .filter { it.targetDisposition == ReflexDecisionDisposition.ESCALATE_SYSTEM2 }
+            .sortedBy { it.id.value }
+        require(actions.size >= MIN_TOTAL_ACTION_EXAMPLES)
+        require(escalations.size >= MIN_TOTAL_ESCALATION_EXAMPLES)
+
+        val half = maxExamples / 2
+        val selected = linkedMapOf<ReflexExperienceExampleId, ReflexExperienceTrainingExample>()
+        actions.take(half.coerceAtLeast(MIN_TOTAL_ACTION_EXAMPLES))
+            .forEach { selected[it.id] = it }
+        escalations.take((maxExamples - selected.size).coerceAtLeast(MIN_TOTAL_ESCALATION_EXAMPLES))
+            .forEach { selected[it.id] = it }
+        if (selected.size < maxExamples) {
+            (actions + escalations)
+                .asSequence()
+                .filterNot { it.id in selected }
+                .take(maxExamples - selected.size)
+                .forEach { selected[it.id] = it }
+        }
+        return selected.values.toList()
     }
 
     private fun trainCheckpoint(

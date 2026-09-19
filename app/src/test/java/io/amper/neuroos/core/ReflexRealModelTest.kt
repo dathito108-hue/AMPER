@@ -115,6 +115,61 @@ class ReflexRealModelTest {
     }
 
     @Test
+    fun resourceDeferralKeepsChampionAndLaterResumesSamePendingEvidence() {
+        val runtime = AmperRuntime.reference()
+        seed(runtime.reflexExperienceDatasets, "resource-resume-base")
+        val artifacts = InMemoryReflexLinearArtifactStore()
+        var allowTraining = true
+        val policy = ReflexLearningResourcePolicy {
+            if (allowTraining) {
+                ReflexLearningResourceDecision(
+                    mode = ReflexLearningResourceMode.READY,
+                    allowTraining = true,
+                    maxFreshExamples = 96,
+                    maxReplayExamples = 96,
+                    memoryBudgetMb = 1024,
+                    thermalClass = 1,
+                    reason = "test resources ready"
+                )
+            } else {
+                ReflexLearningResourceDecision(
+                    mode = ReflexLearningResourceMode.DEFERRED,
+                    allowTraining = false,
+                    maxFreshExamples = 0,
+                    maxReplayExamples = 0,
+                    memoryBudgetMb = 128,
+                    thermalClass = 3,
+                    reason = "test resources deferred"
+                )
+            }
+        }
+        val lifecycle = ReflexNativeModelLifecycle(
+            runtime = runtime,
+            artifacts = artifacts,
+            learningResourcePolicy = policy
+        )
+
+        val initial = lifecycle.maintain().getOrThrow()
+        assertEquals(ReflexNativeLifecycleStage.ACTIVE, initial.stage)
+        val championId = requireNotNull(initial.checkpointId)
+
+        seedFreshWebSearch(runtime.reflexExperienceDatasets, "resource-resume-fresh")
+        allowTraining = false
+        val deferred = lifecycle.maintain().getOrThrow()
+
+        assertEquals(ReflexNativeLifecycleStage.RESOURCE_DEFERRED, deferred.stage)
+        assertEquals(championId, deferred.checkpointId)
+        assertEquals(championId, runtime.reflexDecisionRuntime.active()?.checkpointId)
+
+        allowTraining = true
+        val resumed = lifecycle.maintain().getOrThrow()
+
+        assertEquals(ReflexNativeLifecycleStage.REPLACED, resumed.stage)
+        assertTrue(requireNotNull(resumed.checkpointId) != championId)
+        assertEquals(resumed.checkpointId, runtime.reflexDecisionRuntime.active()?.checkpointId)
+    }
+
+    @Test
     fun stableFreshEvidenceIsBatchedInsteadOfRetrainingEverySmallWindow() {
         val runtime = AmperRuntime.reference()
         seed(runtime.reflexExperienceDatasets, "batch-base")

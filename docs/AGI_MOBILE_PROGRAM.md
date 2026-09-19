@@ -1160,3 +1160,36 @@ Every challenger still passes fresh held-out admission, common-holdout compariso
 stability comparison and verified runtime replacement before activation. ToolDescriptor binding,
 deterministic argument reconstruction, SovereignActionLoop, AuthorityGate, explicit approval and
 durable execution receipts are unchanged.
+
+
+### Completion checkpoint — Phase511-515
+Phase511 adds a dedicated Reflex continual-learning resource policy, separate from the lightweight
+inference resource policy. Training is treated as the more expensive operation and is evaluated
+against live ResourceGovernor RAM/thermal state plus optional battery, charging, low-memory and app
+storage signals. Severe thermal pressure, critical memory, low-memory state, storage reserve pressure
+or battery <=20% while unplugged defer training without touching the active champion.
+
+Phase512 introduces value-aware mobile learning budgets. Healthy devices may use up to 96 fresh and
+96 replay examples; resource pressure reduces this to 64/64, while battery-conservation mode uses
+64 fresh and 48 replay examples and permits only high-value updates. Novel capabilities, champion
+disagreements and active-learning value can justify a bounded update under non-critical pressure;
+low-value updates simply remain pending.
+
+Phase513 wires the policy into the canonical AmperRuntime using the same ResourceGovernor and
+DeviceStatusSource already shared by Android runtime/inference policy. JVM/reference runtimes keep a
+deterministic healthy budget, while Android production automatically receives live device state
+without adding another monitor.
+
+Phase514 makes ReflexNativeModelLifecycle resource-aware before any training execution. Initial model
+training uses a deterministic balanced evidence subset within the current resource budget. Continual
+learning first estimates update value, then either returns RESOURCE_DEFERRED with the current champion
+unchanged or re-materializes fresh/replay evidence to the granted budget before training. Deferred
+evidence is not consumed, so the next successful maintenance call automatically re-evaluates current
+resources and resumes the same pending learning opportunity when conditions recover.
+
+Phase515 binds resource-budgeted evidence into V5 continual checkpoint identity and adds regression
+coverage for thermal/battery/memory deferral, high-value limited updates and defer-then-resume
+behavior. Resource scheduling never bypasses fresh held-out admission, champion comparison,
+historical anti-forgetting stability comparison or verified runtime replacement. ToolDescriptor
+binding, deterministic argument reconstruction, SovereignActionLoop, AuthorityGate, explicit
+side-effect approval and durable receipts remain unchanged.
