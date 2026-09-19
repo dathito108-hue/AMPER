@@ -1,5 +1,7 @@
 package io.amper.neuroos.core
 
+import java.util.ArrayDeque
+
 data class DurableGoalHierarchyProgress(
     val rootGoalId: String,
     val trackedGoalIds: Set<String>,
