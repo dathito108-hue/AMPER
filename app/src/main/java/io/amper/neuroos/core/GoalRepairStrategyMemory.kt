@@ -190,7 +190,10 @@ class MemoryBackedGoalRepairStrategyMemory(
             .asSequence()
             .filter { it.active }
             .mapNotNull { pattern ->
-                val similarity = structuralSimilarity(pattern.strategy, strategy)
+                val similarity = StrategyStructuralSimilarity.score(
+                    pattern.strategy,
+                    strategy
+                )
                 if (similarity < MIN_PATTERN_SIMILARITY) null else (
                     pattern.evidenceConfidence *
                         similarity *
@@ -199,24 +202,6 @@ class MemoryBackedGoalRepairStrategyMemory(
             }
             .maxOrNull()
             ?: 0.0
-    }
-
-    private fun structuralSimilarity(
-        source: StrategySignature,
-        target: StrategySignature
-    ): Double {
-        val sourceSet = source.capabilities.toSet()
-        val targetSet = target.capabilities.toSet()
-        val union = sourceSet union targetSet
-        val jaccard = if (union.isEmpty()) 0.0 else {
-            sourceSet.intersect(targetSet).size.toDouble() / union.size.toDouble()
-        }
-        val longest = maxOf(source.capabilities.size, target.capabilities.size)
-            .coerceAtLeast(1)
-        val prefix = source.capabilities.zip(target.capabilities)
-            .takeWhile { (left, right) -> left == right }
-            .size.toDouble() / longest.toDouble()
-        return (0.65 * jaccard + 0.35 * prefix).coerceIn(0.0, 1.0)
     }
 
     private fun MemoryOs.updateIndexLocked(digest: String, now: Long) {

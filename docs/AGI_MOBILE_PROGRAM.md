@@ -638,3 +638,21 @@ live, non-expired requalification coverage for every required capability. Phase3
 +0.03 bounded portfolio support from the distilled memory. This bonus never modifies hierarchical
 credit, never widens tool admission or approval, and disappears when live requalification expires
 or is invalidated.
+
+
+### Architecture audit and de-duplication checkpoint — Phase386-390
+A canonical architecture audit after Phase385 found no duplicate class names or memory-kind
+collisions in the active goal-learning stack, but it did find duplicated decision influence.
+The legacy StrategyLearning -> EvidenceGroundedStrategyGuidance -> GoalConditionedStrategyRetrieval
+path and the newer verified goal-outcome portfolio path were both able to inject historical strategy
+evidence into the same planner prompt. Phase386 removes the legacy path from canonical planning while
+retaining StrategyLearning and GoalConditionedStrategyRetrieval as diagnostic/compatibility utilities.
+Phase387 establishes GoalOutcomeLearning -> counterfactual validation -> transfer calibration ->
+contextual portfolio as the single canonical strategy-history planning path. Phase388 centralizes
+repair structural similarity in StrategyStructuralSimilarity so repair validation and distilled
+repair memory cannot silently diverge. Phase389 confirms GoalVerification and
+GoalSatisfactionVerification are not duplicates: the former verifies hierarchical subgoals while the
+latter verifies persistent/root-goal satisfaction after an all-executed plan. Phase390 keeps the
+generic LearningConsolidation utility outside canonical runtime/planning; it must not become a second
+strategy-memory influence path without an explicit migration. No authority, tool admission, approval
+or execution semantics are widened by this cleanup.

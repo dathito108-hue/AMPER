@@ -142,7 +142,7 @@ class GoalConditionedStrategyRetrievalTest {
     }
 
     @Test
-    fun plannerUsesGoalConditionedOrderingWithoutExecutingTools() {
+    fun canonicalPlannerDoesNotInjectLegacyStrategyHistoryTwice() {
         val runtime = AmperRuntime.reference()
         fun completed(id: String, capability: CapabilityId, status: PlanStepStatus) =
             SovereignPlan(
@@ -233,15 +233,10 @@ class GoalConditionedStrategyRetrievalTest {
         ).getOrThrow()
 
         val prompt = requests.single().prompt
-        val guidanceStart = prompt.indexOf("<STRATEGY_GUIDANCE>")
-        val guidanceEnd = prompt.indexOf("</STRATEGY_GUIDANCE>")
-        assertTrue(guidanceStart >= 0 && guidanceEnd > guidanceStart)
-        val guidance = prompt.substring(guidanceStart, guidanceEnd)
-        assertTrue(guidance.indexOf("candidate.1.capabilities=test.read") >= 0)
-        assertTrue(guidance.indexOf("candidate.2.capabilities=test.write") >= 0)
-        assertFalse(guidance.contains("historic private goal"))
-        assertFalse(guidance.contains("historic private reason"))
-        assertFalse(guidance.contains("historic-private-input"))
+        assertFalse(prompt.contains("<STRATEGY_GUIDANCE>"))
+        assertFalse(prompt.contains("historic private goal"))
+        assertFalse(prompt.contains("historic private reason"))
+        assertFalse(prompt.contains("historic-private-input"))
         assertEquals(0, executions)
         assertEquals(0, audit.snapshot().size)
         assertEquals(PlanStepStatus.PLANNED, plan.steps.single().status)

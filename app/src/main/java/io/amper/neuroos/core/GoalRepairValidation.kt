@@ -481,30 +481,16 @@ class MemoryBackedGoalRepairValidationModel(
                         it.freshness == GoalRepairRequalificationFreshness.AGING
                 }
                 ?: return 0.0
-            val similarity = structuralSimilarity(assessment.snapshot.strategy, strategy)
+            val similarity = StrategyStructuralSimilarity.score(
+                assessment.snapshot.strategy,
+                strategy
+            )
             if (similarity < MIN_REQUALIFIED_TRANSFER_SIMILARITY) return 0.0
             scores += (
                 assessment.effectiveConfidence * (0.50 + 0.50 * similarity)
                 ).coerceIn(0.0, 1.0)
         }
         return scores.average().coerceIn(0.0, 1.0)
-    }
-
-    private fun structuralSimilarity(
-        source: StrategySignature,
-        target: StrategySignature
-    ): Double {
-        val sourceSet = source.capabilities.toSet()
-        val targetSet = target.capabilities.toSet()
-        val union = sourceSet union targetSet
-        val jaccard = if (union.isEmpty()) 0.0 else {
-            sourceSet.intersect(targetSet).size.toDouble() / union.size.toDouble()
-        }
-        val longest = maxOf(source.capabilities.size, target.capabilities.size).coerceAtLeast(1)
-        val prefix = source.capabilities.zip(target.capabilities)
-            .takeWhile { (left, right) -> left == right }
-            .size.toDouble() / longest.toDouble()
-        return (jaccard * 0.65 + prefix * 0.35).coerceIn(0.0, 1.0)
     }
 
     private fun rememberRealOutcomeMarker(

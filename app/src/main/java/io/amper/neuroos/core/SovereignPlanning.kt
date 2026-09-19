@@ -1164,26 +1164,11 @@ class SovereignPlanCoordinator(
             }
         }
 
-        val evidenceGuidance = EvidenceGroundedStrategyGuidance.select(
-            evidence = runtime.strategies.recent(EvidenceGroundedStrategyGuidance.LOOKBACK),
-            allowedCapabilities = allowed,
-            limit = EvidenceGroundedStrategyGuidance.MAX_CANDIDATES
-        )
-        val strategyGuidance = GoalConditionedStrategyRetrieval.rank(
-            candidates = evidenceGuidance,
-            goal = userGoal,
-            descriptors = selected,
-            limit = EvidenceGroundedStrategyGuidance.MAX_CANDIDATES
-        )
-
-        for (count in strategyGuidance.size downTo 1) {
-            val rendered = EvidenceGroundedStrategyGuidance.render(strategyGuidance.take(count))
-            val candidate = bounded + "\n\n" + rendered
-            if (candidate.length <= charBudget) {
-                bounded = candidate
-                break
-            }
-        }
+        // Canonical planning has one strategy-history influence path:
+        // GoalOutcomeLearning -> counterfactual validation -> calibration -> contextual portfolio ->
+        // hierarchical credit -> repair validation/memory. The older StrategyLearning guidance
+        // remains available for diagnostics/metacognition but is intentionally not injected here,
+        // preventing the same governed execution history from influencing planning twice.
 
         val outcomeTransfer = runtime.goalOutcomeLearning.transfer(
             goal = userGoal,
