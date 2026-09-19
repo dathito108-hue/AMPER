@@ -2006,6 +2006,14 @@ class MainActivity : ComponentActivity() {
                                                         planStatus =
                                                             "No eligible active sovereign goal is waiting"
                                                     }
+                                                    is PersistentGoalExecutiveResult.Decomposed -> {
+                                                        planStatus =
+                                                            "Autonomous goal " +
+                                                                outcome.parentGoalId.take(8) +
+                                                                " decomposed into " +
+                                                                outcome.childGoalIds.size +
+                                                                " bounded subgoals"
+                                                    }
                                                     is PersistentGoalExecutiveResult.Deferred -> {
                                                         planStatus =
                                                             "Autonomous goal " +
