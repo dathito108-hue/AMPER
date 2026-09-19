@@ -948,3 +948,29 @@ training success. Phase475 wires DeviceStatusSource through the existing AmperRu
 constructor into ResourceGovernorReflexRuntimeResourcePolicy. Battery/resource shaping is per-turn,
 does not demote a checkpoint by itself, and cannot bypass safe argument binding, ToolDescriptor,
 AuthorityGate or explicit approval.
+
+
+### Completion checkpoint — Phase476-480
+Phase476 implements AMPER Reflex Linear V1, the first concrete AMPER-owned decision model rather than a
+training/runtime interface. It is a fixed 4,096-feature, 33-output-slot softmax linear classifier
+(ESCALATE plus up to 32 capabilities) with exactly 135,201 trainable FP32 parameters. Input remains the
+privacy-preserving hashed unigram/bigram feature set plus live capability presence; the artifact never
+contains raw prompts, tool inputs, outputs or approvals. Phase477 implements ReflexLinearNativeTrainer,
+a deterministic local CPU NativeTrainerPort that consumes the exact immutable
+REFLEX_DECISION_EXPERIENCE payload supplied by NativeTrainingPipeline, performs weighted multiclass SGD,
+serializes a bounded AMPER binary artifact, writes it to a content-addressed artifact store, and echoes
+the canonical execution-binding, dataset-snapshot and curriculum digests required before checkpoint
+publication. Phase478 implements FileReflexLinearArtifactStore plus a concrete
+ReflexLinearDecisionPortResolver and held-out evaluator. Artifact filenames are SHA-256 identities;
+load/recovery recomputes the digest and validates checkpoint lineage plus the exact AMPER-owned model
+contract before inference. Phase479 adds ReflexNativeModelLifecycle. It waits for at least 32 ACTION and
+32 ESCALATE governed examples, preserves at least 16 examples per class for the immutable disjoint
+holdout, seeds one canonical AMPER-owned model contract/governed-label teacher identity, then executes
+the existing partition -> curriculum -> NativeTrainingPipeline -> checkpoint -> real held-out model
+prediction -> foundation admission -> promotion -> Reflex runtime activation path. A rejected model
+does not become live. Phase480 wires the lifecycle into the Android host using app-private
+amper-sovereign/native-reflex storage. Startup maintenance resolves/revalidates any durable active
+checkpoint; successful assistant/approved-action turns opportunistically run bounded maintenance off
+the UI thread. Once a learned checkpoint is active, maintenance stops retraining it. The learned model
+still predicts only routing/capability; CanonicalReflexActionArgumentBinder, ToolDescriptor,
+SovereignActionLoop, AuthorityGate and explicit approval remain unchanged.
