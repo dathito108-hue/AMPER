@@ -163,6 +163,21 @@ sealed interface PersistentGoalExecutiveResult {
         init { require(reason.isNotBlank()) }
     }
 
+    data class Decomposed(
+        val parentGoalId: String,
+        val childGoalIds: List<String>
+    ) : PersistentGoalExecutiveResult {
+        init {
+            require(parentGoalId.isNotBlank())
+            require(childGoalIds.size in 2..DurableGoalRecord.MAX_DECOMPOSITION_CHILDREN)
+            require(childGoalIds.all { it.isNotBlank() })
+            require(childGoalIds.toSet().size == childGoalIds.size)
+        }
+
+        val authorityBearing: Boolean
+            get() = false
+    }
+
     data class Ran(
         val checkpoint: PersistentGoalExecutiveCheckpoint,
         val run: CognitiveExecutiveRunResult
@@ -185,6 +200,7 @@ class PersistentGoalExecutiveCoordinator(
     private val store: PersistentGoalExecutiveStore,
     private val plans: SovereignPlanStore,
     private val portfolio: DurableGoalPortfolio? = null,
+    private val decomposer: GoalDecomposer? = null,
     private val clock: () -> Long = System::currentTimeMillis
 ) {
     @Synchronized
@@ -223,6 +239,10 @@ class PersistentGoalExecutiveCoordinator(
                 ?.takeIf { it.stage == PersistentGoalExecutiveStage.COMPLETED }
                 ?.sourceGoalId
         )
+
+        maybeDecompose(checkpoint)?.let { decomposition ->
+            return@runCatching decomposition
+        }
 
         val run = executive.runBounded(
             conversationId = checkpoint.conversationId,
@@ -481,6 +501,56 @@ class PersistentGoalExecutiveCoordinator(
             sourceGoalId = checkpoint.sourceGoalId,
             completedAtEpochMs = completedAtEpochMs
         )
+    }
+
+    private fun maybeDecompose(
+        checkpoint: PersistentGoalExecutiveCheckpoint
+    ): PersistentGoalExecutiveResult.Decomposed? {
+        if (checkpoint.stage != PersistentGoalExecutiveStage.QUEUED) return null
+        val goalPortfolio = portfolio ?: return null
+        val goalDecomposer = decomposer ?: return null
+        val durable = goalPortfolio.get(checkpoint.sourceGoalId) ?: return null
+        if (durable.decompositionState != DurableGoalDecompositionState.NONE) return null
+
+        val now = clock().coerceAtLeast(checkpoint.updatedAtEpochMs)
+        if (durable.decompositionDepth >= DurableGoalRecord.MAX_DECOMPOSITION_DEPTH) {
+            requireNotNull(
+                goalPortfolio.markAtomic(
+                    sourceGoalId = durable.sourceGoalId,
+                    updatedAtEpochMs = now
+                )
+            ) { "maximum-depth durable goal disappeared before atomic marking" }
+            return null
+        }
+
+        val assessment = goalDecomposer.decompose(durable).getOrThrow()
+        return when (assessment.verdict) {
+            GoalDecompositionVerdict.ATOMIC -> {
+                requireNotNull(
+                    goalPortfolio.markAtomic(
+                        sourceGoalId = durable.sourceGoalId,
+                        updatedAtEpochMs = now
+                    )
+                ) { "durable goal disappeared before atomic decomposition marking" }
+                null
+            }
+            GoalDecompositionVerdict.DECOMPOSED -> {
+                val application = requireNotNull(
+                    goalPortfolio.applyDecomposition(
+                        sourceGoalId = durable.sourceGoalId,
+                        specs = assessment.subgoals,
+                        updatedAtEpochMs = now
+                    )
+                ) { "durable goal disappeared before decomposition application" }
+                require(store.clear()) {
+                    "decomposed parent checkpoint could not be released"
+                }
+                PersistentGoalExecutiveResult.Decomposed(
+                    parentGoalId = application.parent.sourceGoalId,
+                    childGoalIds = application.children.map { it.sourceGoalId }
+                )
+            }
+        }
     }
 
     private fun terminalFailureCode(statuses: List<PlanStepStatus>): String {
