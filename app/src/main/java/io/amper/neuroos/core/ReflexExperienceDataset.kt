@@ -435,10 +435,10 @@ private object ReflexExperienceDatasetCodec {
             featureHashes = p[2].split(',').filter { it.isNotBlank() }.toSortedSet(),
             availableCapabilities = p[3].split(',')
                 .filter { it.isNotBlank() }
-                .mapTo(linkedSetOf(), ::CapabilityId),
+                .mapTo(linkedSetOf()) { CapabilityId(it) },
             targetDisposition = ReflexDecisionDisposition.valueOf(p[4]),
-            targetCapability = p[5].takeUnless { it == "-" }?.let(::CapabilityId),
-            targetSideEffect = p[6].takeUnless { it == "-" }?.let(ToolSideEffect::valueOf),
+            targetCapability = p[5].takeUnless { it == "-" }?.let { CapabilityId(it) },
+            targetSideEffect = p[6].takeUnless { it == "-" }?.let { ToolSideEffect.valueOf(it) },
             source = ReflexExperienceSource.valueOf(p[7]),
             labelConfidence = p[8].toDouble(),
             observedAtEpochMs = p[9].toLong()
