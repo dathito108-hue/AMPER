@@ -41,7 +41,7 @@ interface AndroidUniversalActionLauncher {
     fun openHome(): Result<Unit>
 }
 
-private object AndroidUniversalActionInput {
+internal object AndroidUniversalActionInput {
     private val packageRegex = Regex("[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)+")
     private val phoneRegex = Regex("[0-9+() .-]{3,40}")
 

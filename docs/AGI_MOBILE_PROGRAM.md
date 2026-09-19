@@ -1002,3 +1002,31 @@ typed contract -> live descriptor -> SovereignActionLoop -> bound AuditedToolFab
 platform launcher -> recorded ActionOutcome. Assistant side effects continue through
 DurableAssistantActionExecutor and the existing PlanExecutionReceipt ledger, while governed plans keep
 their existing receipt path. No new authority, approval, receipt, or recovery path is introduced.
+
+
+### Completion checkpoint — Phase486-490
+Phase486 reuses the exact bounded parsers from the Universal Mobile Action Fabric inside the Reflex
+safe-argument binder path instead of creating a second validation stack. The validators remain
+non-authoritative: they only decide whether a candidate input is syntactically eligible for a typed
+ToolDescriptor.
+
+Phase487 expands the deterministic System-1 bootstrap with explicit mobile skills for exact-package
+app launch, web search, clipboard write, document browsing, typed contact composition, typed calendar
+composition, clock-time alarm preparation, http/https media opening, AMPER notification settings and
+home-screen navigation. Ambiguous app names, malformed URLs/times/contracts and missing live
+descriptors escalate to System-2 rather than guessing.
+
+Phase488 automatically extends learned Reflex execution because CanonicalReflexActionArgumentBinder
+still requires the deterministic parser to independently recognize the same capability and construct
+the tool input. The learned AMPER-owned model therefore remains limited to ACTION-vs-ESCALATE plus
+capability prediction; it cannot invent raw tool arguments, package identities, URLs, contacts,
+calendar records or alarm parameters.
+
+Phase489 adds truthful fast-path rendering for the new Android skills. UI-mediated contact, calendar,
+file and notification operations explicitly report that the user-controlled operation has not been
+completed by AMPER; alarms continue to report that Android confirmation UI was not skipped.
+
+Phase490 adds regression coverage for all ten new Reflex skill routes, malformed/ambiguous fallback,
+learned-capability versus deterministic-binder agreement, and non-deceptive external-action rendering.
+The existing ToolDescriptor -> SovereignActionLoop -> AuthorityGate -> explicit approval ->
+DurableAssistantActionExecutor/receipt chain is unchanged.
