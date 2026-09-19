@@ -114,7 +114,10 @@ class GoalTransferCalibrationTest {
         assertEquals(3, snapshot.executionFailures)
         assertEquals(3, snapshot.consecutiveFailures)
 
-        val candidate = transferCandidate(latestObservedAt = 1_003L)
+        val candidate = transferCandidate(
+            latestObservedAt = 1_003L,
+            latestSuccessfulAt = 500L
+        )
         val adjustment = GoalTransferCalibrationPolicy.adjust(
             candidate = candidate,
             snapshot = snapshot,
@@ -123,6 +126,35 @@ class GoalTransferCalibrationTest {
         assertTrue(adjustment.suppressedByFailureStreak)
         assertEquals(0.0, adjustment.multiplier, 0.0)
         assertEquals(0.0, adjustment.calibratedSupport, 0.0)
+    }
+
+    @Test
+    fun freshVerifiedHistoricalSuccessReopensSuppressedTransferCautiously() {
+        val model = MemoryBackedGoalTransferCalibrationModel(InMemoryMemoryOs())
+        repeat(3) { index ->
+            model.observeTerminalPlan(
+                plan = terminalBoundPlan(
+                    id = "phase347-reopen-failure-" + index,
+                    status = PlanStepStatus.FAILED
+                ),
+                observedAtEpochMs = 1_000L + index
+            )
+        }
+        val snapshot = requireNotNull(model.snapshot(StrategySignature(listOf(capability))))
+        val candidate = transferCandidate(
+            latestObservedAt = 2_000L,
+            latestSuccessfulAt = 2_000L
+        )
+
+        val adjustment = GoalTransferCalibrationPolicy.adjust(
+            candidate = candidate,
+            snapshot = snapshot,
+            nowEpochMs = 2_001L
+        )
+
+        assertFalse(adjustment.suppressedByFailureStreak)
+        assertTrue(adjustment.multiplier > 0.0)
+        assertTrue(adjustment.multiplier < 1.0)
     }
 
     @Test
@@ -243,7 +275,8 @@ class GoalTransferCalibrationTest {
         }
         val state = readyState()
         val candidate = transferCandidate(
-            latestObservedAt = state.capturedAtEpochMs
+            latestObservedAt = state.capturedAtEpochMs,
+            latestSuccessfulAt = 50L
         )
 
         val validated = GoalTransferCounterfactualValidator.validate(
@@ -257,7 +290,8 @@ class GoalTransferCalibrationTest {
     }
 
     private fun transferCandidate(
-        latestObservedAt: Long
+        latestObservedAt: Long,
+        latestSuccessfulAt: Long = latestObservedAt
     ): GoalStrategyTransferCandidate = GoalStrategyTransferCandidate(
         strategy = StrategySignature(listOf(capability)),
         analogousSuccesses = 4,
@@ -270,7 +304,8 @@ class GoalTransferCalibrationTest {
         evidenceConfidence = 0.70,
         transferSupport = 0.60,
         meanHierarchyCompletionRatio = 0.90,
-        latestAnalogousObservedAtEpochMs = latestObservedAt
+        latestAnalogousObservedAtEpochMs = latestObservedAt,
+        latestSuccessfulObservedAtEpochMs = latestSuccessfulAt
     )
 
     private fun terminalBoundPlan(
