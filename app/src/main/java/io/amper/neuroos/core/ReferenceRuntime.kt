@@ -193,6 +193,7 @@ class AmperRuntime private constructor(
     val reflexDecisionEvaluation: ReflexDecisionEvaluationCoordinator,
     val reflexRuntimeCalibration: ReflexRuntimeCalibration,
     val reflexLearningCostModel: ReflexLearningCostModel,
+    val reflexLearningSchedulerTelemetry: ReflexLearningSchedulerTelemetry,
     val reflexLearningResourcePolicy: ReflexLearningResourcePolicy,
     val reflexLearningMaintenanceQueue: ReflexLearningMaintenanceQueue,
     val reflexDecisionActivationStore: ReflexDecisionRuntimeActivationStore,
@@ -428,12 +429,15 @@ class AmperRuntime private constructor(
                 }
             )
             val reflexLearningCostModel = MemoryBackedReflexLearningCostModel(memory)
+            val reflexLearningSchedulerTelemetry =
+                MemoryBackedReflexLearningSchedulerTelemetry(memory)
             val reflexLearningMaintenanceQueue =
                 MemoryBackedReflexLearningMaintenanceQueue(memory)
             val reflexLearningResourcePolicy =
                 ResourceGovernorReflexLearningResourcePolicy(
                     governor = governor,
-                    deviceStatusSource = deviceStatusSource
+                    deviceStatusSource = deviceStatusSource,
+                    telemetry = reflexLearningSchedulerTelemetry
                 )
             val reflexDecisionActivationStore =
                 MemoryBackedReflexDecisionRuntimeActivationStore(memory)
@@ -558,6 +562,7 @@ class AmperRuntime private constructor(
                 reflexDecisionEvaluation = reflexDecisionEvaluation,
                 reflexRuntimeCalibration = reflexRuntimeCalibration,
                 reflexLearningCostModel = reflexLearningCostModel,
+                reflexLearningSchedulerTelemetry = reflexLearningSchedulerTelemetry,
                 reflexLearningResourcePolicy = reflexLearningResourcePolicy,
                 reflexLearningMaintenanceQueue = reflexLearningMaintenanceQueue,
                 reflexDecisionActivationStore = reflexDecisionActivationStore,
