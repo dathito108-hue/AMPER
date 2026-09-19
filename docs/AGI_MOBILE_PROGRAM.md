@@ -219,6 +219,18 @@ drift inside one decision while keeping live ToolDescriptor binding, side-effect
 AuthorityGate and explicit approval external and authoritative. The packet is ephemeral and is not
 persisted as raw goal/context memory.
 
+### Implemented checkpoint — Phase256-260
+Phase256 derives a deterministic metacognitive control mode (DIRECT, DELIBERATE or CAUTIOUS) from the
+integrated cognitive readiness/uncertainty state. Phase257 preserves the user's frozen planning
+profile exactly while allocating a bounded mode-sensitive critic budget inside that profile.
+Phase258 turns uncertainty into explicit deliberation-depth, evidence-caution and side-effect-caution
+guidance without adding an inference loop or executing a tool. Phase259 gives the independent critic
+a stricter temperature/budget under uncertainty while retaining the normal live descriptor and
+authority checks. Phase260 freezes one metacognitive directive per decision and binds both planner
+and critic to the same cognitive-state digest, so policy cannot drift between the two passes.
+Metacognitive state remains authority=false and cannot approve side effects, modify ToolDescriptors
+or widen device/external authority.
+
 ## CI budget policy
 
 GitHub Actions is a scarce verification resource.
