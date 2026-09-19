@@ -142,6 +142,15 @@ class GoalHierarchicalStrategyCreditTest {
         assertTrue(result.all { it.cumulativeCredit == 0.0 })
         assertTrue(result.all { it.executionFailures == 0 })
         assertTrue(result.all { it.goalEvidenceFailures == 0 })
+        assertTrue(result.all { it.comparableObservations == 0 })
+        assertTrue(result.all { it.evidenceConfidence == 0.0 })
+
+        val assessment = model.assess(
+            goal = "Inspect alpha package metadata",
+            strategy = StrategySignature(listOf(read, inspect))
+        )
+        assertEquals(0.0, assessment.creditScore, 0.0)
+        assertEquals(0.0, assessment.evidenceConfidence, 0.0)
     }
 
     @Test
