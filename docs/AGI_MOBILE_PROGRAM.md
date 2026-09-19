@@ -271,6 +271,20 @@ Phase275 caps context-refresh lineage at three replacement generations and block
 unresolved durable side-effect claim exists. Replanning remains planning-only: it cannot execute a
 tool, approve a side effect or widen device/external authority.
 
+
+### Implemented checkpoint — Phase276-280
+Phase276 adds a deterministic autonomous cognitive executive over the exact integrated cognitive
+packet and continuity digest. Phase277 gives evidence acquisition priority when relevant perceptual
+grounding is stale or epistemic belief remains unresolved under high world uncertainty. Phase278
+routes high learning pressure into bounded zero-tool autonomous practice and recaptures cognition
+after each assessed practice cycle. Phase279 may escalate repeated, evidence-backed governed
+execution-reliability weakness into exactly one existing transactional autonomous-evolution cycle
+through an injected evolution port; benchmark, rollback, canary and containment rules remain
+authoritative. Phase280 exposes the executive from SovereignPlanCoordinator and caps a cognitive run
+at four decisions; only successful practice may continue within the same run, while PLAN, OBSERVE and
+EVOLVE terminate the call. The executive owns no ToolFabric or AuthorityGate handle and cannot turn
+practice/evolution evidence into device authority or claim that a planned action executed.
+
 ## CI budget policy
 
 GitHub Actions is a scarce verification resource.

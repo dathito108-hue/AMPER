@@ -363,6 +363,17 @@ class SovereignPlanCoordinator(
         )
     }
 
+    fun autonomousExecutive(
+        evolution: CognitiveExecutiveEvolutionPort? = null
+    ): AutonomousCognitiveExecutive = AutonomousCognitiveExecutive(
+        stateSource = runtime.integratedCognition,
+        allowedCapabilities = advertisedCapabilities,
+        descriptors = ::routedDescriptors,
+        createPlan = this::create,
+        practiceOne = this::practiceOne,
+        evolution = evolution
+    )
+
     fun create(
         conversationId: ConversationId,
         userGoal: String
