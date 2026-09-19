@@ -6,7 +6,7 @@ import org.junit.Test
 
 class DeviceAwareAssistantTurnTest {
     @Test
-    fun deviceStatusActionExecutesOnceThenSynthesizesFinalAnswer() {
+    fun deviceStatusUsesReflexFastPathWithZeroLlmPasses() {
         val runtime = AmperRuntime.reference()
         val registry = InMemoryToolRegistry().also {
             it.register(
@@ -34,34 +34,10 @@ class DeviceAwareAssistantTurnTest {
             registry = registry,
             audit = audit
         )
-        val prompts = mutableListOf<String>()
         var calls = 0
-        val inference = CognitiveInferencePort { request ->
-            prompts += request.prompt
+        val inference = CognitiveInferencePort {
             calls += 1
-            when (calls) {
-                1 -> Result.success(
-                    InferenceResponse(
-                        text = """
-                            <AMPER_ACTION_V1>
-                            capability=device.status.read
-                            reason=Read current device resources to answer the user
-                            input=summary
-                            </AMPER_ACTION_V1>
-                        """.trimIndent(),
-                        modelId = ModelId("test-model"),
-                        backendId = "test-backend"
-                    )
-                )
-                2 -> Result.success(
-                    InferenceResponse(
-                        text = "Battery is 61% and available memory is about 1536 MiB.",
-                        modelId = ModelId("test-model"),
-                        backendId = "test-backend"
-                    )
-                )
-                else -> error("assistant turn must never perform a third inference pass")
-            }
+            error("high-confidence device status must not call System-2")
         }
         val assistant = SovereignAssistantTurnCoordinator(
             runtime = runtime,
@@ -77,13 +53,13 @@ class DeviceAwareAssistantTurnTest {
         ).getOrThrow()
 
         val final = result as SovereignAssistantTurnResult.Final
-        assertEquals(2, final.inferencePasses)
+        assertEquals(0, final.inferencePasses)
         assertEquals(ActionStatus.EXECUTED, final.actionOutcome?.status)
-        assertEquals(2, calls)
+        assertEquals(0, calls)
         assertEquals(1, audit.snapshot().size)
-        assertTrue(prompts.first().contains("device.status.read"))
-        assertTrue(prompts.last().contains("battery_percent=61"))
-        assertTrue(prompts.last().contains("memory_available_mb=1536"))
-        assertTrue(final.response.text.contains("61%"))
+        assertEquals(ReflexDecisionRuntimeContract.BACKEND_ID, final.response.backendId)
+        assertTrue(final.response.text.contains("Battery 61%"))
+        assertTrue(final.response.text.contains("RAM available 1536 MB"))
+        assertEquals(null, runtime.conversations.latestAssistantModelId(runtime.conversations.primary()))
     }
 }

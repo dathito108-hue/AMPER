@@ -743,3 +743,22 @@ exposes the partitioner as nativeExperiencePartition through AmperRuntime and fa
 verified-experience pool cannot satisfy both minimum training and holdout depths. The holdout shard is
 data only: it grants no authority and is not automatically used for checkpoint admission until a
 later evaluation phase explicitly consumes it.
+
+
+### Implemented checkpoint — Phase421-425
+Phase421 introduces a typed AMPER Reflex Decision Cortex contract ahead of System-2 assistant
+inference. A reflex decision can only escalate or propose one typed ActionProposal with bounded
+confidence/uncertainty; it carries no authority. Phase422 adds a deterministic on-device bootstrap
+implementation for a narrow set of explicit assistant intents (current device status, AMPER runtime
+status, Android settings, timers and explicit share requests). Unknown or ambiguous requests fail
+closed to the existing System-2 path. Phase423 wires high-confidence READ_ONLY reflex decisions into
+SovereignAssistantTurn so canonical status requests can execute through the normal SovereignActionLoop,
+ToolDescriptor and AuthorityGate with zero LLM inference passes, then return a bounded deterministic
+result. Phase424 lets equally explicit side-effect intents skip the first LLM proposal pass but only
+produce the same durable PendingApproval checkpoint used by the existing assistant; no side-effect
+tool is invoked before explicit approval, and post-approval synthesis remains governed by the existing
+System-2 path. Phase425 exposes ReflexDecisionCortex through AmperRuntime and keeps multimodal turns,
+VERIFY reflection mode, missing descriptors, unsupported commands and uncertain intent on the existing
+System-2 path. The bootstrap classifier is replaceable by a future AMPER-owned native System-1 model
+using the same typed interface, allowing Phase396-420 verified experience/training infrastructure to
+train faster learned decisions without changing the authority boundary or the AGI-mobile target.
