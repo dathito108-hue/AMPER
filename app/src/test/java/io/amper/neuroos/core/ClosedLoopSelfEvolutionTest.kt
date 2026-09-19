@@ -172,25 +172,27 @@ class ClosedLoopSelfEvolutionTest {
         val capability = CapabilityId("web.search")
         val evidence = ClosedLoopEvolutionEvidence(
             capability = capability,
-            executed = 1,
-            failed = 3,
-            successRate = 0.25,
+            kind = ClosedLoopEvolutionEvidenceKind.EXECUTION_RELIABILITY,
+            baselineScore = 0.25,
+            samples = 4,
             evidenceConfidence = 0.50,
             severity = 0.90,
-            evidenceDigest = closedLoopEvolutionSha256("evidence")
+            evidenceDigest = closedLoopEvolutionSha256("evidence"),
+            executed = 1,
+            failed = 3
         )
         val identity = EvolutionRuntimeIdentity(
             revision = "runtime-v1",
             artifactDigest = "c".repeat(64)
         )
 
-        val baseline = ClosedLoopExecutionBenchmark.baseline(
+        val baseline = ClosedLoopEvolutionBenchmark.baseline(
             evidence = evidence,
             identity = identity,
             observedAtEpochMs = 123L
         )
-        val suite = ClosedLoopExecutionBenchmark.suite(capability)
-        val metric = ClosedLoopExecutionBenchmark.metricId(capability)
+        val suite = ClosedLoopEvolutionBenchmark.suite(capability)
+        val metric = ClosedLoopEvolutionBenchmark.metricId(capability)
         val observation = requireNotNull(baseline.benchmark.metrics[metric])
 
         assertEquals(suite.canonicalDigest, baseline.benchmark.suiteDigest)
@@ -213,6 +215,8 @@ class ClosedLoopSelfEvolutionTest {
             uncertainty = 0.20,
             learningPressure = 0.91,
             triggeringCapability = capability,
+            triggeringNeedKind = LearningNeedKind.EXECUTION_RELIABILITY,
+            triggeringEvidenceConfidence = 0.50,
             rationale = "repeated governed execution weakness is eligible for evolution"
         )
 
