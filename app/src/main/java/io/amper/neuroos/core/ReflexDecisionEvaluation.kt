@@ -391,7 +391,7 @@ object ReflexDecisionHoldoutPolicy {
  * specialized held-out decision evaluator. This prevents callers from directly injecting fabricated
  * generic native metrics for a reflex-decision contract.
  */
-object ReflexDecisionEvaluationProjectionBinding {
+internal object ReflexDecisionEvaluationProjectionBinding {
     const val KIND = "reflex-decision-evaluation-projection-v1"
 
     fun bind(
