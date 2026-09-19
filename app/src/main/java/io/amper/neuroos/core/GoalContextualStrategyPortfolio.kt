@@ -93,8 +93,9 @@ data class GoalStrategyPortfolioCandidate(
         require(hierarchicalCreditConfidence in 0.0..1.0)
         require(hierarchicalMatchedComponents >= 0)
         require(
-            hierarchicalCreditAdjustment in
-                -GoalHierarchicalStrategyCreditPolicy.MAX_PORTFOLIO_ADJUSTMENT..
+            hierarchicalCreditAdjustment >=
+                -GoalHierarchicalStrategyCreditPolicy.MAX_PORTFOLIO_ADJUSTMENT &&
+                hierarchicalCreditAdjustment <=
                     GoalHierarchicalStrategyCreditPolicy.MAX_PORTFOLIO_ADJUSTMENT
         )
     }
