@@ -503,7 +503,8 @@ strategy, exact planning cognitive-state digest, historical/context/projected su
 tool input/output, request ID, approval or authority token. Phase347 adds recency decay for historical
 goal evidence and outcome-backed calibration multipliers; old evidence loses weight gradually rather
 than remaining permanently trusted, while three evidence-backed consecutive transfer failures can
-suppress that strategy until new successful evidence resets the streak. Authority/user blocks and
+suppress that strategy. Fresh verified goal evidence newer than the last transfer failure may reopen
+it cautiously; a subsequent successful transfer resets the failure streak. Authority/user blocks and
 partial-execution states are diagnostic-neutral and never reduce transfer competence. Phase348
 upgrades Plan OS to V7 while retaining V1-V6 decoding and persists transfer attribution across process
 restart only when the final post-critic plan signature exactly matches a transfer candidate that was
