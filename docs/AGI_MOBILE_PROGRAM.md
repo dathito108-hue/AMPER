@@ -820,3 +820,22 @@ the existing executionBindingDigest and retains the same generated-data trainer 
 vision/audio/evolution datasets can add resolvers without adding fields to NativeTrainingRequest or
 creating a second trainer stack. No authority, model promotion, tool execution or approval boundary is
 changed by this unification.
+
+
+### Implemented checkpoint — Phase441-445
+Phase441 makes native checkpoint evaluation capability-aware instead of forcing every model family
+through System-2 planning/tool/generalization gates. Contracts containing ordinary cognitive
+capabilities retain the existing four foundation gates unchanged; a reflex-decision-only contract is
+evaluated by its own held-out decision evidence. Phase442 adds a ReflexDecisionEvaluatorPort that sees
+only immutable checkpoint lineage plus privacy-preserving hashed holdout examples and must return one
+typed prediction for every exact holdout example. Phase443 computes exact decision accuracy, action
+precision, escalation recall, capability accuracy and mean absolute confidence-calibration error
+inside AMPER rather than trusting evaluator-supplied aggregate metrics. The resulting metrics are
+bound to the exact holdout shard id and payload SHA-256. Phase444 adds Reflex admission gates requiring
+at least 32 total held-out samples, both classes to have evidence, high action precision/route accuracy,
+high escalation recall and bounded calibration error; the holdout must be GENERATED_INTERNAL,
+reflex-decision capable, digest-matching and outside checkpoint training lineage. Phase445 keeps one
+canonical NativeTrainingPipeline evaluation/admission/promotion path. Evaluation record encoding is
+upgraded backward-compatibly, checkpoint comparison uses only metrics relevant to the model capability
+profile, and Reflex candidate/baseline comparison requires the same holdout payload. No evaluator can
+execute tools, grant authority or make a checkpoint live.

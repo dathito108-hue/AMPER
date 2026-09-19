@@ -208,7 +208,8 @@ data class NativeCheckpointEvaluation(
     val planningSamples: Int,
     val toolContractSamples: Int,
     val regressionSamples: Int,
-    val heldoutGeneralizationSamples: Int
+    val heldoutGeneralizationSamples: Int,
+    val reflexDecision: ReflexDecisionHeldoutMetrics? = null
 ) {
     init {
         require(
@@ -481,25 +482,82 @@ class MemoryBackedNativeModelFoundation(
                 }
             }
 
-            if (evaluation.planningSamples < MIN_EVALUATION_SAMPLES ||
-                evaluation.planningProtocolPassRate < MIN_PLANNING_PASS_RATE
-            ) {
-                reasons += "planning protocol evaluation below admission gate"
+            val capabilities = contract?.capabilities.orEmpty()
+            val requiresGeneralEvaluation =
+                capabilities.any { it != TitanCapabilities.REFLEX_DECISION }
+            val requiresReflexEvaluation =
+                TitanCapabilities.REFLEX_DECISION in capabilities
+
+            if (requiresGeneralEvaluation) {
+                if (evaluation.planningSamples < MIN_EVALUATION_SAMPLES ||
+                    evaluation.planningProtocolPassRate < MIN_PLANNING_PASS_RATE
+                ) {
+                    reasons += "planning protocol evaluation below admission gate"
+                }
+                if (evaluation.toolContractSamples < MIN_EVALUATION_SAMPLES ||
+                    evaluation.toolContractPassRate < MIN_TOOL_CONTRACT_PASS_RATE
+                ) {
+                    reasons += "tool-contract evaluation below admission gate"
+                }
+                if (evaluation.regressionSamples < MIN_EVALUATION_SAMPLES ||
+                    evaluation.regressionPassRate < MIN_REGRESSION_PASS_RATE
+                ) {
+                    reasons += "regression evaluation below admission gate"
+                }
+                if (evaluation.heldoutGeneralizationSamples < MIN_EVALUATION_SAMPLES ||
+                    evaluation.heldoutGeneralizationPassRate < MIN_GENERALIZATION_PASS_RATE
+                ) {
+                    reasons += "held-out generalization evaluation below admission gate"
+                }
             }
-            if (evaluation.toolContractSamples < MIN_EVALUATION_SAMPLES ||
-                evaluation.toolContractPassRate < MIN_TOOL_CONTRACT_PASS_RATE
-            ) {
-                reasons += "tool-contract evaluation below admission gate"
-            }
-            if (evaluation.regressionSamples < MIN_EVALUATION_SAMPLES ||
-                evaluation.regressionPassRate < MIN_REGRESSION_PASS_RATE
-            ) {
-                reasons += "regression evaluation below admission gate"
-            }
-            if (evaluation.heldoutGeneralizationSamples < MIN_EVALUATION_SAMPLES ||
-                evaluation.heldoutGeneralizationPassRate < MIN_GENERALIZATION_PASS_RATE
-            ) {
-                reasons += "held-out generalization evaluation below admission gate"
+
+            if (requiresReflexEvaluation) {
+                val reflex = evaluation.reflexDecision
+                if (reflex == null) {
+                    reasons += "reflex-decision held-out evaluation missing"
+                } else {
+                    val holdout = getDatasetShard(reflex.holdoutShardId)
+                    if (holdout == null) {
+                        reasons += "reflex holdout dataset missing"
+                    } else {
+                        if (holdout.id in checkpoint.datasetShardIds) {
+                            reasons += "reflex holdout dataset overlaps training lineage"
+                        }
+                        if (holdout.rights != NativeDatasetRights.GENERATED_INTERNAL) {
+                            reasons += "reflex holdout dataset is not generated internal evidence"
+                        }
+                        if (TitanCapabilities.REFLEX_DECISION !in holdout.targetCapabilities) {
+                            reasons += "reflex holdout dataset lacks reflex-decision capability"
+                        }
+                        if (holdout.sha256 != reflex.holdoutPayloadSha256) {
+                            reasons += "reflex holdout payload digest mismatch"
+                        }
+                        if (holdout.exampleCount != reflex.totalSamples.toLong()) {
+                            reasons += "reflex holdout sample count mismatch"
+                        }
+                    }
+                    if (reflex.totalSamples < MIN_REFLEX_TOTAL_SAMPLES ||
+                        reflex.actionSamples < MIN_REFLEX_CLASS_SAMPLES ||
+                        reflex.escalationSamples < MIN_REFLEX_CLASS_SAMPLES
+                    ) {
+                        reasons += "reflex held-out sample depth below admission gate"
+                    }
+                    if (reflex.exactDecisionAccuracy < MIN_REFLEX_EXACT_DECISION_ACCURACY) {
+                        reasons += "reflex exact-decision accuracy below admission gate"
+                    }
+                    if (reflex.actionPrecision < MIN_REFLEX_ACTION_PRECISION) {
+                        reasons += "reflex action precision below admission gate"
+                    }
+                    if (reflex.escalationRecall < MIN_REFLEX_ESCALATION_RECALL) {
+                        reasons += "reflex escalation recall below admission gate"
+                    }
+                    if (reflex.capabilityAccuracy < MIN_REFLEX_CAPABILITY_ACCURACY) {
+                        reasons += "reflex capability accuracy below admission gate"
+                    }
+                    if (reflex.calibrationMeanAbsoluteError > MAX_REFLEX_CALIBRATION_MAE) {
+                        reasons += "reflex confidence calibration below admission gate"
+                    }
+                }
             }
         }
 
@@ -550,6 +608,14 @@ class MemoryBackedNativeModelFoundation(
         const val MIN_TOOL_CONTRACT_PASS_RATE = 0.98
         const val MIN_REGRESSION_PASS_RATE = 0.95
         const val MIN_GENERALIZATION_PASS_RATE = 0.85
+
+        const val MIN_REFLEX_TOTAL_SAMPLES = 32
+        const val MIN_REFLEX_CLASS_SAMPLES = 8
+        const val MIN_REFLEX_EXACT_DECISION_ACCURACY = 0.97
+        const val MIN_REFLEX_ACTION_PRECISION = 0.99
+        const val MIN_REFLEX_ESCALATION_RECALL = 0.98
+        const val MIN_REFLEX_CAPABILITY_ACCURACY = 0.98
+        const val MAX_REFLEX_CALIBRATION_MAE = 0.08
     }
 }
 
