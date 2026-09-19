@@ -83,6 +83,8 @@ data class EvolutionPromotionExecution(
     val suiteId: EvolutionBenchmarkSuiteId,
     val suiteDigest: String,
     val baselineSubjectId: EvolutionBenchmarkSubjectId,
+    val baseline: EvolutionBenchmarkSnapshot,
+    val rollbackToken: String,
     val stage: EvolutionPromotionExecutionStage,
     val checkpoint: EvolutionDeploymentCheckpoint,
     val receipt: EvolutionDeploymentReceipt? = null,
@@ -97,6 +99,11 @@ data class EvolutionPromotionExecution(
         require(baseRevision.isNotBlank())
         require(proposedRevision.isNotBlank())
         require(suiteDigest.matches(Regex("[0-9a-f]{64}")))
+        require(baseline.subjectId == baselineSubjectId)
+        require(baseline.suiteId == suiteId)
+        require(baseline.suiteDigest == suiteDigest)
+        requireNotNull(baseline.artifactDigest)
+        require(rollbackToken.isNotBlank())
         require(canaryAggregateDelta == null || canaryAggregateDelta.isFinite())
         require(failureCode == null || failureCode.matches(Regex("[A-Za-z0-9._:-]{1,128}")))
         require(preparedAtEpochMs >= 0L)
@@ -147,11 +154,17 @@ interface AutonomousEvolutionPromotionExecutor {
         deployment: EvolutionDeploymentPort
     ): EvolutionPromotionExecution
 
+    fun rollbackCommitted(
+        id: EvolutionPromotionExecutionId,
+        deployment: EvolutionDeploymentPort
+    ): EvolutionPromotionExecution
+
     fun recoverIncomplete(
         deployment: EvolutionDeploymentPort
     ): List<EvolutionPromotionExecution>
 
     fun get(id: EvolutionPromotionExecutionId): EvolutionPromotionExecution?
+    fun recent(limit: Int = 16): List<EvolutionPromotionExecution>
 }
 
 /**
@@ -212,6 +225,8 @@ class MemoryBackedAutonomousEvolutionPromotionExecutor(
             suiteId = proposal.suiteId,
             suiteDigest = proposal.suiteDigest,
             baselineSubjectId = proposal.baselineSubjectId,
+            baseline = baseline,
+            rollbackToken = proposal.rollbackToken,
             stage = EvolutionPromotionExecutionStage.PREPARED,
             checkpoint = checkpoint,
             preparedAtEpochMs = now,
@@ -330,11 +345,34 @@ class MemoryBackedAutonomousEvolutionPromotionExecutor(
         validateKnownProposal(proposal)
         val current = requireNotNull(get(id)) { "promotion execution not found" }
         validateExecutionProposal(current, proposal)
+        return rollbackCommittedInternal(current, deployment)
+    }
+
+    @Synchronized
+    override fun rollbackCommitted(
+        id: EvolutionPromotionExecutionId,
+        deployment: EvolutionDeploymentPort
+    ): EvolutionPromotionExecution {
+        val current = requireNotNull(get(id)) { "promotion execution not found" }
+        return rollbackCommittedInternal(current, deployment)
+    }
+
+    private fun rollbackCommittedInternal(
+        current: EvolutionPromotionExecution,
+        deployment: EvolutionDeploymentPort
+    ): EvolutionPromotionExecution {
         require(current.stage == EvolutionPromotionExecutionStage.COMMITTED) {
             "only a committed promotion may use committed rollback"
         }
         deployment.rollback(current.checkpoint, current.receipt).getOrThrow()
-        gate.rollback(gate.promote(proposal.verifiedDecision))
+        val verified = EvolutionDecision(
+            candidateId = current.candidateId,
+            stage = EvolutionStage.VERIFIED,
+            promotable = true,
+            reasons = emptyList(),
+            rollbackToken = current.rollbackToken
+        )
+        gate.rollback(gate.promote(verified))
         val rolledBack = current.copy(
             stage = EvolutionPromotionExecutionStage.ROLLED_BACK,
             failureCode = "POST_COMMIT_ROLLBACK",
@@ -369,6 +407,12 @@ class MemoryBackedAutonomousEvolutionPromotionExecutor(
             ?.let { EvolutionPromotionExecutionCodec.decode(it.content) }
             ?.takeIf { it.id == id }
 
+    override fun recent(limit: Int): List<EvolutionPromotionExecution> {
+        require(limit >= 0)
+        if (limit == 0) return emptyList()
+        return indexedExecutions().takeLast(limit).asReversed()
+    }
+
     private fun validateKnownProposal(proposal: EvolutionPromotionProposal) {
         require(evolution.isKnownPromotionProposal(proposal)) {
             "promotion proposal was not issued by canonical evolution tournament"
@@ -387,6 +431,7 @@ class MemoryBackedAutonomousEvolutionPromotionExecutor(
         require(execution.suiteId == proposal.suiteId)
         require(execution.suiteDigest == proposal.suiteDigest)
         require(execution.baselineSubjectId == proposal.baselineSubjectId)
+        require(execution.rollbackToken == proposal.rollbackToken)
     }
 
     private fun validateBaseline(
@@ -581,6 +626,16 @@ private object EvolutionPromotionExecutionCodec {
         "suite=" + enc(value.suiteId.value),
         "suite_digest=" + value.suiteDigest,
         "baseline=" + enc(value.baselineSubjectId.value),
+        "baseline_artifact=" + requireNotNull(value.baseline.artifactDigest),
+        "baseline_observed=" + value.baseline.observedAtEpochMs,
+        "baseline_metrics=" + value.baseline.metrics.entries
+            .sortedBy { it.key.value }
+            .joinToString(",") { (id, observation) ->
+                enc(id.value) + "." +
+                    enc(observation.score.toString()) + "." +
+                    observation.samples
+            },
+        "rollback_token=" + enc(value.rollbackToken),
         "stage=" + value.stage.name,
         "checkpoint_token=" + enc(value.checkpoint.checkpointToken),
         "checkpoint_revision=" + enc(value.checkpoint.baselineRevision),
@@ -628,6 +683,26 @@ private object EvolutionPromotionExecutionCodec {
             baselineSubjectId = EvolutionBenchmarkSubjectId(
                 dec(requireNotNull(f["baseline"]))
             ),
+            baseline = EvolutionBenchmarkSnapshot(
+                subjectId = EvolutionBenchmarkSubjectId(dec(requireNotNull(f["baseline"]))),
+                suiteId = EvolutionBenchmarkSuiteId(dec(requireNotNull(f["suite"]))),
+                suiteDigest = requireNotNull(f["suite_digest"]),
+                metrics = requireNotNull(f["baseline_metrics"])
+                    .split(',')
+                    .filter { it.isNotBlank() }
+                    .associate { encoded ->
+                        val parts = encoded.split('.')
+                        require(parts.size == 3)
+                        EvolutionBenchmarkMetricId(dec(parts[0])) to
+                            EvolutionMetricObservation(
+                                score = dec(parts[1]).toDouble(),
+                                samples = parts[2].toInt()
+                            )
+                    },
+                artifactDigest = requireNotNull(f["baseline_artifact"]),
+                observedAtEpochMs = requireNotNull(f["baseline_observed"]).toLong()
+            ),
+            rollbackToken = dec(requireNotNull(f["rollback_token"])),
             stage = EvolutionPromotionExecutionStage.valueOf(requireNotNull(f["stage"])),
             checkpoint = EvolutionDeploymentCheckpoint(
                 checkpointToken = dec(requireNotNull(f["checkpoint_token"])),
