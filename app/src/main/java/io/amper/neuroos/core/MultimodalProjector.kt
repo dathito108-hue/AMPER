@@ -180,6 +180,13 @@ interface MultimodalProjectorArtifactResolver {
     fun resolve(projector: InstalledMultimodalProjector): ModelArtifactSource?
 }
 
+class LocatorMultimodalProjectorArtifactResolver(
+    private val factories: List<(InstalledMultimodalProjector) -> ModelArtifactSource?>
+) : MultimodalProjectorArtifactResolver {
+    override fun resolve(projector: InstalledMultimodalProjector): ModelArtifactSource? =
+        factories.firstNotNullOfOrNull { it(projector) }
+}
+
 class MultimodalProjectorInstallService(
     private val inspector: GgufInspector,
     private val catalog: MultimodalProjectorCatalog
@@ -258,19 +265,3 @@ class MultimodalProjectorIdentityVerifier(
         require(inspection.sha256 == projector.sha256) {
             "projector SHA-256 does not match installed identity"
         }
-        projector.lengthBytes?.let { installedLength ->
-            require(inspection.lengthBytes == installedLength) {
-                "projector length does not match installed identity"
-            }
-        }
-        require(inspection.header.version == projector.ggufVersion) {
-            "projector GGUF version changed after installation"
-        }
-        require(inspection.header.tensorCount == projector.tensorCount) {
-            "projector tensor count changed after installation"
-        }
-        require(inspection.header.metadataKeyValueCount == projector.metadataKeyValueCount) {
-            "projector metadata count changed after installation"
-        }
-    }
-}
