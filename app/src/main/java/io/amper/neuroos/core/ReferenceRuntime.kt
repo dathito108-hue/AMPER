@@ -182,6 +182,7 @@ class AmperRuntime private constructor(
     val autonomousEvolutionPromotionExecutor: AutonomousEvolutionPromotionExecutor,
     val nativeModelFoundation: NativeModelFoundation,
     val nativeExperienceDatasets: NativeExperienceDatasetStore,
+    val nativeExperiencePartition: NativeExperiencePartitioner,
     val nativeExperienceCurriculum: NativeExperienceCurriculumPlanner,
     val nativeExperienceTraining: NativeExperienceTrainingCoordinator,
     val nativeTrainingPipeline: NativeTrainingPipeline,
@@ -355,6 +356,9 @@ class AmperRuntime private constructor(
                 memory = memory,
                 foundation = nativeModelFoundation
             )
+            val nativeExperiencePartition = DeterministicNativeExperiencePartitioner(
+                store = nativeExperienceDatasets
+            )
             val nativeExperienceCurriculum = EvidenceNativeExperienceCurriculumPlanner(
                 store = nativeExperienceDatasets,
                 foundation = nativeModelFoundation
@@ -462,6 +466,7 @@ class AmperRuntime private constructor(
                 autonomousEvolutionPromotionExecutor = autonomousEvolutionPromotionExecutor,
                 nativeModelFoundation = nativeModelFoundation,
                 nativeExperienceDatasets = nativeExperienceDatasets,
+                nativeExperiencePartition = nativeExperiencePartition,
                 nativeExperienceCurriculum = nativeExperienceCurriculum,
                 nativeExperienceTraining = nativeExperienceTraining,
                 nativeTrainingPipeline = nativeTrainingPipeline,
