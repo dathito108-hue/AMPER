@@ -177,6 +177,7 @@ class AmperRuntime private constructor(
     val generalization: SkillGeneralizationModel,
     val autonomousLearning: AutonomousLearningModel,
     val nativeModelFoundation: NativeModelFoundation,
+    val nativeTrainingPipeline: NativeTrainingPipeline,
     val conversations: SovereignConversationCoordinator,
     val inferenceProfiles: ConversationInferenceProfileStore,
     val plans: SovereignPlanStore,
@@ -291,6 +292,10 @@ class AmperRuntime private constructor(
                 generalization = generalization
             )
             val nativeModelFoundation = MemoryBackedNativeModelFoundation(memory)
+            val nativeTrainingPipeline = MemoryBackedNativeTrainingPipeline(
+                memory = memory,
+                foundation = nativeModelFoundation
+            )
             val selfModel = CanonicalSelfModel()
             val goals = CanonicalGoalSystem()
             val world = CanonicalWorldModel()
@@ -349,6 +354,7 @@ class AmperRuntime private constructor(
                 generalization = generalization,
                 autonomousLearning = autonomousLearning,
                 nativeModelFoundation = nativeModelFoundation,
+                nativeTrainingPipeline = nativeTrainingPipeline,
                 conversations = conversations,
                 inferenceProfiles = inferenceProfiles,
                 plans = plans,
