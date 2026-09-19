@@ -215,18 +215,44 @@ object ReflectivePlanCriticPrompt {
         epistemicBeliefs: List<EpistemicAssessment> = emptyList(),
         structuredWorldStates: List<StructuredWorldState> = emptyList(),
         worldPredictions: List<WorldPrediction> = emptyList(),
-        causalHypotheses: List<CausalWorldHypothesis> = emptyList()
+        causalHypotheses: List<CausalWorldHypothesis> = emptyList(),
+        integratedCognitiveState: IntegratedCognitiveStatePacket? = null
     ): String {
         require(userGoal.isNotBlank())
         require(charBudget >= ConversationInferenceProfile.MIN_PROMPT_CHARS)
 
         val protocol = ReflectivePlanCriticProtocol.instructions(allowedCapabilities)
         val descriptorByCapability = descriptors.associateBy { it.capability }
+        val effectiveSemantic =
+            integratedCognitiveState?.context?.semanticKnowledge ?: semanticKnowledge
+        val effectiveBeliefs =
+            integratedCognitiveState?.context?.epistemicBeliefs ?: epistemicBeliefs
+        val effectiveWorldStates =
+            integratedCognitiveState?.context?.structuredWorldStates ?: structuredWorldStates
+        val effectivePredictions =
+            integratedCognitiveState?.context?.worldPredictions ?: worldPredictions
+        val effectiveHypotheses =
+            integratedCognitiveState?.context?.causalHypotheses ?: causalHypotheses
 
         val fixedData = buildString {
             appendLine("<CURRENT_GOAL_DATA>")
             appendLine(sanitizeData(userGoal, 320))
             appendLine("</CURRENT_GOAL_DATA>")
+            integratedCognitiveState?.let { state ->
+                appendLine("<COGNITIVE_STATE_BINDING>")
+                appendLine("digest=" + state.canonicalDigest)
+                appendLine("query_digest=" + state.queryDigest)
+                appendLine(
+                    "readiness=" +
+                        "%.3f".format(java.util.Locale.US, state.readiness.overallReadiness) +
+                        ";uncertainty=" +
+                        "%.3f".format(java.util.Locale.US, state.readiness.uncertainty) +
+                        ";learning_pressure=" +
+                        "%.3f".format(java.util.Locale.US, state.readiness.learningPressure)
+                )
+                appendLine("authority=false")
+                appendLine("</COGNITIVE_STATE_BINDING>")
+            }
             appendLine("<SELECTED_PLAN_DATA>")
             evaluation.candidate.steps.sortedBy { it.index }.forEach { step ->
                 append("step.")
@@ -306,7 +332,7 @@ object ReflectivePlanCriticPrompt {
         }
 
         val epistemicLines = buildList {
-            semanticKnowledge.take(4).forEach { knowledge ->
+            effectiveSemantic.take(4).forEach { knowledge ->
                 add(
                     "SEMANTIC " +
                         sanitizeData(knowledge.subject, 64) + " " +
@@ -316,7 +342,7 @@ object ReflectivePlanCriticPrompt {
                         " authority=false"
                 )
             }
-            epistemicBeliefs.take(4).forEach { belief ->
+            effectiveBeliefs.take(4).forEach { belief ->
                 val value = if (belief.planningEligible) belief.preferredValue ?: "unknown" else "unknown"
                 add(
                     "BELIEF " +
@@ -328,7 +354,7 @@ object ReflectivePlanCriticPrompt {
                         " authority=false"
                 )
             }
-            structuredWorldStates.take(4).forEach { state ->
+            effectiveWorldStates.take(4).forEach { state ->
                 add(
                     "WORLD_STATE " +
                         sanitizeData(state.key.canonical, 128) + "=" +
@@ -338,7 +364,7 @@ object ReflectivePlanCriticPrompt {
                         " authority=false"
                 )
             }
-            worldPredictions.take(4).forEach { prediction ->
+            effectivePredictions.take(4).forEach { prediction ->
                 add(
                     "WORLD_PREDICTION " +
                         sanitizeData(prediction.targetKey.canonical, 128) + "=" +
@@ -348,7 +374,7 @@ object ReflectivePlanCriticPrompt {
                         " authority=false"
                 )
             }
-            causalHypotheses.take(4).forEach { hypothesis ->
+            effectiveHypotheses.take(4).forEach { hypothesis ->
                 add(
                     "CAUSAL_HYPOTHESIS " +
                         sanitizeData(hypothesis.causeKey.canonical, 96) + "=" +
@@ -358,6 +384,31 @@ object ReflectivePlanCriticPrompt {
                         " support=" + hypothesis.support +
                         " contradictions=" + hypothesis.contradictions +
                         " confidence=" + "%.3f".format(java.util.Locale.US, hypothesis.confidence) +
+                        " authority=false"
+                )
+            }
+            integratedCognitiveState?.skillGuidance?.take(3)?.forEach { guidance ->
+                add(
+                    "SKILL " +
+                        sanitizeData(guidance.contract.id.value, 64) +
+                        " capabilities=" +
+                        guidance.contract.signature.capabilities.joinToString(">") {
+                            sanitizeData(it.value, 48)
+                        } +
+                        " confidence=" +
+                        "%.3f".format(java.util.Locale.US, guidance.contract.confidence) +
+                        " relevance=" +
+                        "%.3f".format(java.util.Locale.US, guidance.goalRelevance) +
+                        " authority=false"
+                )
+            }
+            integratedCognitiveState?.learningNeeds?.take(3)?.forEach { need ->
+                add(
+                    "LEARNING_NEED capability=" +
+                        sanitizeData(need.capability.value, 64) +
+                        " kind=" + need.kind.name +
+                        " severity=" +
+                        "%.3f".format(java.util.Locale.US, need.severity) +
                         " authority=false"
                 )
             }

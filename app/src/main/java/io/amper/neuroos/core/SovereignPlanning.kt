@@ -354,10 +354,16 @@ class SovereignPlanCoordinator(
         )
         runtime.tick(userGoal)
         val descriptors = routedDescriptors()
+        val cognitiveState = runtime.integratedCognition.capture(
+            query = userGoal,
+            allowedCapabilities = advertisedCapabilities,
+            descriptors = descriptors
+        )
         val prompt = buildPlanningPrompt(
             conversationId = conversationId,
             userGoal = userGoal,
             descriptors = descriptors,
+            cognitiveState = cognitiveState,
             promptBudgetChars = boundInferenceProfile.maxPromptChars
         )
         val response = inference.infer(
@@ -387,6 +393,7 @@ class SovereignPlanCoordinator(
             userGoal = userGoal,
             selected = selection.selected,
             descriptors = descriptors,
+            cognitiveState = cognitiveState,
             profile = boundInferenceProfile
         )
         val finalEvaluation = postCriticEvaluation(selection.selected, critique)
@@ -405,7 +412,7 @@ class SovereignPlanCoordinator(
         runCatching {
             runtime.skills.begin(
                 plan = plan,
-                worldStates = runtime.predictiveWorld.queryStates(userGoal, 8)
+                worldStates = cognitiveState.context.structuredWorldStates
             )
         }
         runtime.conversations.commitAssistant(
@@ -445,10 +452,16 @@ class SovereignPlanCoordinator(
             fallbackMaxPromptChars = maxPromptChars
         )
         val descriptors = routedDescriptors()
+        val cognitiveState = runtime.integratedCognition.capture(
+            query = plan.goal,
+            allowedCapabilities = advertisedCapabilities,
+            descriptors = descriptors
+        )
         val prompt = buildPlanningPrompt(
             conversationId = plan.conversationId,
             userGoal = plan.goal,
             descriptors = descriptors,
+            cognitiveState = cognitiveState,
             promptBudgetChars = boundInferenceProfile.maxPromptChars,
             recoveryDecision = decision
         )
@@ -485,6 +498,7 @@ class SovereignPlanCoordinator(
             userGoal = plan.goal,
             selected = selection.selected,
             descriptors = descriptors,
+            cognitiveState = cognitiveState,
             profile = boundInferenceProfile
         )
         val finalEvaluation = postCriticEvaluation(selection.selected, critique)
@@ -508,7 +522,7 @@ class SovereignPlanCoordinator(
             runCatching {
                 runtime.skills.begin(
                     plan = replacement,
-                    worldStates = runtime.predictiveWorld.queryStates(replacement.goal, 8)
+                    worldStates = cognitiveState.context.structuredWorldStates
                 )
             }
             runtime.conversations.commitAssistant(
@@ -528,6 +542,7 @@ class SovereignPlanCoordinator(
         userGoal: String,
         selected: DeliberationEvaluation,
         descriptors: List<ToolDescriptor>,
+        cognitiveState: IntegratedCognitiveStatePacket,
         profile: BoundConversationInferenceProfile
     ): ReflectivePlanCritique {
         val structural = ReflectivePlanCriticGate.structuralVerify(
@@ -537,23 +552,13 @@ class SovereignPlanCoordinator(
         )
         val critic = criticInference ?: return structural
 
-        val epistemicContext = runtime.context.capture(
-            query = userGoal,
-            memoryLimit = 0,
-            worldLimit = 0,
-            workspaceLimit = 0
-        )
         val prompt = ReflectivePlanCriticPrompt.build(
             userGoal = userGoal,
             evaluation = selected,
             allowedCapabilities = advertisedCapabilities,
             descriptors = descriptors,
             charBudget = profile.maxPromptChars,
-            semanticKnowledge = epistemicContext.semanticKnowledge,
-            epistemicBeliefs = epistemicContext.epistemicBeliefs,
-            structuredWorldStates = epistemicContext.structuredWorldStates,
-            worldPredictions = epistemicContext.worldPredictions,
-            causalHypotheses = epistemicContext.causalHypotheses
+            integratedCognitiveState = cognitiveState
         )
         val response = critic.infer(
             InferenceRequest(
@@ -685,6 +690,7 @@ class SovereignPlanCoordinator(
         conversationId: ConversationId,
         userGoal: String,
         descriptors: List<ToolDescriptor>,
+        cognitiveState: IntegratedCognitiveStatePacket,
         promptBudgetChars: Int,
         recoveryDecision: StrategyRecoveryDecision? = null
     ): String {
@@ -713,6 +719,7 @@ class SovereignPlanCoordinator(
             capabilities = capabilities,
             descriptors = descriptors,
             userGoal = userGoal,
+            cognitiveState = cognitiveState,
             charBudget = protocolBudget
         )
         val tail = buildString {
@@ -739,11 +746,12 @@ class SovereignPlanCoordinator(
         capabilities: List<CapabilityId>,
         descriptors: List<ToolDescriptor>,
         userGoal: String,
+        cognitiveState: IntegratedCognitiveStatePacket,
         charBudget: Int
     ): String {
         val base = TitanDeliberationProtocol.instructions(capabilities, emptyList())
-        require(base.length <= charBudget) {
-            "conversation prompt budget cannot preserve mandatory planning protocol"
+        require(base.length + 2 + COGNITIVE_STATE_MIN_CHARS <= charBudget) {
+            "conversation prompt budget cannot preserve planning protocol and cognitive state"
         }
         val allowed = capabilities.toSet()
         val selected = mutableListOf<ToolDescriptor>()
@@ -753,31 +761,34 @@ class SovereignPlanCoordinator(
             .sortedBy { it.capability.value }
             .forEach { descriptor ->
                 val candidate = TitanDeliberationProtocol.instructions(capabilities, selected + descriptor)
-                if (candidate.length <= charBudget) selected += descriptor
+                if (candidate.length + 2 + COGNITIVE_STATE_MIN_CHARS <= charBudget) {
+                    selected += descriptor
+                }
             }
 
         val protocol = TitanDeliberationProtocol.instructions(capabilities, selected)
-        var bounded = protocol
+        val cognitiveAvailable = charBudget - protocol.length - 2
+        require(cognitiveAvailable >= COGNITIVE_STATE_MIN_CHARS)
+        val cognitiveBudget = minOf(
+            COGNITIVE_STATE_MAX_CHARS,
+            cognitiveAvailable
+        )
+        val renderedCognitive = IntegratedCognitiveStateRenderer.render(
+            cognitiveState,
+            cognitiveBudget
+        )
+        var bounded = protocol + "\n\n" + renderedCognitive
 
-        val worldStates = runtime.predictiveWorld.queryStates(userGoal, 8)
-        val skillGuidance = runtime.skills.guidance(
-            goal = userGoal,
-            allowedCapabilities = allowed,
-            descriptors = selected,
-            worldStates = worldStates,
-            limit = MemoryBackedSkillGenesisModel.MAX_GUIDANCE
-        )
-        val compositions = runtime.skills.compositions(
-            goal = userGoal,
-            allowedCapabilities = allowed,
-            descriptors = selected,
-            worldStates = worldStates,
-            limit = MemoryBackedSkillGenesisModel.MAX_COMPOSITIONS
-        )
+        val selectedCapabilities = selected.map { it.capability }.toSet()
+        val skillGuidance = cognitiveState.skillGuidance.filter { guidance ->
+            guidance.contract.signature.capabilities.all { it in selectedCapabilities }
+        }
+        val compositions = cognitiveState.skillCompositions.filter { composition ->
+            composition.capabilities.all { it in selectedCapabilities }
+        }
 
         // Live tool contracts are mandatory. Learned skills are advisory and added only if the
         // bounded protocol can hold them. They contain no authority/approval/tool-id fields.
-        var skillAdded = false
         outer@ for (skillCount in skillGuidance.size downTo 0) {
             for (compositionCount in compositions.size downTo 0) {
                 if (skillCount == 0 && compositionCount == 0) continue
@@ -785,29 +796,20 @@ class SovereignPlanCoordinator(
                     skills = skillGuidance.take(skillCount),
                     compositions = compositions.take(compositionCount)
                 )
-                val candidate = protocol + "\n\n" + rendered
+                val candidate = bounded + "\n\n" + rendered
                 if (candidate.length <= charBudget) {
                     bounded = candidate
-                    skillAdded = true
                     break@outer
                 }
             }
         }
 
-        val transferGuidance = runtime.generalization.guidance(
-            goal = userGoal,
-            allowedCapabilities = allowed,
-            descriptors = selected,
-            worldStates = worldStates,
-            limit = MemoryBackedSkillGeneralizationModel.MAX_GUIDANCE
-        )
-        val generalizedChains = runtime.generalization.chains(
-            goal = userGoal,
-            allowedCapabilities = allowed,
-            descriptors = selected,
-            worldStates = worldStates,
-            limit = MemoryBackedSkillGeneralizationModel.MAX_CHAINS
-        )
+        val transferGuidance = cognitiveState.transferGuidance.filter { guidance ->
+            guidance.skill.signature.capabilities.all { it in selectedCapabilities }
+        }
+        val generalizedChains = cognitiveState.generalizedChains.filter { chain ->
+            chain.capabilities.all { it in selectedCapabilities }
+        }
 
         // Cross-task transfer is optional advisory evidence. It can only consume remaining prompt
         // budget after the mandatory live tool contracts (and any bounded direct skill evidence).
@@ -914,5 +916,7 @@ class SovereignPlanCoordinator(
 
     companion object {
         private const val MIN_GROUNDED_CONTEXT_CHARS = 1024
+        private const val COGNITIVE_STATE_MIN_CHARS = 512
+        private const val COGNITIVE_STATE_MAX_CHARS = 1400
     }
 }

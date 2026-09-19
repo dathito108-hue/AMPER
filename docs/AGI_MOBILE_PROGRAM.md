@@ -207,6 +207,18 @@ ToolFabric path and cannot widen authority.
 Integrate model, world state, memory, skills, multimodal perception and self-evolution; measure
 progress by capability/generalization benchmarks rather than phase count.
 
+### Implemented checkpoint — Phase251-255
+Phase251 creates one ephemeral integrated cognitive state per decision from reconciled semantic and
+epistemic evidence plus predictive world state. Phase252 folds live skill, composition,
+cross-context transfer and generalized-chain evidence into that same bounded packet. Phase253 derives
+explicit readiness, uncertainty and active-learning pressure without turning those diagnostics into
+authority or permission. Phase254 binds the planning prompt to the packet's canonical digest and uses
+its world/skill evidence instead of independently recapturing those subsystems. Phase255 gives the
+independent reflective critic the exact same packet/digest, eliminating planner-versus-critic state
+drift inside one decision while keeping live ToolDescriptor binding, side-effect classification,
+AuthorityGate and explicit approval external and authoritative. The packet is ephemeral and is not
+persisted as raw goal/context memory.
+
 ## CI budget policy
 
 GitHub Actions is a scarce verification resource.
