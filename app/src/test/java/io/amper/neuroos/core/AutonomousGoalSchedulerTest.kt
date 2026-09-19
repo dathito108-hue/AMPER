@@ -186,6 +186,32 @@ class AutonomousGoalSchedulerTest {
     }
 
     @Test
+    fun decomposedGoalUsesActiveRetryWithoutPretendingAPlanExists() {
+        var calls = 0
+        val scheduler = AutonomousGoalScheduler(
+            runGoal = {
+                calls += 1
+                Result.success(
+                    PersistentGoalExecutiveResult.Decomposed(
+                        parentGoalId = "phase329-parent",
+                        childGoalIds = listOf("phase329-child-1", "phase329-child-2")
+                    )
+                )
+            },
+            resourceAllowed = { true },
+            clock = { 27_000L }
+        )
+
+        val tick = scheduler.tick(conversationId)
+
+        assertEquals(AutonomousGoalSchedulerStage.DECOMPOSED, tick.stage)
+        assertEquals(AutonomousGoalScheduler.ACTIVE_RETRY_MS, tick.nextDelayMs)
+        assertEquals(null, tick.planId)
+        assertEquals(null, tick.checkpointStage)
+        assertEquals(1, calls)
+    }
+
+    @Test
     fun overlappingTickReturnsBusyInsteadOfStartingCompetingCognition() {
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
