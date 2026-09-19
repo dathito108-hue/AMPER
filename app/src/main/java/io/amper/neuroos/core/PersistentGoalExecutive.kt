@@ -220,6 +220,7 @@ class PersistentGoalExecutiveCoordinator(
     private val decomposer: GoalDecomposer? = null,
     private val adaptiveReplanner: GoalAdaptiveReplanner? = null,
     private val outcomeLearning: GoalOutcomeLearningModel? = null,
+    private val transferCalibration: GoalTransferCalibrationModel? = null,
     private val clock: () -> Long = System::currentTimeMillis
 ) {
     @Synchronized
@@ -567,6 +568,13 @@ class PersistentGoalExecutiveCoordinator(
                 hierarchy = hierarchy,
                 hierarchyDepth = durable?.decompositionDepth ?: 0,
                 verificationConfidence = verificationConfidence,
+                observedAtEpochMs = observedAtEpochMs
+            )
+        }
+        runCatching {
+            transferCalibration?.observe(
+                plan = terminalPlan,
+                outcome = outcome,
                 observedAtEpochMs = observedAtEpochMs
             )
         }
