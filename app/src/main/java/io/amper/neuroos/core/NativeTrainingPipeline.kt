@@ -402,6 +402,14 @@ interface NativeTrainingPipeline {
         baselineEvaluation: NativeCheckpointEvaluation
     ): NativeModelPromotionCandidate =
         error("ephemeral baseline comparison is unavailable")
+
+    fun compareAgainstEvaluations(
+        candidateCheckpointId: NativeCheckpointId,
+        baselineCheckpointId: NativeCheckpointId,
+        candidateEvaluation: NativeCheckpointEvaluation,
+        baselineEvaluation: NativeCheckpointEvaluation
+    ): NativeCheckpointComparison =
+        error("ephemeral checkpoint comparison is unavailable")
 }
 
 /**
@@ -728,7 +736,8 @@ class MemoryBackedNativeTrainingPipeline(
         return compareEvaluations(
             candidateCheckpointId = candidateCheckpointId,
             baselineCheckpointId = baselineCheckpointId,
-            candidate = candidate,
+            candidateRecord = candidate,
+            candidateEvaluation = candidate.evaluation,
             baselineEvaluation = baselineEvaluation
         )
     }
@@ -755,16 +764,36 @@ class MemoryBackedNativeTrainingPipeline(
         val comparison = compareEvaluations(
             candidateCheckpointId = candidateCheckpointId,
             baselineCheckpointId = baselineCheckpointId,
-            candidate = candidate,
+            candidateRecord = candidate,
+            candidateEvaluation = candidate.evaluation,
             baselineEvaluation = baselineEvaluation
         )
         return persistPromotion(candidate, comparison)
     }
 
+    override fun compareAgainstEvaluations(
+        candidateCheckpointId: NativeCheckpointId,
+        baselineCheckpointId: NativeCheckpointId,
+        candidateEvaluation: NativeCheckpointEvaluation,
+        baselineEvaluation: NativeCheckpointEvaluation
+    ): NativeCheckpointComparison {
+        val candidate = requireNotNull(getEvaluation(candidateCheckpointId)) {
+            "candidate checkpoint has no held-out evaluation"
+        }
+        return compareEvaluations(
+            candidateCheckpointId = candidateCheckpointId,
+            baselineCheckpointId = baselineCheckpointId,
+            candidateRecord = candidate,
+            candidateEvaluation = candidateEvaluation,
+            baselineEvaluation = baselineEvaluation
+        )
+    }
+
     private fun compareEvaluations(
         candidateCheckpointId: NativeCheckpointId,
         baselineCheckpointId: NativeCheckpointId?,
-        candidate: NativeCheckpointEvaluationRecord,
+        candidateRecord: NativeCheckpointEvaluationRecord,
+        candidateEvaluation: NativeCheckpointEvaluation,
         baselineEvaluation: NativeCheckpointEvaluation?
     ): NativeCheckpointComparison {
         val candidateCheckpoint = requireNotNull(
@@ -788,7 +817,7 @@ class MemoryBackedNativeTrainingPipeline(
                 "checkpoint comparison requires identical capability profiles"
             }
             if (TitanCapabilities.REFLEX_DECISION in candidateContract.capabilities) {
-                val candidateReflex = requireNotNull(candidate.evaluation.reflexDecision) {
+                val candidateReflex = requireNotNull(candidateEvaluation.reflexDecision) {
                     "candidate reflex evaluation is unavailable"
                 }
                 val baselineReflex = requireNotNull(baselineEvaluation?.reflexDecision) {
@@ -804,14 +833,14 @@ class MemoryBackedNativeTrainingPipeline(
         }
 
         val reasons = mutableListOf<String>()
-        if (!candidate.admission.admitted) {
+        if (!candidateRecord.admission.admitted) {
             reasons += "candidate failed foundation admission"
         }
         val deltas = if (baselineEvaluation == null) {
             emptyList()
         } else {
             metricDeltas(
-                candidate = candidate.evaluation,
+                candidate = candidateEvaluation,
                 baseline = baselineEvaluation,
                 capabilities = candidateContract.capabilities
             ).also { values ->
@@ -828,7 +857,7 @@ class MemoryBackedNativeTrainingPipeline(
         } else {
             deltas.average()
         }
-        if (baselineEvaluation == null && candidate.admission.admitted) {
+        if (baselineEvaluation == null && candidateRecord.admission.admitted) {
             reasons += "first admitted AMPER-native checkpoint has no baseline"
         } else if (
             noMaterialRegression &&
@@ -842,7 +871,7 @@ class MemoryBackedNativeTrainingPipeline(
         return NativeCheckpointComparison(
             candidateCheckpointId = candidateCheckpointId,
             baselineCheckpointId = baselineCheckpointId,
-            candidateEvaluation = candidate.evaluation,
+            candidateEvaluation = candidateEvaluation,
             baselineEvaluation = baselineEvaluation,
             noMaterialRegression = noMaterialRegression,
             aggregateDelta = aggregateDelta,

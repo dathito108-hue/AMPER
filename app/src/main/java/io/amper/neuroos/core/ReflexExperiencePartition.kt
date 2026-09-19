@@ -8,6 +8,7 @@ data class ReflexExperiencePartition(
     val trainingShard: ReflexExperienceDatasetShard,
     val holdoutShard: ReflexExperienceDatasetShard,
     val selectedExampleIds: Set<ReflexExperienceExampleId>,
+    val replayExampleIds: Set<ReflexExperienceExampleId> = emptySet(),
     val holdoutRatio: Double,
     val trainingActionExamples: Int,
     val trainingEscalationExamples: Int,
@@ -20,6 +21,8 @@ data class ReflexExperiencePartition(
         val holdoutIds = holdoutShard.exampleIds.toSet()
         require(trainingIds.intersect(holdoutIds).isEmpty())
         require(trainingIds + holdoutIds == selectedExampleIds)
+        require(replayExampleIds.all { it in trainingIds })
+        require(replayExampleIds.intersect(holdoutIds).isEmpty())
         require(holdoutRatio in 0.0..1.0)
         require(trainingActionExamples > 0)
         require(trainingEscalationExamples > 0)
@@ -39,7 +42,8 @@ interface ReflexExperiencePartitioner {
         minTrainingPerClass: Int = 2,
         minHoldoutPerClass: Int = 1,
         limit: Int = 256,
-        selectedExampleIds: List<ReflexExperienceExampleId>? = null
+        selectedExampleIds: List<ReflexExperienceExampleId>? = null,
+        replayExampleIds: List<ReflexExperienceExampleId> = emptyList()
     ): ReflexExperiencePartition
 }
 
@@ -59,7 +63,8 @@ class DeterministicReflexExperiencePartitioner(
         minTrainingPerClass: Int,
         minHoldoutPerClass: Int,
         limit: Int,
-        selectedExampleIds: List<ReflexExperienceExampleId>?
+        selectedExampleIds: List<ReflexExperienceExampleId>?,
+        replayExampleIds: List<ReflexExperienceExampleId>
     ): ReflexExperiencePartition {
         require(trainingShardId != holdoutShardId)
         require(holdoutRatio > 0.0 && holdoutRatio < 1.0)
@@ -83,6 +88,23 @@ class DeterministicReflexExperiencePartitioner(
                 }
             }
         } ?: store.recentExamples(limit)
+        require(replayExampleIds.distinct().size == replayExampleIds.size) {
+            "Reflex replay selection contains duplicate example ids"
+        }
+        val selectedIds = selected.map { it.id }.toSet()
+        require(replayExampleIds.none { it in selectedIds }) {
+            "Reflex replay evidence overlaps fresh partition evidence"
+        }
+        val replay = replayExampleIds.map { id ->
+            requireNotNull(store.getExample(id)) {
+                "Reflex replay references missing example: " + id.value
+            }
+        }
+        require(selected.size + replay.size <=
+            MemoryBackedReflexExperienceDatasetStore.MAX_SHARD_EXAMPLES) {
+            "fresh plus replay Reflex evidence exceeds shard capacity"
+        }
+
         val actions = selected.filter {
             it.targetDisposition == ReflexDecisionDisposition.PROPOSE_ACTION
         }
@@ -109,8 +131,12 @@ class DeterministicReflexExperiencePartitioner(
             minTrainingPerClass,
             minHoldoutPerClass
         )
-        val trainingIds = (actionSplit.first + escalationSplit.first)
-            .sortedBy { it.value }
+        val replayIds = replay.map { it.id }.toSet()
+        val trainingIds = (
+            actionSplit.first +
+                escalationSplit.first +
+                replay.map { it.id }
+            ).distinct().sortedBy { it.value }
         val holdoutIds = (actionSplit.second + escalationSplit.second)
             .sortedBy { it.value }
         require(trainingIds.size + holdoutIds.size <=
@@ -128,10 +154,15 @@ class DeterministicReflexExperiencePartitioner(
             trainingShard = trainingShard,
             holdoutShard = holdoutShard,
             selectedExampleIds = (trainingIds + holdoutIds).toSet(),
+            replayExampleIds = replayIds,
             holdoutRatio = holdoutIds.size.toDouble() /
-                (trainingIds.size + holdoutIds.size).toDouble(),
-            trainingActionExamples = actionSplit.first.size,
-            trainingEscalationExamples = escalationSplit.first.size,
+                selected.size.toDouble(),
+            trainingActionExamples = actionSplit.first.size + replay.count {
+                it.targetDisposition == ReflexDecisionDisposition.PROPOSE_ACTION
+            },
+            trainingEscalationExamples = escalationSplit.first.size + replay.count {
+                it.targetDisposition == ReflexDecisionDisposition.ESCALATE_SYSTEM2
+            },
             holdoutActionExamples = actionSplit.second.size,
             holdoutEscalationExamples = escalationSplit.second.size
         )

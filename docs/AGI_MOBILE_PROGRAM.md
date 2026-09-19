@@ -1065,3 +1065,35 @@ parented challenger that learns a previously unseen mobile capability, wins the 
 replaces its champion, and then returns to waiting for new evidence. ToolDescriptor,
 CanonicalReflexActionArgumentBinder, SovereignActionLoop, AuthorityGate, explicit approval and durable
 receipts remain unchanged.
+
+
+### Completion checkpoint — Phase496-500
+Phase496 adds bounded rehearsal to continual Reflex training without introducing a second training
+stack. Fresh governed evidence is still partitioned independently, while up to 96 deterministic
+historical TRAINING examples are injected only into the candidate training shard. Historical holdout
+examples are never replayed, so evaluation evidence cannot leak back into optimization.
+
+Phase497 adds lineage-aware drift analysis. AMPER compares fresh ACTION capability distribution and
+ESCALATE share against its bounded historical replay view and detects newly observed action
+capabilities. Small, statistically stable 48-example windows are accumulated instead of immediately
+retraining; novel capabilities or material distribution drift may still trigger the existing minimum
+24-ACTION/24-ESCALATE continual-learning path. This reduces unnecessary on-device retraining while
+remaining responsive to genuinely new behavior.
+
+Phase498 extends the canonical NativeTrainingPipeline with non-persisting checkpoint comparison over
+explicit evaluation pairs. The same metric-delta and material-regression logic used by native model
+promotion can therefore be reused for stability checks without overwriting immutable historical
+evaluation records.
+
+Phase499 builds a separate deterministic stability holdout from historical HELD-OUT lineage evidence.
+After a challenger clears admission and improves the fresh common holdout, both challenger and
+champion are scored on the same historical stability shard. Any material regression blocks
+replacement. The runtime replacement gate revalidates this anti-forgetting comparison proof before
+swapping the active port.
+
+Phase500 closes the stability loop: successful continual challengers are parented from the current
+champion, rehearse prior training evidence, pass both plasticity and retention gates, and keep the
+former champion as the existing automatic-rollback standby. Tests cover replay/holdout isolation,
+retention of an older device-status skill while learning a new web-search skill, and low-drift
+batching. Tool binding, AuthorityGate, explicit side-effect approval, durable receipts and all
+execution authority remain unchanged.

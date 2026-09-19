@@ -56,6 +56,48 @@ class ReflexExperiencePartitionTest {
         assertTrue(partition.selectedExampleIds.intersect(oldIds).isEmpty())
     }
 
+    @Test
+    fun replayEvidenceIsTrainingOnlyAndNeverLeaksIntoFreshHoldout() {
+        val memory = InMemoryMemoryOs()
+        val foundation = MemoryBackedNativeModelFoundation(memory)
+        val store = MemoryBackedReflexExperienceDatasetStore(memory, foundation)
+        seed(store, "replay-old")
+        val old = store.recentExamples(6)
+        seed(store, "replay-fresh")
+        val oldIds = old.map { it.id }.toSet()
+        val freshIds = store.recentExamples(6)
+            .map { it.id }
+            .filterNot { it in oldIds }
+        val replayIds = listOf(
+            requireNotNull(old.firstOrNull {
+                it.targetDisposition == ReflexDecisionDisposition.PROPOSE_ACTION
+            }).id,
+            requireNotNull(old.firstOrNull {
+                it.targetDisposition == ReflexDecisionDisposition.ESCALATE_SYSTEM2
+            }).id
+        )
+
+        val partition = DeterministicReflexExperiencePartitioner(store).partition(
+            trainingShardId = NativeDatasetShardId("replay-train"),
+            holdoutShardId = NativeDatasetShardId("replay-holdout"),
+            holdoutRatio = 0.34,
+            minTrainingPerClass = 2,
+            minHoldoutPerClass = 1,
+            limit = 8,
+            selectedExampleIds = freshIds,
+            replayExampleIds = replayIds
+        )
+
+        assertEquals(replayIds.toSet(), partition.replayExampleIds)
+        assertTrue(partition.trainingShard.exampleIds.containsAll(replayIds))
+        assertTrue(
+            partition.holdoutShard.exampleIds.toSet()
+                .intersect(replayIds.toSet())
+                .isEmpty()
+        )
+        assertEquals(freshIds.toSet(), partition.selectedExampleIds - partition.replayExampleIds)
+    }
+
     private fun fixture(prefix: String): Fixture {
         val memory = InMemoryMemoryOs()
         val foundation = MemoryBackedNativeModelFoundation(memory)

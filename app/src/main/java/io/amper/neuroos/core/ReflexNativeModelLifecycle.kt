@@ -39,6 +39,11 @@ class ReflexNativeModelLifecycle(
         foundation = runtime.nativeModelFoundation,
         artifacts = artifacts
     )
+    private val stabilityPlanner = ReflexContinualStabilityPlanner(
+        datasets = runtime.reflexExperienceDatasets,
+        foundation = runtime.nativeModelFoundation,
+        training = runtime.nativeTrainingPipeline
+    )
 
     @Volatile
     private var lastRejectedEvidenceTag: String? = null
@@ -152,7 +157,7 @@ class ReflexNativeModelLifecycle(
     ): ReflexNativeLifecycleReport {
         val consumed = consumedEvidenceIds(champion.checkpointId)
         val fresh = runtime.reflexExperienceDatasets
-            .recentExamples(MAX_SELECTED_EXAMPLES)
+            .recentExamples(MAX_FRESH_CONTINUAL_EXAMPLES)
             .filterNot { it.id in consumed }
         val actionExamples = fresh.count {
             it.targetDisposition == ReflexDecisionDisposition.PROPOSE_ACTION
@@ -179,9 +184,39 @@ class ReflexNativeModelLifecycle(
         }
 
         ensureFoundation()
+        val replay = stabilityPlanner.replayPlan(
+            championCheckpointId = champion.checkpointId,
+            maxExamples = MAX_REPLAY_EXAMPLES
+        )
+        val drift = ReflexContinualDriftAnalyzer.analyze(
+            fresh = fresh,
+            replay = replay
+        )
+        if (!drift.significant && fresh.size < MIN_LOW_DRIFT_RETRAIN_EXAMPLES) {
+            return ReflexNativeLifecycleReport(
+                stage = if (recovered) {
+                    ReflexNativeLifecycleStage.RECOVERED
+                } else {
+                    ReflexNativeLifecycleStage.WAITING_FOR_FRESH_EVIDENCE
+                },
+                checkpointId = champion.checkpointId,
+                actionExamples = actionExamples,
+                escalationExamples = escalationExamples,
+                detail =
+                    "champion active; fresh evidence is stable and below the batched retrain floor " +
+                        "$MIN_LOW_DRIFT_RETRAIN_EXAMPLES (capability_delta=" +
+                        drift.actionCapabilityDistributionDelta +
+                        ", escalation_delta=" + drift.escalationShareDelta + ")"
+            )
+        }
+
         val evidenceDigest = reflexLinearSha256(
-            champion.checkpointId.value + "|" +
-                fresh.map { it.id.value }.sorted().joinToString("|")
+            listOf(
+                "AMPER_REFLEX_CONTINUAL_V2",
+                champion.checkpointId.value,
+                fresh.map { it.id.value }.sorted().joinToString(","),
+                replay.exampleIds.map { it.value }.sorted().joinToString(",")
+            ).joinToString("|")
         )
         val tag = evidenceDigest.take(20)
         if (lastRejectedEvidenceTag == tag) {
@@ -198,6 +233,7 @@ class ReflexNativeModelLifecycle(
             tag = tag,
             parentCheckpointId = champion.checkpointId,
             selectedExampleIds = fresh.map { it.id },
+            replayExampleIds = replay.exampleIds,
             continual = true
         )
         val checkpoint = trainCheckpoint(
@@ -254,13 +290,47 @@ class ReflexNativeModelLifecycle(
             )
         }
 
+        val stabilityShard = stabilityPlanner.materializeStabilityHoldout(
+            championCheckpointId = champion.checkpointId,
+            shardId = NativeDatasetShardId("real-reflex-stability-$tag"),
+            maxExamples = MAX_STABILITY_EXAMPLES
+        )
+        val candidateStability = runtime.reflexDecisionEvaluation.score(
+            checkpointId = checkpoint.id,
+            holdoutShardId = stabilityShard.manifest.id,
+            evaluator = evaluator
+        )
+        val championStability = runtime.reflexDecisionEvaluation.score(
+            checkpointId = champion.checkpointId,
+            holdoutShardId = stabilityShard.manifest.id,
+            evaluator = evaluator
+        )
+        val stabilityComparison = runtime.nativeTrainingPipeline.compareAgainstEvaluations(
+            candidateCheckpointId = checkpoint.id,
+            baselineCheckpointId = champion.checkpointId,
+            candidateEvaluation = candidateStability,
+            baselineEvaluation = championStability
+        )
+        if (!stabilityComparison.noMaterialRegression) {
+            lastRejectedEvidenceTag = tag
+            return ReflexNativeLifecycleReport(
+                stage = ReflexNativeLifecycleStage.CHALLENGER_REJECTED,
+                checkpointId = champion.checkpointId,
+                actionExamples = actionExamples,
+                escalationExamples = escalationExamples,
+                detail = "anti-forgetting stability gate rejected challenger: " +
+                    stabilityComparison.reasons.joinToString("; ")
+            )
+        }
+
         val port = resolver.resolve(
             checkpointId = checkpoint.id,
             weightArtifactSha256 = checkpoint.weightArtifactSha256
         ).getOrThrow()
         val activation = runtime.reflexDecisionRuntime.replace(
             port = port,
-            promotion = promotion
+            promotion = promotion,
+            stabilityComparison = stabilityComparison
         ).getOrThrow()
         lastRejectedEvidenceTag = null
         return ReflexNativeLifecycleReport(
@@ -269,7 +339,8 @@ class ReflexNativeModelLifecycle(
             actionExamples = actionExamples,
             escalationExamples = escalationExamples,
             detail =
-                "fresh-evidence challenger improved the common holdout and replaced champion " +
+                "fresh challenger passed common-holdout + historical stability gates, replayed " +
+                    replay.exampleIds.size + " prior examples, and replaced champion " +
                     champion.checkpointId.value
         )
     }
@@ -307,6 +378,7 @@ class ReflexNativeModelLifecycle(
         tag: String,
         parentCheckpointId: NativeCheckpointId?,
         selectedExampleIds: List<ReflexExperienceExampleId>?,
+        replayExampleIds: List<ReflexExperienceExampleId> = emptyList(),
         continual: Boolean
     ): ReflexDecisionTrainingSpec {
         val prefix = if (continual) "real-reflex-continual" else "real-reflex"
@@ -345,7 +417,8 @@ class ReflexNativeModelLifecycle(
                 MIN_HOLDOUT_PER_CLASS
             },
             limit = MAX_SELECTED_EXAMPLES,
-            selectedExampleIds = selectedExampleIds
+            selectedExampleIds = selectedExampleIds,
+            replayExampleIds = replayExampleIds
         )
     }
 
@@ -452,6 +525,10 @@ class ReflexNativeModelLifecycle(
         const val MIN_CONTINUAL_ESCALATION_EXAMPLES = 24
         const val MIN_CONTINUAL_TRAINING_PER_CLASS = 8
         const val MIN_CONTINUAL_HOLDOUT_PER_CLASS = 16
+        const val MIN_LOW_DRIFT_RETRAIN_EXAMPLES = 96
+        const val MAX_FRESH_CONTINUAL_EXAMPLES = 160
+        const val MAX_REPLAY_EXAMPLES = 96
+        const val MAX_STABILITY_EXAMPLES = 96
         const val MAX_SELECTED_EXAMPLES = 256
         const val CONTINUAL_HOLDOUT_RATIO = 0.35
         const val CONTINUAL_LEARNING_RATE = 0.03
