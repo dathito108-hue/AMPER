@@ -63,12 +63,16 @@ import io.amper.neuroos.core.InferenceAttachmentKind
 import io.amper.neuroos.core.InferenceBackendRegistry
 import io.amper.neuroos.core.LiveContextFusion
 import io.amper.neuroos.core.LocatorArtifactResolver
+import io.amper.neuroos.core.LocatorMultimodalProjectorArtifactResolver
 import io.amper.neuroos.core.InstalledModelCapabilityService
 import io.amper.neuroos.core.InstalledModelDetachService
 import io.amper.neuroos.core.InstalledModelRegistryBootstrap
 import io.amper.neuroos.core.ModelCapabilityProfile
 import io.amper.neuroos.core.ModelId
 import io.amper.neuroos.core.NativeCheckpointRuntimePromotionService
+import io.amper.neuroos.core.NativeInstalledModelSelector
+import io.amper.neuroos.core.NativeModelPreferenceInferencePort
+import io.amper.neuroos.core.NativeMultimodalAdapterActivationService
 import io.amper.neuroos.core.LlamaNativeTextEngine
 import io.amper.neuroos.core.LlamaNativeTextInferenceBackend
 import io.amper.neuroos.core.MtmdNativeInferenceBackend
@@ -131,8 +135,21 @@ class MainActivity : ComponentActivity() {
                     projectorCatalog
                 )
             }
-            val projectorResolver = remember {
+            val contentProjectorArtifacts = remember {
                 ContentUriProjectorArtifactResolver(contentResolver)
+            }
+            val nativeModelArtifacts = remember {
+                AndroidAppPrivateModelArtifactResolver(
+                    File(sovereignDir, "native-models")
+                )
+            }
+            val projectorResolver = remember {
+                LocatorMultimodalProjectorArtifactResolver(
+                    listOf(
+                        { projector -> contentProjectorArtifacts.resolve(projector) },
+                        { projector -> nativeModelArtifacts.resolve(projector) }
+                    )
+                )
             }
             val importer = remember { AndroidModelImportService(this, catalog, modelRegistry) }
             val capabilityManager = remember { InstalledModelCapabilityService(catalog, modelRegistry) }
@@ -165,11 +182,6 @@ class MainActivity : ComponentActivity() {
             val contentModelArtifacts = remember {
                 ContentUriArtifactResolver(contentResolver)
             }
-            val nativeModelArtifacts = remember {
-                AndroidAppPrivateModelArtifactResolver(
-                    File(sovereignDir, "native-models")
-                )
-            }
             val modelArtifacts = remember {
                 LocatorArtifactResolver(
                     listOf(
@@ -190,13 +202,22 @@ class MainActivity : ComponentActivity() {
             val detachManager = remember {
                 InstalledModelDetachService(catalog, modelRegistry, titan::unload)
             }
-            remember {
+            val nativePromotion = remember {
                 NativeCheckpointRuntimePromotionService(
                     foundation = runtime.nativeModelFoundation,
                     training = runtime.nativeTrainingPipeline,
                     catalog = catalog,
                     registry = modelRegistry,
                     unloadRuntime = titan::unload
+                )
+            }
+            remember {
+                NativeMultimodalAdapterActivationService(
+                    foundation = runtime.nativeModelFoundation,
+                    promotion = nativePromotion,
+                    catalog = catalog,
+                    registry = modelRegistry,
+                    projectors = projectorCatalog
                 )
             }
             val modelRoutingPreferences = remember {
@@ -257,7 +278,12 @@ class MainActivity : ComponentActivity() {
             val actionLoop = remember { runtime.actionLoop(toolRegistry, toolFabric) }
             val inferencePort = remember {
                 PreferredModelInferencePort(
-                    delegate = TitanInferencePort(titan),
+                    delegate = NativeModelPreferenceInferencePort(
+                        delegate = TitanInferencePort(titan),
+                        preferredNativeModel = {
+                            NativeInstalledModelSelector.preferredModelId(catalog)
+                        }
+                    ),
                     initialPreferredModelId = initialPreferredModelId
                 )
             }
