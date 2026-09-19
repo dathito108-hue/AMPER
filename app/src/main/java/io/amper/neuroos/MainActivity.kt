@@ -87,6 +87,7 @@ import io.amper.neuroos.core.PersistentSovereignPlanCoordinator
 import io.amper.neuroos.core.PerceptionModality
 import io.amper.neuroos.core.PersistentGoalExecutiveResult
 import io.amper.neuroos.core.PlanAdvanceResult
+import io.amper.neuroos.core.PlanStepStatus
 import io.amper.neuroos.core.PreferredModelInferencePort
 import io.amper.neuroos.core.ProcessResidentAutonomyLoop
 import io.amper.neuroos.core.RuntimeSovereignStatusSource
@@ -334,12 +335,15 @@ class MainActivity : ComponentActivity() {
                     observation = activePerceptionPort
                 )
             }
+            val goalSatisfactionVerifier = remember {
+                planningCoordinator.goalSatisfactionVerifier()
+            }
             val autonomousPlanRunner = remember {
                 AutonomousGovernedPlanRunner(
                     planner = planner,
                     plans = runtime.plans,
                     goals = persistentGoalExecutive,
-                    completionVerifier = planningCoordinator.goalSatisfactionVerifier()
+                    completionVerifier = goalSatisfactionVerifier
                 )
             }
             val autonomousGoalScheduler = remember {
@@ -2140,7 +2144,29 @@ class MainActivity : ComponentActivity() {
                                             persistentGoalExecutive.current()?.plannedPlanId ==
                                             advance.plan.id
                                         ) {
-                                            persistentGoalExecutive.resolveTerminalPlan(advance.plan.id)
+                                            if (
+                                                advance.plan.steps.all {
+                                                    it.status == PlanStepStatus.EXECUTED
+                                                }
+                                            ) {
+                                                val checkpoint =
+                                                    requireNotNull(
+                                                        persistentGoalExecutive.current()
+                                                    )
+                                                goalSatisfactionVerifier
+                                                    .verify(checkpoint, advance.plan)
+                                                    .mapCatching { assessment ->
+                                                        persistentGoalExecutive
+                                                            .resolveVerifiedSuccess(
+                                                                planId = advance.plan.id,
+                                                                assessment = assessment
+                                                            )
+                                                            .getOrThrow()
+                                                    }
+                                            } else {
+                                                persistentGoalExecutive
+                                                    .resolveTerminalPlan(advance.plan.id)
+                                            }
                                         } else {
                                             null
                                         }
