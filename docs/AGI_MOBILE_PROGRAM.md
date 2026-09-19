@@ -401,6 +401,21 @@ completion tombstone. Phase315 bounds the portfolio to 32 pending objectives plu
 tombstones, preserving mobile memory discipline while retaining long-horizon continuity. The
 portfolio changes orchestration state only; it grants no tool, device, model or side-effect authority.
 
+
+### Implemented checkpoint — Phase316-320
+Phase316 extends each durable pending goal with at most eight prerequisite goal IDs and an optional
+absolute deadline while keeping those fields orchestration-only. Phase317 validates dependency
+updates against the current portfolio and rejects self-links, unknown prerequisites and dependency
+cycles before persistence. Phase318 adds deterministic deadline urgency over a bounded 24-hour
+horizon; overdue goals receive maximum urgency, while goals beyond the horizon receive none.
+Arbitration combines 75% durable priority with 25% deadline urgency, but dependency completion is a
+hard prerequisite and can never be bypassed by urgency. Phase319 makes PersistentGoalExecutive select
+only runnable portfolio goals using this arbitration, so a high-priority dependent waits while its
+prerequisite remains pending. Phase320 upgrades the durable portfolio codec to V2 while retaining V1
+decoding; dependency/deadline metadata therefore survives restart without breaking existing
+installations. Missing/pruned prerequisites conservatively block a dependent goal rather than
+assuming completion. Goal arbitration grants no execution, approval, device or model authority.
+
 ## CI budget policy
 
 GitHub Actions is a scarce verification resource.
