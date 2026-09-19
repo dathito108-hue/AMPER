@@ -139,9 +139,30 @@ sealed interface CognitiveExecutiveCycleResult {
     data class ObservationRequired(
         override val directive: CognitiveExecutiveDirective,
         val staleRelevantModalities: Set<PerceptionModality>,
-        val unresolvedBeliefCount: Int
+        val unresolvedBeliefCount: Int,
+        val acquiredPerceptId: String? = null,
+        val acquiredModality: PerceptionModality? = null,
+        val acquisitionFailureCode: String? = null
     ) : CognitiveExecutiveCycleResult {
-        init { require(unresolvedBeliefCount >= 0) }
+        init {
+            require(unresolvedBeliefCount >= 0)
+            require((acquiredPerceptId == null) == (acquiredModality == null)) {
+                "active observation requires both percept id and modality or neither"
+            }
+            require(acquisitionFailureCode == null || acquisitionFailureCode.matches(FAILURE_CODE)) {
+                "invalid active observation failure code"
+            }
+            require(acquiredPerceptId == null || acquisitionFailureCode == null) {
+                "active observation cannot be both acquired and failed"
+            }
+        }
+
+        val refreshed: Boolean
+            get() = acquiredPerceptId != null
+
+        companion object {
+            private val FAILURE_CODE = Regex("[A-Z0-9_:-]{1,128}")
+        }
     }
 
     data class Evolved(
@@ -213,8 +234,12 @@ class BoundedAutonomousEvolutionExecutivePort(
  * Phase278 can perform bounded zero-tool practice and then recapture cognition.
  * Phase279 can escalate evidence-backed execution weakness into exactly one existing governed
  * autonomous-evolution cycle through an injected port.
- * Phase280 permits a short recapture loop only across successful practice cycles; PLAN, OBSERVE and
- * EVOLVE are terminal for the call. The executive itself has no ToolFabric/AuthorityGate handle.
+ * Phase280 permits a short recapture loop across successful practice cycles.
+ *
+ * Phase291-295 optionally closes OBSERVE through one bounded active-perception request. A successful
+ * fresh percept is published into the canonical PerceptionBus and allows one recapture iteration;
+ * unavailable acquisition remains terminal OBSERVE. PLAN and EVOLVE remain terminal for the call.
+ * The executive itself has no ToolFabric/AuthorityGate handle.
  */
 class AutonomousCognitiveExecutive(
     private val stateSource: IntegratedCognitiveStateSource,
@@ -222,7 +247,9 @@ class AutonomousCognitiveExecutive(
     private val descriptors: () -> List<ToolDescriptor>,
     private val createPlan: (ConversationId, String) -> Result<SovereignPlan>,
     private val practiceOne: () -> Result<AutonomousLearningCycleResult>,
-    private val evolution: CognitiveExecutiveEvolutionPort? = null
+    private val evolution: CognitiveExecutiveEvolutionPort? = null,
+    private val observation: CognitiveExecutiveObservationPort? = null,
+    private val perceptionBus: PerceptionBus? = null
 ) {
     init {
         require(allowedCapabilities.isNotEmpty())
@@ -257,19 +284,50 @@ class AutonomousCognitiveExecutive(
                 directive = directive,
                 cycle = practiceOne().getOrThrow()
             )
-            CognitiveExecutiveAction.OBSERVE -> CognitiveExecutiveCycleResult.ObservationRequired(
-                directive = directive,
-                staleRelevantModalities = state.perceptualEvidence
+            CognitiveExecutiveAction.OBSERVE -> {
+                val staleRelevantModalities = state.perceptualEvidence
                     .filter {
                         !it.planningEligible &&
                             it.queryRelevance >=
                             AutonomousCognitiveExecutivePolicy.RELEVANT_PERCEPT_THRESHOLD
                     }
-                    .mapTo(linkedSetOf()) { it.modality },
-                unresolvedBeliefCount = state.context.epistemicBeliefs.count {
+                    .map { it.modality }
+                    .distinct()
+                    .sortedBy { it.name }
+                val unresolvedBeliefCount = state.context.epistemicBeliefs.count {
                     !it.planningEligible
                 }
-            )
+                val acquisition = observation?.acquire(
+                    CognitiveExecutiveObservationRequest(
+                        query = userGoal.take(CognitiveExecutiveObservationRequest.MAX_QUERY_CHARS),
+                        preferredModalities = staleRelevantModalities,
+                        cognitiveStateDigest = directive.cognitiveStateDigest,
+                        executionContextDigest = directive.executionContextDigest,
+                        unresolvedBeliefCount = unresolvedBeliefCount
+                    )
+                )
+                val percept = acquisition?.getOrNull()
+                if (percept != null) {
+                    require(staleRelevantModalities.isEmpty() || percept.modality in staleRelevantModalities) {
+                        "active observation returned an unrequested modality"
+                    }
+                    if (observation?.publishesToPerceptionBus != true) {
+                        requireNotNull(perceptionBus) {
+                            "active observation requires a perception bus when the port does not publish"
+                        }.ingest(percept)
+                    }
+                }
+                CognitiveExecutiveCycleResult.ObservationRequired(
+                    directive = directive,
+                    staleRelevantModalities = staleRelevantModalities.toCollection(linkedSetOf()),
+                    unresolvedBeliefCount = unresolvedBeliefCount,
+                    acquiredPerceptId = percept?.id,
+                    acquiredModality = percept?.modality,
+                    acquisitionFailureCode = acquisition
+                        ?.exceptionOrNull()
+                        ?.let(::sanitizeObservationFailure)
+                )
+            }
             CognitiveExecutiveAction.EVOLVE -> CognitiveExecutiveCycleResult.Evolved(
                 directive = directive,
                 run = requireNotNull(evolution) {
@@ -295,7 +353,11 @@ class AutonomousCognitiveExecutive(
                 cycle is CognitiveExecutiveCycleResult.Practiced &&
                     cycle.cycle is AutonomousLearningCycleResult.Assessed &&
                     cycles.size < maxCycles
-            if (!continueAfterPractice) {
+            val continueAfterObservation =
+                cycle is CognitiveExecutiveCycleResult.ObservationRequired &&
+                    cycle.refreshed &&
+                    cycles.size < maxCycles
+            if (!continueAfterPractice && !continueAfterObservation) {
                 return@runCatching CognitiveExecutiveRunResult(cycles)
             }
         }
