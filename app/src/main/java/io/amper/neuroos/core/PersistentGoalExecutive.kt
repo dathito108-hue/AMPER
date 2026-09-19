@@ -208,8 +208,11 @@ class PersistentGoalExecutiveCoordinator(
         require(current.plannedPlanId == planId) {
             "completed plan does not match persistent goal handoff"
         }
-        requireNotNull(plans.load(planId)) {
+        val completedPlan = requireNotNull(plans.load(planId)) {
             "completed persistent goal plan is unavailable from plan store"
+        }
+        require(completedPlan.steps.all { it.status == PlanStepStatus.EXECUTED }) {
+            "persistent goal plan has not completed successfully"
         }
 
         store.save(
