@@ -6,10 +6,15 @@ enum class NativeMultimodalAdapterStatus {
 }
 
 data class NativeMultimodalAdapterEvaluation(
+    val checkpointId: NativeCheckpointId,
+    val projectorSha256: String,
+    val evaluatedKinds: Set<InferenceAttachmentKind>,
     val passRate: Double,
     val samples: Int
 ) {
     init {
+        require(projectorSha256.matches(Regex("[0-9a-f]{64}")))
+        require(evaluatedKinds.isNotEmpty())
         require(passRate in 0.0..1.0)
         require(samples >= 0)
     }
@@ -111,11 +116,17 @@ class NativeMultimodalAdapterActivationService(
         kinds: Set<InferenceAttachmentKind>,
         evaluation: NativeMultimodalAdapterEvaluation
     ): Result<NativeMultimodalAdapterActivation> = runCatching {
-        require(evaluation.admitted) {
-            "native multimodal adapter evaluation is below admission gate"
-        }
         require(source is DescriptorBoundNativeModelPathSource) {
             "native multimodal adapter requires a descriptor-bound projector source"
+        }
+        require(evaluation.checkpointId == checkpointId) {
+            "native multimodal adapter evaluation checkpoint mismatch"
+        }
+        require(evaluation.evaluatedKinds == kinds) {
+            "native multimodal adapter evaluation kinds mismatch"
+        }
+        require(evaluation.admitted) {
+            "native multimodal adapter evaluation is below admission gate"
         }
 
         val checkpoint = requireNotNull(foundation.getCheckpoint(checkpointId)) {
@@ -147,6 +158,9 @@ class NativeMultimodalAdapterActivationService(
         }
 
         val inspection = inspector.inspect(source).getOrThrow()
+        require(inspection.sha256 == evaluation.projectorSha256) {
+            "native multimodal adapter evaluation projector digest mismatch"
+        }
         val projector = InstalledMultimodalProjector(
             modelId = modelId,
             displayName = inspection.displayName,
@@ -161,7 +175,9 @@ class NativeMultimodalAdapterActivationService(
         )
         val updated = current.copy(
             descriptor = current.descriptor.copy(
-                capabilities = current.descriptor.capabilities + capabilities
+                capabilities =
+                    NativeRuntimeCapabilityAdmission.baseCapabilities(contract.capabilities) +
+                        capabilities
             )
         )
         require(updated.descriptor.capabilities.all { it in contract.capabilities }) {
