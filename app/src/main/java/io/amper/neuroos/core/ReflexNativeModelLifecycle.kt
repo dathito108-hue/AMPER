@@ -124,13 +124,21 @@ class ReflexNativeModelLifecycle(
                     initialCost.learningValuePerSecondEwma
             )
         )
-        if (!initialResource.allowTraining) {
+        if (
+            !initialResource.allowTraining ||
+            initialResource.maxFreshExamples <
+                MIN_TOTAL_ACTION_EXAMPLES + MIN_TOTAL_ESCALATION_EXAMPLES
+        ) {
             return ReflexNativeLifecycleReport(
                 stage = ReflexNativeLifecycleStage.RESOURCE_DEFERRED,
                 checkpointId = null,
                 actionExamples = actionExamples,
                 escalationExamples = escalationExamples,
-                detail = initialResource.reason
+                detail = if (!initialResource.allowTraining) {
+                    initialResource.reason
+                } else {
+                    "initial champion deferred because resource budget cannot preserve class floors"
+                }
             )
         }
         val initialSelected = balancedInitialSelection(
