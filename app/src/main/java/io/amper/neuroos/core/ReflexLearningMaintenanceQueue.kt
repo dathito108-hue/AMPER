@@ -295,10 +295,12 @@ class ReflexBackgroundMaintenanceCoordinator(
 
             else -> false
         }
+        val maintenanceFailed =
+            report.stage == ReflexNativeLifecycleStage.TRAINING_FAILED
         telemetry.observeMaintenanceAttempt(
             queueWaitMs = (now - ticket.firstQueuedAtEpochMs).coerceAtLeast(0L),
-            completed = completed,
-            failed = false,
+            completed = completed && !maintenanceFailed,
+            failed = maintenanceFailed,
             observedAtEpochMs = now
         )
         ReflexBackgroundMaintenanceResult(
