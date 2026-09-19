@@ -112,6 +112,26 @@ class PersistentGoalExecutiveTest {
         assertTrue(duplicateAttempt is PersistentGoalExecutiveResult.Deferred)
         assertEquals(1, planCalls)
 
+        val storedPlan = requireNotNull(runtime.plans.load(planId))
+        val storedStep = storedPlan.steps.single()
+        val executedOutcome = ActionOutcome(
+            status = ActionStatus.EXECUTED,
+            proposal = storedStep.proposal(),
+            toolId = storedStep.boundToolId,
+            output = "phase285-complete",
+            sideEffect = storedStep.boundSideEffect
+        )
+        runtime.plans.save(
+            storedPlan.copy(
+                steps = listOf(
+                    storedStep.copy(
+                        status = PlanStepStatus.EXECUTED,
+                        outcome = executedOutcome
+                    )
+                )
+            )
+        )
+
         val completed = coordinator.completePlanned(planId).getOrThrow()
         assertEquals(PersistentGoalExecutiveStage.COMPLETED, completed.stage)
 
