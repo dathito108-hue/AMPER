@@ -16,7 +16,17 @@ class SovereignAssistantToolExposureTest {
                 SovereignNoteDeleteToolContract.capability,
                 AndroidSettingsOpenToolContract.capability,
                 AndroidTimerPrepareToolContract.capability,
-                AndroidShareTextToolContract.capability
+                AndroidShareTextToolContract.capability,
+                AndroidAppLaunchToolContract.capability,
+                AndroidWebSearchToolContract.capability,
+                AndroidClipboardWriteToolContract.capability,
+                AndroidFilesBrowseToolContract.capability,
+                AndroidContactComposeToolContract.capability,
+                AndroidCalendarComposeToolContract.capability,
+                AndroidAlarmPrepareToolContract.capability,
+                AndroidMediaOpenToolContract.capability,
+                AndroidNotificationSettingsToolContract.capability,
+                AndroidHomeOpenToolContract.capability
             ),
             SovereignAssistantToolExposure.capabilities
         )

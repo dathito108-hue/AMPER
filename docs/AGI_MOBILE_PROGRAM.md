@@ -974,3 +974,31 @@ checkpoint; successful assistant/approved-action turns opportunistically run bou
 the UI thread. Once a learned checkpoint is active, maintenance stops retraining it. The learned model
 still predicts only routing/capability; CanonicalReflexActionArgumentBinder, ToolDescriptor,
 SovereignActionLoop, AuthorityGate and explicit approval remain unchanged.
+
+
+### Completion checkpoint — Phase481-485
+Phase481-485 expands the existing governed ToolRegistry into a concrete Universal Mobile Action Fabric
+without adding a generic "execute anything" escape hatch. AMPER now exposes typed Android capabilities
+for exact-package app launch, web search, clipboard write, document browsing, contact composition,
+calendar event composition, alarm preparation, http/https media opening, AMPER notification settings,
+and home-screen navigation. Existing android.settings.open remains the canonical path for display and
+accessibility settings, so this phase does not duplicate those device-action surfaces.
+
+Each capability has a bounded ToolInputContract and a dedicated AndroidUniversalActionLauncher method.
+App/contact/calendar/alarm/files/media/notification/home operations are EXTERNAL and therefore always
+stop at REQUIRES_CONFIRMATION before platform launch. Clipboard mutation is LOCAL_STATE and also requires
+explicit approval. Contact and calendar providers open user-visible compose UIs and never claim the
+record was saved; alarms keep EXTRA_SKIP_UI=false; file browsing never claims a document was selected;
+notification settings never claim a setting changed. Media input is restricted to http/https and app
+launch accepts only an exact Android package identifier.
+
+Phase483 wires every new provider into the production Android host and the same
+SovereignAssistantToolExposure set used by both model advertisement and DenyByDefaultAuthorityGate.
+The action manifest bound increases from 16 to 32 descriptors, matching the existing learned Reflex
+maximum capability surface while remaining bounded. Phase484 adds regression tests for explicit
+approval, exact provider binding, malformed-input rejection, side-effect classification and full
+manifest exposure. Phase485 preserves the existing canonical execution chain:
+typed contract -> live descriptor -> SovereignActionLoop -> bound AuditedToolFabric -> AuthorityGate ->
+platform launcher -> recorded ActionOutcome. Assistant side effects continue through
+DurableAssistantActionExecutor and the existing PlanExecutionReceipt ledger, while governed plans keep
+their existing receipt path. No new authority, approval, receipt, or recovery path is introduced.

@@ -120,7 +120,7 @@ object TitanActionProtocol {
             .asSequence()
             .filter { it.capability.value in allowed }
             .sortedBy { it.capability.value }
-            .take(16)
+            .take(32)
             .forEach { descriptor ->
                 val contract = descriptor.inputContract
                 val values = contract.acceptedValues

@@ -36,6 +36,16 @@ import io.amper.neuroos.core.InferenceCancellationSignal
 import io.amper.neuroos.core.InferenceCancelledException
 import io.amper.neuroos.core.InferenceRequest
 import io.amper.neuroos.core.AndroidContextDeviceActionLauncher
+import io.amper.neuroos.core.AndroidAlarmPrepareToolProvider
+import io.amper.neuroos.core.AndroidAppLaunchToolProvider
+import io.amper.neuroos.core.AndroidCalendarComposeToolProvider
+import io.amper.neuroos.core.AndroidClipboardWriteToolProvider
+import io.amper.neuroos.core.AndroidContactComposeToolProvider
+import io.amper.neuroos.core.AndroidFilesBrowseToolProvider
+import io.amper.neuroos.core.AndroidHomeOpenToolProvider
+import io.amper.neuroos.core.AndroidMediaOpenToolProvider
+import io.amper.neuroos.core.AndroidNotificationSettingsToolProvider
+import io.amper.neuroos.core.AndroidWebSearchToolProvider
 import io.amper.neuroos.core.AndroidDeviceStatusSource
 import io.amper.neuroos.core.AndroidInferenceAttachmentLoader
 import io.amper.neuroos.core.AndroidCameraVisionAttachmentEncoder
@@ -298,6 +308,36 @@ class MainActivity : ComponentActivity() {
                     )
                     registry.register(
                         AndroidShareTextToolProvider(androidActionLauncher)
+                    )
+                    registry.register(
+                        AndroidAppLaunchToolProvider(androidActionLauncher)
+                    )
+                    registry.register(
+                        AndroidWebSearchToolProvider(androidActionLauncher)
+                    )
+                    registry.register(
+                        AndroidClipboardWriteToolProvider(androidActionLauncher)
+                    )
+                    registry.register(
+                        AndroidFilesBrowseToolProvider(androidActionLauncher)
+                    )
+                    registry.register(
+                        AndroidContactComposeToolProvider(androidActionLauncher)
+                    )
+                    registry.register(
+                        AndroidCalendarComposeToolProvider(androidActionLauncher)
+                    )
+                    registry.register(
+                        AndroidAlarmPrepareToolProvider(androidActionLauncher)
+                    )
+                    registry.register(
+                        AndroidMediaOpenToolProvider(androidActionLauncher)
+                    )
+                    registry.register(
+                        AndroidNotificationSettingsToolProvider(androidActionLauncher)
+                    )
+                    registry.register(
+                        AndroidHomeOpenToolProvider(androidActionLauncher)
                     )
                 }
             }
