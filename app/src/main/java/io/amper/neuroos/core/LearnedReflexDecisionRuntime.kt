@@ -61,6 +61,13 @@ fun interface ReflexDecisionRuntimeReplacementGate {
         baselineCheckpointId: NativeCheckpointId,
         promotion: NativeModelPromotionCandidate
     ): Result<Unit> = validate(candidate, baselineCheckpointId)
+
+    fun validate(
+        candidate: NativeReflexDecisionPort,
+        baselineCheckpointId: NativeCheckpointId,
+        promotion: NativeModelPromotionCandidate,
+        stabilityComparison: NativeCheckpointComparison?
+    ): Result<Unit> = validate(candidate, baselineCheckpointId, promotion)
 }
 
 object RejectingReflexDecisionRuntimeReplacementGate : ReflexDecisionRuntimeReplacementGate {
@@ -117,6 +124,37 @@ class CanonicalReflexDecisionRuntimeReplacementGate(
         }
         require(verified.comparison == promotion.comparison) {
             "Reflex promotion proof does not match canonical comparison"
+        }
+    }
+
+    override fun validate(
+        candidate: NativeReflexDecisionPort,
+        baselineCheckpointId: NativeCheckpointId,
+        promotion: NativeModelPromotionCandidate,
+        stabilityComparison: NativeCheckpointComparison?
+    ): Result<Unit> = runCatching {
+        validate(candidate, baselineCheckpointId, promotion).getOrThrow()
+        stabilityComparison ?: return@runCatching
+        require(stabilityComparison.candidateCheckpointId == candidate.checkpointId) {
+            "Reflex stability proof checkpoint does not match candidate"
+        }
+        require(stabilityComparison.baselineCheckpointId == baselineCheckpointId) {
+            "Reflex stability proof baseline does not match active champion"
+        }
+        val baselineEvaluation = requireNotNull(stabilityComparison.baselineEvaluation) {
+            "Reflex stability proof has no baseline evaluation"
+        }
+        val verified = training.compareAgainstEvaluations(
+            candidateCheckpointId = candidate.checkpointId,
+            baselineCheckpointId = baselineCheckpointId,
+            candidateEvaluation = stabilityComparison.candidateEvaluation,
+            baselineEvaluation = baselineEvaluation
+        )
+        require(verified == stabilityComparison) {
+            "Reflex stability proof does not match canonical comparison"
+        }
+        require(verified.noMaterialRegression) {
+            "Reflex challenger regresses on historical stability evidence"
         }
     }
 }
@@ -266,7 +304,8 @@ interface ReflexDecisionRuntimeController : ReflexDecisionCortex {
 
     fun replace(
         port: NativeReflexDecisionPort,
-        promotion: NativeModelPromotionCandidate
+        promotion: NativeModelPromotionCandidate,
+        stabilityComparison: NativeCheckpointComparison? = null
     ): Result<ReflexDecisionRuntimeActivation> =
         Result.failure(
             IllegalStateException("verified Reflex runtime replacement is unavailable")
@@ -352,7 +391,8 @@ class CanonicalReflexDecisionRuntimeController(
     @Synchronized
     override fun replace(
         port: NativeReflexDecisionPort,
-        promotion: NativeModelPromotionCandidate
+        promotion: NativeModelPromotionCandidate,
+        stabilityComparison: NativeCheckpointComparison?
     ): Result<ReflexDecisionRuntimeActivation> = runCatching {
         val currentActivation = requireNotNull(activation) {
             "verified Reflex replacement requires an active champion"
@@ -363,7 +403,8 @@ class CanonicalReflexDecisionRuntimeController(
         replacementGate.validate(
             candidate = port,
             baselineCheckpointId = currentActivation.checkpointId,
-            promotion = promotion
+            promotion = promotion,
+            stabilityComparison = stabilityComparison
         ).getOrThrow()
         activateValidated(
             port = port,
