@@ -471,7 +471,6 @@ private object EvolutionTournamentCodec {
         "id=" + enc(suite.id.value),
         "created=" + suite.createdAtEpochMs,
         "metrics=" + suite.metrics
-            .sortedBy { it.id.value }
             .joinToString(",") { metric ->
                 listOf(
                     enc(metric.id.value),
