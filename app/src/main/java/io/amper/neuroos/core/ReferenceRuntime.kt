@@ -432,7 +432,8 @@ class AmperRuntime private constructor(
                     training = nativeTrainingPipeline
                 ),
                 activationStore = reflexDecisionActivationStore,
-                calibration = reflexRuntimeCalibration
+                calibration = reflexRuntimeCalibration,
+                resourcePolicy = ResourceGovernorReflexRuntimeResourcePolicy(governor)
             )
             val reflexDecisionCortex: ReflexDecisionCortex = reflexDecisionRuntime
             val selfModel = CanonicalSelfModel()
