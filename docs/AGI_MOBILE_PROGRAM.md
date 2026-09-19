@@ -1294,3 +1294,39 @@ Tests cover persistent constrained job planning and lifecycle-to-scheduler recon
 has no tool authority and cannot weaken fresh holdout admission, champion comparison, historical
 anti-forgetting stability, verified replacement, ToolDescriptor binding, AuthorityGate, explicit
 approval or durable execution receipts.
+
+
+### Completion checkpoint — Phase531-535
+Phase531 adds durable, device-local telemetry for the Reflex learning scheduler. AMPER records READY,
+LIMITED and DEFERRED resource decisions, high-value deferrals, maintenance attempts/completions/failures,
+queue-wait EWMA, battery/thermal observations and categorized defer causes. The snapshot lives in
+sovereign MemoryOs and contains scheduling metadata only; no raw user text, tool arguments or new
+execution authority is introduced.
+
+Phase532 derives a conservative self-tuning profile from accumulated device telemetry. The profile
+has four bounded controls: training-budget scale, predicted-duration scale, minimum learning-value
+boost and retry-delay multiplier. Tuning activates only after enough observations and can never make
+the scheduler more permissive than the canonical Phase511-520 policy: budgets/duration limits may
+shrink, learning-value requirements may rise and retry delay may increase, but critical battery,
+thermal, RAM and storage gates cannot be relaxed.
+
+Phase533 feeds that durable profile into ResourceGovernorReflexLearningResourcePolicy. Healthy devices
+retain the canonical 96/96 ceiling. Devices with repeated thermal/memory pressure or maintenance
+failures progressively reduce fresh/replay budgets and tighten duration/value thresholds while still
+respecting the hard 48-fresh/16-replay minimums required by the governed training path. Every final
+resource decision is written back into telemetry, closing the scheduler-observation loop across
+process restarts.
+
+Phase534 feeds background-maintenance outcomes back into the same model. Queue wait time, successful
+terminal maintenance, training failures and execution errors become durable scheduler evidence.
+Exponential maintenance backoff is multiplied by the conservative tuning profile, so a device that
+repeatedly struggles with background learning automatically spaces retries farther apart instead of
+thrashing battery/thermal resources. Android UI and JobService coordinators both use the same
+encrypted telemetry model.
+
+Phase535 adds regression coverage for telemetry persistence, pressure classification, bounded profile
+generation, self-tuned budget reduction, preservation of the severe thermal fail-closed gate and
+background-maintenance feedback. The self-tuner remains scheduling-only: it cannot change labels,
+training targets, model authority, held-out admission, common-holdout comparison, historical
+anti-forgetting stability, verified replacement, ToolDescriptor binding, AuthorityGate, explicit
+approval or durable execution receipts.
