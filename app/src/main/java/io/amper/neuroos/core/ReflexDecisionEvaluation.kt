@@ -166,6 +166,13 @@ object ReflexDecisionHeldoutScorer {
 }
 
 interface ReflexDecisionEvaluationCoordinator {
+    fun score(
+        checkpointId: NativeCheckpointId,
+        holdoutShardId: NativeDatasetShardId,
+        evaluator: ReflexDecisionEvaluatorPort
+    ): NativeCheckpointEvaluation =
+        error("ephemeral Reflex evaluation is unavailable")
+
     fun evaluate(
         checkpointId: NativeCheckpointId,
         holdoutShardId: NativeDatasetShardId,
@@ -185,11 +192,11 @@ class CanonicalReflexDecisionEvaluationCoordinator(
     private val foundation: NativeModelFoundation,
     private val training: NativeTrainingPipeline
 ) : ReflexDecisionEvaluationCoordinator {
-    override fun evaluate(
+    override fun score(
         checkpointId: NativeCheckpointId,
         holdoutShardId: NativeDatasetShardId,
         evaluator: ReflexDecisionEvaluatorPort
-    ): NativeCheckpointEvaluationRecord {
+    ): NativeCheckpointEvaluation {
         val checkpoint = requireNotNull(foundation.getCheckpoint(checkpointId)) {
             "reflex evaluation checkpoint is unavailable"
         }
@@ -230,19 +237,31 @@ class CanonicalReflexDecisionEvaluationCoordinator(
             examples = examples,
             predictions = predictions
         )
-        return training.recordEvaluation(
-            checkpointId = checkpointId,
-            evaluation = NativeCheckpointEvaluation(
-                planningProtocolPassRate = 0.0,
-                toolContractPassRate = 0.0,
-                regressionPassRate = 0.0,
-                heldoutGeneralizationPassRate = 0.0,
-                planningSamples = 0,
-                toolContractSamples = 0,
-                regressionSamples = 0,
-                heldoutGeneralizationSamples = 0,
-                reflexDecision = metrics
-            )
+        return NativeCheckpointEvaluation(
+            planningProtocolPassRate = 0.0,
+            toolContractPassRate = 0.0,
+            regressionPassRate = 0.0,
+            heldoutGeneralizationPassRate = 0.0,
+            planningSamples = 0,
+            toolContractSamples = 0,
+            regressionSamples = 0,
+            heldoutGeneralizationSamples = 0,
+            reflexDecision = metrics
         )
     }
+
+    override fun evaluate(
+        checkpointId: NativeCheckpointId,
+        holdoutShardId: NativeDatasetShardId,
+        evaluator: ReflexDecisionEvaluatorPort
+    ): NativeCheckpointEvaluationRecord =
+        training.recordEvaluation(
+            checkpointId = checkpointId,
+            evaluation = score(
+                checkpointId = checkpointId,
+                holdoutShardId = holdoutShardId,
+                evaluator = evaluator
+            )
+        )
+
 }
