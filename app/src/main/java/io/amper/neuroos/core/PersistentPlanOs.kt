@@ -86,6 +86,7 @@ class PersistentSovereignPlanCoordinator(
                     store.save(result.plan)
                 }
                 is PlanAdvanceResult.PendingApproval -> store.save(result.plan)
+                is PlanAdvanceResult.ContextChanged -> store.save(result.plan)
                 is PlanAdvanceResult.Complete -> {
                     receipts?.verifyCompletedPrefix(result.plan)?.getOrThrow()
                     store.save(result.plan)
@@ -99,9 +100,16 @@ class PersistentSovereignPlanCoordinator(
         receipts?.verifyCompletedPrefix(plan)?.exceptionOrNull()?.let { return Result.failure(it) }
         recoveryInterlock.requireApprovalAllowed().exceptionOrNull()?.let { return Result.failure(it) }
 
-        val bindingResult = recoveryGuard?.approvalBinding(plan, stepIndex)
-            ?: delegate.approvalBinding(plan, stepIndex)
-        val binding = bindingResult.getOrElse { return Result.failure(it) }
+        val delegateBinding = delegate.approvalBinding(plan, stepIndex)
+            .getOrElse { return Result.failure(it) }
+        val persistentBinding = recoveryGuard?.approvalBinding(plan, stepIndex)
+            ?.getOrElse { return Result.failure(it) }
+        if (persistentBinding != null && persistentBinding != delegateBinding) {
+            return Result.failure(
+                IllegalStateException("approval binding drifted between continuity and persistence guards")
+            )
+        }
+        val binding = persistentBinding ?: delegateBinding
         val step = plan.steps.single { it.index == stepIndex }
 
         receipts?.claimSideEffect(plan, step)?.exceptionOrNull()?.let { return Result.failure(it) }
@@ -195,7 +203,8 @@ internal object SovereignPlanCodec {
     private const val VERSION_V2 = "AMPER_PLAN_STATE_V2"
     private const val VERSION_V3 = "AMPER_PLAN_STATE_V3"
     private const val VERSION_V4 = "AMPER_PLAN_STATE_V4"
-    private const val VERSION = "AMPER_PLAN_STATE_V5"
+    private const val VERSION_V5 = "AMPER_PLAN_STATE_V5"
+    private const val VERSION = "AMPER_PLAN_STATE_V6"
 
     fun encode(plan: SovereignPlan): String {
         val extendedPlanningState =
@@ -205,9 +214,21 @@ internal object SovereignPlanCodec {
                 plan.deliberationScore != null ||
                 plan.counterfactualViability != null ||
                 plan.counterfactualConfidence != null
+        val continuityBinding =
+            plan.planningCognitiveStateDigest != null ||
+                plan.planningExecutionContextDigest != null
+        require(
+            (plan.planningCognitiveStateDigest == null) ==
+                (plan.planningExecutionContextDigest == null)
+        ) { "persisted cognitive continuity binding requires both digests" }
+        val version = when {
+            continuityBinding -> VERSION
+            extendedPlanningState -> VERSION_V5
+            else -> VERSION_V4
+        }
 
         return buildString {
-        appendLine(if (extendedPlanningState) VERSION else VERSION_V4)
+        appendLine(version)
         appendLine("ID\t${enc(plan.id.value)}")
         appendLine("CONVERSATION\t${enc(plan.conversationId.value)}")
         appendLine("GOAL\t${enc(plan.goal)}")
@@ -222,13 +243,17 @@ internal object SovereignPlanCodec {
                     .ifBlank { "~" }
             }"
         )
-        if (extendedPlanningState) {
+        if (extendedPlanningState || continuityBinding) {
             appendLine("PARENT_PLAN\t${plan.parentPlanId?.value?.let(::enc) ?: "~"}")
             appendLine("RECOVERY_DEPTH\t${plan.recoveryDepth}")
             appendLine("DELIBERATION_COUNT\t${plan.deliberationCandidateCount}")
             appendLine("DELIBERATION_SCORE\t${plan.deliberationScore?.toString() ?: "~"}")
             appendLine("COUNTERFACTUAL_VIABILITY\t${plan.counterfactualViability?.toString() ?: "~"}")
             appendLine("COUNTERFACTUAL_CONFIDENCE\t${plan.counterfactualConfidence?.toString() ?: "~"}")
+        }
+        if (continuityBinding) {
+            appendLine("COGNITIVE_STATE_DIGEST\t${requireNotNull(plan.planningCognitiveStateDigest)}")
+            appendLine("EXECUTION_CONTEXT_DIGEST\t${requireNotNull(plan.planningExecutionContextDigest)}")
         }
         plan.steps.forEach { step ->
             val outcome = step.outcome
@@ -252,6 +277,7 @@ internal object SovereignPlanCodec {
         val version = lines.firstOrNull()
         require(
             version == VERSION ||
+                version == VERSION_V5 ||
                 version == VERSION_V4 ||
                 version == VERSION_V3 ||
                 version == VERSION_V2 ||
@@ -260,9 +286,11 @@ internal object SovereignPlanCodec {
             "unsupported sovereign plan state"
         }
         val typedSideEffect = version != VERSION_V1
-        val routeProvenance = version == VERSION || version == VERSION_V4 || version == VERSION_V3
-        val planBinding = version == VERSION || version == VERSION_V4
-        val extendedPlanningState = version == VERSION
+        val routeProvenance =
+            version == VERSION || version == VERSION_V5 || version == VERSION_V4 || version == VERSION_V3
+        val planBinding = version == VERSION || version == VERSION_V5 || version == VERSION_V4
+        val extendedPlanningState = version == VERSION || version == VERSION_V5
+        val continuityBinding = version == VERSION
         val scalars = linkedMapOf<String, String>()
         val stepLines = mutableListOf<List<String>>()
         lines.drop(1).forEach { line ->
@@ -296,6 +324,11 @@ internal object SovereignPlanCodec {
                     require(parts.size == 2) { "invalid persisted extended planning scalar" }
                     require(scalars.put(parts[0], parts[1]) == null) { "duplicate persisted plan scalar" }
                 }
+                "COGNITIVE_STATE_DIGEST", "EXECUTION_CONTEXT_DIGEST" -> {
+                    require(continuityBinding) { "cognitive continuity state is not valid for $version" }
+                    require(parts.size == 2) { "invalid persisted cognitive continuity scalar" }
+                    require(scalars.put(parts[0], parts[1]) == null) { "duplicate persisted plan scalar" }
+                }
                 else -> error("unknown persisted plan field")
             }
         }
@@ -310,6 +343,9 @@ internal object SovereignPlanCodec {
                 "COUNTERFACTUAL_VIABILITY",
                 "COUNTERFACTUAL_CONFIDENCE"
             )
+        }
+        if (continuityBinding) {
+            required += setOf("COGNITIVE_STATE_DIGEST", "EXECUTION_CONTEXT_DIGEST")
         }
         require(scalars.keys.containsAll(required))
         require(stepLines.isNotEmpty()) { "persisted plan has no steps" }
@@ -400,6 +436,24 @@ internal object SovereignPlanCodec {
         } else {
             null
         }
+        val planningCognitiveStateDigest = if (continuityBinding) {
+            scalars.getValue("COGNITIVE_STATE_DIGEST").also {
+                require(it.matches(Regex("[0-9a-f]{64}"))) {
+                    "invalid persisted cognitive-state digest"
+                }
+            }
+        } else {
+            null
+        }
+        val planningExecutionContextDigest = if (continuityBinding) {
+            scalars.getValue("EXECUTION_CONTEXT_DIGEST").also {
+                require(it.matches(Regex("[0-9a-f]{64}"))) {
+                    "invalid persisted execution-context digest"
+                }
+            }
+        } else {
+            null
+        }
 
         SovereignPlan(
             id = PlanId(dec(scalars.getValue("ID"))),
@@ -415,7 +469,9 @@ internal object SovereignPlanCodec {
             deliberationCandidateCount = deliberationCandidateCount,
             deliberationScore = deliberationScore,
             counterfactualViability = counterfactualViability,
-            counterfactualConfidence = counterfactualConfidence
+            counterfactualConfidence = counterfactualConfidence,
+            planningCognitiveStateDigest = planningCognitiveStateDigest,
+            planningExecutionContextDigest = planningExecutionContextDigest
         )
     }
 
