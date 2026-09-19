@@ -585,3 +585,17 @@ contract; practice output is still parsed only as a plan exercise and is never s
 Phase365 wires the restart-durable credit model into the canonical autonomous-learning runtime so
 repeated governed strategy failures can redirect future practice automatically. Learning signals are
 authority=false and cannot grant approval, permission, tool access or device/external authority.
+
+
+### Implemented checkpoint — Phase366-370
+Phase366 persists a restart-safe validation snapshot only for practice tasks explicitly sourced from
+HIERARCHICAL_STRATEGY_REPAIR. Phase367 binds each repair generation to the newest negative governed
+credit timestamp, so older practice cannot silently validate newer failures. Phase368 requires at
+least two zero-tool repair attempts with an 80% pass rate before protocol repair becomes VALIDATED;
+practice still creates no execution competence, skill credit, approval or authority. Phase369 lets
+validated repair reduce autonomous repair pressure by at most 35% and attenuate a negative
+hierarchical portfolio adjustment by at most 50%; the adjustment can approach zero but can never
+cross into positive credit from practice alone. Phase370 invalidates the effective repair immediately
+when newer negative execution evidence arrives and excludes repair journals from generic sovereign
+context retrieval. Real governed success remains the only path that can turn hierarchical credit
+positive.

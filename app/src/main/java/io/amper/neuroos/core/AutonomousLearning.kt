@@ -168,7 +168,8 @@ class MemoryBackedAutonomousLearningModel(
     private val skills: SkillGenesisModel,
     private val generalization: SkillGeneralizationModel,
     private val clock: () -> Long = System::currentTimeMillis,
-    private val hierarchicalCredit: GoalHierarchicalStrategyCreditModel? = null
+    private val hierarchicalCredit: GoalHierarchicalStrategyCreditModel? = null,
+    private val repairValidation: GoalRepairValidationModel? = null
 ) : AutonomousLearningModel {
     override fun diagnose(
         allowedCapabilities: Set<CapabilityId>,
@@ -280,10 +281,14 @@ class MemoryBackedAutonomousLearningModel(
             )
             .orEmpty()
             .forEach { signal ->
+                val repairPressureMultiplier =
+                    repairValidation?.pressureMultiplier(signal) ?: 1.0
                 needs += LearningNeed(
                     capability = signal.capability,
                     kind = LearningNeedKind.HIERARCHICAL_STRATEGY_REPAIR,
-                    severity = signal.severity,
+                    severity = (
+                        signal.severity * repairPressureMultiplier
+                        ).coerceIn(0.0, 1.0),
                     evidenceConfidence = signal.evidenceConfidence,
                     rationale =
                         "governed hierarchical strategy credit is negative across " +
@@ -420,7 +425,7 @@ class MemoryBackedAutonomousLearningModel(
             updatePracticeIndexLocked(task.capability, updated.lastObservedAtEpochMs)
         }
 
-        return AutonomousPracticeEvidence(
+        val evidence = AutonomousPracticeEvidence(
             id = record.id,
             taskId = task.id,
             capability = task.capability,
@@ -429,6 +434,8 @@ class MemoryBackedAutonomousLearningModel(
             validatedStepCount = steps.size,
             observedAtEpochMs = now
         )
+        repairValidation?.observe(task, evidence)
+        return evidence
     }
 
     override fun practiceSnapshot(capability: CapabilityId): PracticeCompetenceSnapshot? =

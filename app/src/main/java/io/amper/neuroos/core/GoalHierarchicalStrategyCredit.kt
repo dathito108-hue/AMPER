@@ -109,7 +109,8 @@ data class GoalHierarchicalLearningSignal(
     val meanCredit: Double,
     val matchedComponents: Int,
     val componentKinds: Set<GoalStrategyCreditComponentKind>,
-    val hierarchyDepths: Set<Int>
+    val hierarchyDepths: Set<Int>,
+    val latestObservedAtEpochMs: Long = 0L
 ) {
     init {
         require(severity in 0.0..1.0)
@@ -117,6 +118,7 @@ data class GoalHierarchicalLearningSignal(
         require(meanCredit in -1.0..0.0)
         require(matchedComponents > 0)
         require(componentKinds.isNotEmpty())
+        require(latestObservedAtEpochMs >= 0L)
         require(hierarchyDepths.all {
             it in 0..DurableGoalRecord.MAX_DECOMPOSITION_DEPTH
         })
@@ -351,6 +353,7 @@ class MemoryBackedGoalHierarchicalStrategyCreditModel(
             var weight: Double = 0.0,
             var missProbability: Double = 1.0,
             var matchedComponents: Int = 0,
+            var latestObservedAtEpochMs: Long = 0L,
             val componentKinds: MutableSet<GoalStrategyCreditComponentKind> = linkedSetOf(),
             val hierarchyDepths: MutableSet<Int> = linkedSetOf()
         )
@@ -381,6 +384,10 @@ class MemoryBackedGoalHierarchicalStrategyCreditModel(
                     accumulator.weight += evidenceWeight
                     accumulator.missProbability *= (1.0 - evidenceWeight)
                     accumulator.matchedComponents += 1
+                    accumulator.latestObservedAtEpochMs = maxOf(
+                        accumulator.latestObservedAtEpochMs,
+                        stats.lastObservedAtEpochMs
+                    )
                     accumulator.componentKinds += stats.componentKind
                     accumulator.hierarchyDepths += stats.hierarchyDepth
                 }
@@ -407,7 +414,8 @@ class MemoryBackedGoalHierarchicalStrategyCreditModel(
                 meanCredit = meanCredit,
                 matchedComponents = accumulator.matchedComponents,
                 componentKinds = accumulator.componentKinds.toSet(),
-                hierarchyDepths = accumulator.hierarchyDepths.toSet()
+                hierarchyDepths = accumulator.hierarchyDepths.toSet(),
+                latestObservedAtEpochMs = accumulator.latestObservedAtEpochMs
             )
         }.sortedWith(
             compareByDescending<GoalHierarchicalLearningSignal> { it.severity }
