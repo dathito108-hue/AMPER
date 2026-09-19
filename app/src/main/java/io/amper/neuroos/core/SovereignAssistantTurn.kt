@@ -242,8 +242,13 @@ class SovereignAssistantTurnCoordinator(
                 cancellation = cancellation
             )?.let { return@runCatching it }
         }
+        val system2Deliberation = runtime.nativeSystem2.deliberate(
+            goal = userPrompt,
+            allowedCapabilities = advertisedCapabilities,
+            descriptors = reflexDescriptors()
+        ).getOrNull()
         val explicitProfiles = capabilityPolicy.preferredProfiles(userPrompt, turnRequiredCapabilities)
-        val preferredProfiles = if (explicitProfiles.isNotEmpty()) {
+        val basePreferredProfiles = if (explicitProfiles.isNotEmpty()) {
             explicitProfiles
         } else {
             ConversationSpecialistContinuityPolicy.preferredProfiles(
@@ -252,10 +257,18 @@ class SovereignAssistantTurnCoordinator(
                 baseline = turnRequiredCapabilities
             )
         }
+        val preferredProfiles = system2Deliberation?.let { deliberation ->
+            NativeSystem2InferencePreferencePolicy.preferredProfiles(
+                deliberation = deliberation,
+                baselineRequired = turnRequiredCapabilities,
+                existing = basePreferredProfiles
+            )
+        } ?: basePreferredProfiles
         val firstPrompt = buildFirstPrompt(
             conversationId = conversationId,
             userPrompt = userPrompt,
-            promptBudgetChars = boundInferenceProfile.maxPromptChars
+            promptBudgetChars = boundInferenceProfile.maxPromptChars,
+            system2Deliberation = system2Deliberation
         )
         val firstRequest = InferenceRequest(
             prompt = firstPrompt,
@@ -609,7 +622,8 @@ class SovereignAssistantTurnCoordinator(
     private fun buildFirstPrompt(
         conversationId: ConversationId,
         userPrompt: String,
-        promptBudgetChars: Int
+        promptBudgetChars: Int,
+        system2Deliberation: NativeSystem2Deliberation? = null
     ): String {
         require(promptBudgetChars in ConversationInferenceProfile.MIN_PROMPT_CHARS..ConversationInferenceProfile.MAX_PROMPT_CHARS)
         val capabilities = advertisedCapabilities
@@ -621,10 +635,39 @@ class SovereignAssistantTurnCoordinator(
             appendLine("</CURRENT_USER_REQUEST_FINAL>")
         }
         val wrapperChars = "\n<ACTION_PROTOCOL>\n".length + "</ACTION_PROTOCOL>\n".length
-        val protocolBudget = promptBudgetChars - MIN_GROUNDED_CONTEXT_CHARS - currentSection.length - wrapperChars
+        val baseProtocolChars = TitanActionProtocol.instructions(capabilities).length
+        val availableSystem2Chars = (
+            promptBudgetChars -
+                MIN_GROUNDED_CONTEXT_CHARS -
+                currentSection.length -
+                wrapperChars -
+                baseProtocolChars -
+                4
+            ).coerceAtLeast(0)
+        val system2Section = if (
+            system2Deliberation != null &&
+            availableSystem2Chars >= NativeSystem2GuidanceRenderer.MIN_CHAR_BUDGET
+        ) {
+            "\n" + NativeSystem2GuidanceRenderer.render(
+                deliberation = system2Deliberation,
+                charBudget = minOf(
+                    availableSystem2Chars,
+                    NativeSystem2GuidanceRenderer.MAX_CHAR_BUDGET
+                )
+            ) + "\n"
+        } else {
+            ""
+        }
+        val protocolBudget =
+            promptBudgetChars -
+                MIN_GROUNDED_CONTEXT_CHARS -
+                currentSection.length -
+                wrapperChars -
+                system2Section.length
         require(protocolBudget > 0) { "conversation prompt budget is too small for action protocol" }
         val protocol = boundedActionProtocol(capabilities, protocolBudget)
         val tail = buildString {
+            append(system2Section)
             appendLine()
             appendLine("<ACTION_PROTOCOL>")
             appendLine(protocol)

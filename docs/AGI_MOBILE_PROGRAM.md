@@ -1364,3 +1364,35 @@ continuity and runtime exposure. This phase does not yet replace the existing in
 Phase541-545 will connect Reflex escalation and assistant planning to this native System-2 core.
 ToolDescriptor binding, SovereignActionLoop, AuthorityGate, explicit side-effect approval, durable
 receipts, held-out model admission and rollback invariants are unchanged.
+
+
+### Completion checkpoint — Phase541-545: Native System-2 Integration
+Phase541 adds exact-state Native System-2 deliberation. The planner can now hand the already-captured
+IntegratedCognitiveStatePacket directly to NativeSystem2Core, so planner, critic and System-2 bind the
+same cognitive-state and execution-context digests instead of independently recapturing mutable state.
+
+Phase542 connects the assistant fallback path to Native System-2. Reflex still owns the zero/low-pass
+fast path for high-confidence typed mobile actions. Any turn that does not complete through that fast
+path obtains a Native System-2 deliberation before normal model inference. Bounded System-2 guidance
+is injected ahead of the canonical action protocol, and deep deliberation may prefer a planning-capable
+model profile without widening mandatory capabilities or disabling normal Titan fallback.
+
+Phase543 connects sovereign planning to the same Native System-2 state. Planning prompts now include
+bounded System-2 mode, continuity, reasoning depth, selected governed strategy identity and ordered
+reasoning agenda alongside the existing metacognitive and integrated-cognitive sections. Under tight
+prompt budgets System-2 prompt rendering degrades gracefully while the underlying deliberation and
+canonical planning path remain active.
+
+Phase544 makes System-2 strategy reuse operational without replacing canonical candidate evaluation.
+System-2 may align the selected plan only when its capability sequence exactly matches an already
+TitanPlanProtocol-validated candidate, the System-2 strategy score is strong enough, and that candidate
+is within a narrow score gap of the existing evidence/counterfactual evaluator's best plan. Raw tool
+arguments never participate in System-2 strategy identity, and live ToolDescriptor binding remains
+mandatory.
+
+Phase545 adds regression coverage for exact captured-state reuse, non-authoritative bounded guidance,
+planning-specialist preference as preference-only routing, and guarded System-2 plan alignment.
+The integrated execution chain is now:
+Reflex/System-1 -> Native System-2 -> bounded inference/planning -> TitanAction/TitanPlan parsing ->
+live ToolDescriptor binding -> SovereignActionLoop -> AuthorityGate -> explicit approval when needed ->
+durable receipts. Phase546-550 now moves to closed-loop self-evolution rather than more Reflex tuning.
