@@ -11,9 +11,15 @@ class NativeSystem2IntegrationTest {
         val capability = CapabilityId("device.status")
         val state = packet("reason about current device status")
         var captures = 0
-        val source = IntegratedCognitiveStateSource { _, _, _ ->
-            captures += 1
-            error("captured planning state must not be recaptured")
+        val source = object : IntegratedCognitiveStateSource {
+            override fun capture(
+                query: String,
+                allowedCapabilities: Set<CapabilityId>,
+                descriptors: Collection<ToolDescriptor>
+            ): IntegratedCognitiveStatePacket {
+                captures += 1
+                error("captured planning state must not be recaptured")
+            }
         }
         val core = CanonicalNativeSystem2Core(
             stateSource = source,
