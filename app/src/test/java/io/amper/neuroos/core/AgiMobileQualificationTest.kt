@@ -168,6 +168,31 @@ class AgiMobileQualificationTest {
     }
 
     @Test
+    fun olderReportCannotReplaceNewerLatestQualificationState() {
+        val store = MemoryBackedAgiMobileQualificationStore(InMemoryMemoryOs())
+        val newest = CanonicalAgiMobileQualificationRunner(
+            suite = suite,
+            store = store,
+            clock = { 9_000L }
+        ).run(
+            subject = subject,
+            probes = suite.criteria.map(::passingProbe)
+        )
+        CanonicalAgiMobileQualificationRunner(
+            suite = suite,
+            store = store,
+            clock = { 8_000L }
+        ).run(
+            subject = subject,
+            probes = emptyList()
+        )
+
+        val latest = requireNotNull(store.latest())
+        assertEquals(newest.canonicalDigest, latest.canonicalDigest)
+        assertEquals(AgiMobileQualificationVerdict.QUALIFIED, latest.verdict)
+    }
+
+    @Test
     fun canonicalRuntimeExposesDurableQualificationRunner() {
         val runtime = AmperRuntime.reference()
         val runner = runtime.agiMobileQualificationRunner()
