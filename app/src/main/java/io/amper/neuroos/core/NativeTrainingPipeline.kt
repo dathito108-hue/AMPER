@@ -883,7 +883,7 @@ class MemoryBackedNativeTrainingPipeline(
         candidate: NativeCheckpointEvaluationRecord,
         comparison: NativeCheckpointComparison
     ): NativeModelPromotionCandidate {
-        val promotable = candidateRecord.admission.admitted &&
+        val promotable = candidate.admission.admitted &&
             comparison.noMaterialRegression &&
             (
                 comparison.baselineCheckpointId == null ||
