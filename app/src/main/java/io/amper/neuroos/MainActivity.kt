@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.amper.neuroos.core.AmperRuntime
 import io.amper.neuroos.core.AssistantStreamEvent
+import io.amper.neuroos.core.AutonomousGoalScheduler
 import io.amper.neuroos.core.InferenceCancellationSignal
 import io.amper.neuroos.core.InferenceCancelledException
 import io.amper.neuroos.core.InferenceRequest
@@ -86,6 +87,7 @@ import io.amper.neuroos.core.PerceptionModality
 import io.amper.neuroos.core.PersistentGoalExecutiveResult
 import io.amper.neuroos.core.PlanAdvanceResult
 import io.amper.neuroos.core.PreferredModelInferencePort
+import io.amper.neuroos.core.ProcessResidentAutonomyLoop
 import io.amper.neuroos.core.RuntimeSovereignStatusSource
 import io.amper.neuroos.core.SovereignAssistantToolExposure
 import io.amper.neuroos.core.SovereignAssistantTurnCoordinator
@@ -331,6 +333,12 @@ class MainActivity : ComponentActivity() {
                     observation = activePerceptionPort
                 )
             }
+            val autonomousGoalScheduler = remember {
+                AutonomousGoalScheduler(
+                    runGoal = persistentGoalExecutive::runNext,
+                    resourceAllowed = { governor.allows(agentCount = 1) }
+                )
+            }
             val planHistory = remember { SovereignPlanHistory(runtime.plans) }
             val recoveryConsole = remember {
                 io.amper.neuroos.core.SovereignRecoveryConsole(runtime.plans, planner)
@@ -456,6 +464,42 @@ class MainActivity : ComponentActivity() {
                     restoredPlan?.let { "Restored encrypted plan ${it.id.value.take(8)}" }
                         ?: "No persistent plan restored"
                 )
+            }
+            var autonomyLoopEnabled by remember { mutableStateOf(false) }
+            var autonomyLoopStatus by remember {
+                mutableStateOf("Autonomy scheduler stopped")
+            }
+            val autonomyLoop = remember {
+                ProcessResidentAutonomyLoop(
+                    scheduler = autonomousGoalScheduler,
+                    conversationId = {
+                        persistentGoalExecutive.current()?.conversationId
+                            ?: runtime.conversations.primary()
+                    },
+                    onTick = { tick ->
+                        runOnUiThread {
+                            autonomyLoopEnabled = true
+                            val checkpoint = tick.checkpointStage?.name ?: "none"
+                            autonomyLoopStatus =
+                                "Autonomy ${tick.stage.name} · checkpoint=$checkpoint · next=" +
+                                    (tick.nextDelayMs / 1_000L) + "s"
+                            tick.planId
+                                ?.let(runtime.plans::load)
+                                ?.let { planned ->
+                                    activePlan = planned
+                                    conversationId = planned.conversationId
+                                    planStatus =
+                                        "Autonomous scheduler handed off plan " +
+                                            planned.id.value.take(8)
+                                }
+                        }
+                    }
+                )
+            }
+            DisposableEffect(autonomyLoop) {
+                onDispose {
+                    autonomyLoop.close()
+                }
             }
             val report = remember { runtime.tick("bootstrap-self-check") }
             val budget = governor.currentBudget()
@@ -1994,6 +2038,34 @@ class MainActivity : ComponentActivity() {
                         ) {
                             Text("Run autonomous goal cycle")
                         }
+                        Button(
+                            enabled = hasModel && hasRuntimeBackend,
+                            onClick = {
+                                if (autonomyLoop.isActive()) {
+                                    autonomyLoop.stop()
+                                    autonomyLoopEnabled = false
+                                    autonomyLoopStatus = "Autonomy scheduler stopped"
+                                } else {
+                                    autonomyLoop.start()
+                                    autonomyLoopEnabled = autonomyLoop.isActive()
+                                    autonomyLoopStatus =
+                                        if (autonomyLoopEnabled) {
+                                            "Autonomy scheduler active · resource-gated bounded ticks"
+                                        } else {
+                                            "Autonomy scheduler could not start"
+                                        }
+                                }
+                            }
+                        ) {
+                            Text(
+                                if (autonomyLoopEnabled) {
+                                    "Stop autonomy scheduler"
+                                } else {
+                                    "Start autonomy scheduler"
+                                }
+                            )
+                        }
+                        Text(autonomyLoopStatus)
                         Button(
                             onClick = {
                                 val restored = planner.latest()

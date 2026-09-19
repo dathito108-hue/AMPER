@@ -328,6 +328,20 @@ persistent goal checkpoint when context-refresh creates a direct child plan, and
 goal handoff when that plan later becomes terminal. Active perception cannot grant tool/device
 authority or bypass Android permission/MediaProjection consent.
 
+
+### Implemented checkpoint — Phase296-300
+Phase296 adds a scheduler that performs at most one persistent-goal executive run per tick. Phase297
+checks a host resource gate before any cognitive work; Android binds this to the existing live
+thermal/memory ResourceGovernor. Phase298 applies checkpoint-aware backoff: observation gaps retry
+quickly while planned, blocked and no-goal states remain quiet, preventing hot polling. Phase299 uses
+an atomic single-flight interlock so concurrent scheduler calls return BUSY instead of spawning
+competing cognition. Phase300 adds a process-resident single-thread autonomy loop and Android Start /
+Stop control. The loop owns no wake lock, alarm, WorkManager dependency, foreground service,
+ToolFabric or AuthorityGate handle, shuts down with the Activity process lifecycle, and relies on the
+existing encrypted persistent-goal checkpoint for restart continuity. It automates cognitive/goal
+orchestration while leaving plan-step execution and side-effect authority in the governed execution
+layer.
+
 ## CI budget policy
 
 GitHub Actions is a scarce verification resource.
