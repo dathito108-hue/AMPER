@@ -223,7 +223,7 @@ class GoalRepairValidationTest {
             perceptionFit = 0.7,
             learningRisk = 0.2,
             contextFit = 0.75,
-            mismatchRisk = 0.2,
+            mismatchRisk = 0.25,
             projectedSupport = 0.60,
             calibrationMultiplier = 1.0,
             calibratedSupport = 0.60,
