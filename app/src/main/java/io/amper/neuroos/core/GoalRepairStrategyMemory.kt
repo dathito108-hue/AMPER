@@ -345,10 +345,15 @@ private object GoalRepairStrategyMemoryCodec {
         val p = content.split('\t')
         require(p.size == 4 && p[0] == MARKER_VERSION)
         require(p[1].matches(Regex("[0-9a-f]{64}")))
+        val admitted = when (p[3]) {
+            "true" -> true
+            "false" -> false
+            else -> error("invalid repair-strategy admission marker")
+        }
         Marker(
             strategyDigest = p[1],
             outcome = GoalOutcomeEvidenceKind.valueOf(p[2]),
-            admitted = p[3].toBooleanStrict()
+            admitted = admitted
         )
     }.getOrNull()
 }
