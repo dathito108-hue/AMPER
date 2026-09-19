@@ -63,7 +63,6 @@ data class NativeSystem2StrategyCandidate(
 ) {
     init {
         require(id.matches(SHA256))
-        require(capabilities.distinct().size == capabilities.size)
         require(capabilities.size <= TitanPlanProtocol.MAX_STEPS)
         require(source == NativeSystem2StrategySource.OPEN_DELIBERATION || capabilities.isNotEmpty())
         require(source != NativeSystem2StrategySource.OPEN_DELIBERATION || capabilities.isEmpty())
