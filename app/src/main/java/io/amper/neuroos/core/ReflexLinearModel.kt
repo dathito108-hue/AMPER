@@ -236,8 +236,8 @@ object ReflexLinearModelCodec {
      * backward-compatible with dense V1 artifacts already installed on devices.
      */
     fun encode(model: ReflexLinearModel): ByteArray {
-        val bytes = ByteArrayOutputStream()
-        DataOutputStream(bytes).use { out ->
+        val sparse = ByteArrayOutputStream()
+        DataOutputStream(sparse).use { out ->
             writeHeader(out, SPARSE_VERSION, model)
             model.biases.forEach { out.writeFloat(it) }
 
@@ -253,9 +253,14 @@ object ReflexLinearModelCodec {
                 }
             }
         }
-        return bytes.toByteArray().also {
-            require(it.size <= MAX_ARTIFACT_BYTES)
+        val sparseBytes = sparse.toByteArray()
+        val encoded = if (sparseBytes.size <= denseReferenceByteCount(model)) {
+            sparseBytes
+        } else {
+            encodeDenseV1(model)
         }
+        require(encoded.size <= MAX_ARTIFACT_BYTES)
+        return encoded
     }
 
     fun decode(bytes: ByteArray): ReflexLinearModel {
@@ -320,6 +325,16 @@ object ReflexLinearModelCodec {
             require(input.available() == 0) { "unexpected trailing Reflex artifact bytes" }
             return ReflexLinearModel(capabilities, biases, weights)
         }
+    }
+
+    private fun encodeDenseV1(model: ReflexLinearModel): ByteArray {
+        val bytes = ByteArrayOutputStream()
+        DataOutputStream(bytes).use { out ->
+            writeHeader(out, LEGACY_DENSE_VERSION, model)
+            model.biases.forEach { out.writeFloat(it) }
+            model.weights.forEach { out.writeFloat(it) }
+        }
+        return bytes.toByteArray()
     }
 
     internal fun denseReferenceByteCount(model: ReflexLinearModel): Int {
