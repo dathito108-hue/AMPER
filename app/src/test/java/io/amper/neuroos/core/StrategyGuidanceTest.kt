@@ -177,10 +177,9 @@ class StrategyGuidanceTest {
         ).getOrThrow()
 
         val prompt = requests.single().prompt
-        assertTrue(prompt.contains("<STRATEGY_GUIDANCE>"))
-        assertTrue(prompt.contains("candidate.1.capabilities=test.read"))
-        assertTrue(prompt.contains("completed_attempts=2"))
-        assertTrue(prompt.contains("advisory data"))
+        assertFalse(prompt.contains("<STRATEGY_GUIDANCE>"))
+        assertFalse(prompt.contains("candidate.1.capabilities=test.read"))
+        assertFalse(prompt.contains("completed_attempts=2"))
         assertFalse(prompt.contains("historic-private-goal-one"))
         assertFalse(prompt.contains("historic-private-goal-two"))
         assertFalse(prompt.contains("historic-secret-input-one"))
