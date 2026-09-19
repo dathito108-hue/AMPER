@@ -61,7 +61,8 @@ data class SovereignPlan(
     val counterfactualViability: Double? = null,
     val counterfactualConfidence: Double? = null,
     val planningCognitiveStateDigest: String? = null,
-    val planningExecutionContextDigest: String? = null
+    val planningExecutionContextDigest: String? = null,
+    val goalTransferBinding: GoalTransferPlanBinding? = null
 ) {
     init {
         require(goal.isNotBlank())
@@ -85,6 +86,18 @@ data class SovereignPlan(
         }
         planningExecutionContextDigest?.let {
             require(it.matches(Regex("[0-9a-f]{64}"))) { "invalid planning execution-context digest" }
+        }
+        goalTransferBinding?.let { binding ->
+            require(binding.strategy == StrategySignature(
+                steps.sortedBy { it.index }.map { it.capability }
+            )) {
+                "goal transfer binding must match the exact selected plan strategy"
+            }
+            planningCognitiveStateDigest?.let { digest ->
+                require(binding.cognitiveStateDigest == digest) {
+                    "goal transfer binding must match the exact planning cognitive state"
+                }
+            }
         }
     }
 
