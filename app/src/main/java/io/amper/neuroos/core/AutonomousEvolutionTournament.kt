@@ -279,6 +279,9 @@ class MemoryBackedAutonomousEvolutionModel(
         require(candidates.size <= EvolutionTournamentDecision.MAX_CANDIDATES)
         require(candidates.map { it.candidate.id }.distinct().size == candidates.size)
 
+        requireNotNull(baseline.artifactDigest) {
+            "canonical evolution baseline must be content-addressed"
+        }
         val suite = requireNotNull(getSuite(baseline.suiteId)) {
             "evolution benchmark suite unavailable"
         }
