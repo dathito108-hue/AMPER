@@ -395,6 +395,13 @@ interface NativeTrainingPipeline {
         candidateCheckpointId: NativeCheckpointId,
         baselineCheckpointId: NativeCheckpointId? = null
     ): NativeModelPromotionCandidate
+
+    fun promotionCandidateAgainstEvaluation(
+        candidateCheckpointId: NativeCheckpointId,
+        baselineCheckpointId: NativeCheckpointId,
+        baselineEvaluation: NativeCheckpointEvaluation
+    ): NativeModelPromotionCandidate =
+        error("ephemeral baseline comparison is unavailable")
 }
 
 /**
@@ -713,12 +720,53 @@ class MemoryBackedNativeTrainingPipeline(
         val candidate = requireNotNull(getEvaluation(candidateCheckpointId)) {
             "candidate checkpoint has no held-out evaluation"
         }
-        val baseline = baselineCheckpointId?.let {
-            requireNotNull(getEvaluation(it)) {
+        val baselineEvaluation = baselineCheckpointId?.let { id ->
+            requireNotNull(getEvaluation(id)) {
                 "baseline checkpoint has no held-out evaluation"
-            }
+            }.evaluation
         }
+        return compareEvaluations(
+            candidateCheckpointId = candidateCheckpointId,
+            baselineCheckpointId = baselineCheckpointId,
+            candidate = candidate,
+            baselineEvaluation = baselineEvaluation
+        )
+    }
 
+    override fun promotionCandidate(
+        candidateCheckpointId: NativeCheckpointId,
+        baselineCheckpointId: NativeCheckpointId?
+    ): NativeModelPromotionCandidate {
+        val candidate = requireNotNull(getEvaluation(candidateCheckpointId)) {
+            "candidate checkpoint has no held-out evaluation"
+        }
+        val comparison = compare(candidateCheckpointId, baselineCheckpointId)
+        return persistPromotion(candidate, comparison)
+    }
+
+    override fun promotionCandidateAgainstEvaluation(
+        candidateCheckpointId: NativeCheckpointId,
+        baselineCheckpointId: NativeCheckpointId,
+        baselineEvaluation: NativeCheckpointEvaluation
+    ): NativeModelPromotionCandidate {
+        val candidate = requireNotNull(getEvaluation(candidateCheckpointId)) {
+            "candidate checkpoint has no held-out evaluation"
+        }
+        val comparison = compareEvaluations(
+            candidateCheckpointId = candidateCheckpointId,
+            baselineCheckpointId = baselineCheckpointId,
+            candidate = candidate,
+            baselineEvaluation = baselineEvaluation
+        )
+        return persistPromotion(candidate, comparison)
+    }
+
+    private fun compareEvaluations(
+        candidateCheckpointId: NativeCheckpointId,
+        baselineCheckpointId: NativeCheckpointId?,
+        candidate: NativeCheckpointEvaluationRecord,
+        baselineEvaluation: NativeCheckpointEvaluation?
+    ): NativeCheckpointComparison {
         val candidateCheckpoint = requireNotNull(
             foundation.getCheckpoint(candidateCheckpointId)
         ) { "candidate checkpoint lineage is unavailable" }
@@ -743,7 +791,7 @@ class MemoryBackedNativeTrainingPipeline(
                 val candidateReflex = requireNotNull(candidate.evaluation.reflexDecision) {
                     "candidate reflex evaluation is unavailable"
                 }
-                val baselineReflex = requireNotNull(baseline?.evaluation?.reflexDecision) {
+                val baselineReflex = requireNotNull(baselineEvaluation?.reflexDecision) {
                     "baseline reflex evaluation is unavailable"
                 }
                 require(
@@ -759,12 +807,12 @@ class MemoryBackedNativeTrainingPipeline(
         if (!candidate.admission.admitted) {
             reasons += "candidate failed foundation admission"
         }
-        val deltas = if (baseline == null) {
+        val deltas = if (baselineEvaluation == null) {
             emptyList()
         } else {
             metricDeltas(
                 candidate = candidate.evaluation,
-                baseline = baseline.evaluation,
+                baseline = baselineEvaluation,
                 capabilities = candidateContract.capabilities
             ).also { values ->
                 if (values.any { it < -MAX_METRIC_REGRESSION }) {
@@ -772,15 +820,20 @@ class MemoryBackedNativeTrainingPipeline(
                 }
             }
         }
-        val noMaterialRegression = reasons.none { it.contains("material held-out regression") }
+        val noMaterialRegression = reasons.none {
+            it.contains("material held-out regression")
+        }
         val aggregateDelta = if (deltas.isEmpty()) {
             0.0
         } else {
             deltas.average()
         }
-        if (baseline == null && candidate.admission.admitted) {
+        if (baselineEvaluation == null && candidate.admission.admitted) {
             reasons += "first admitted AMPER-native checkpoint has no baseline"
-        } else if (noMaterialRegression && aggregateDelta > MIN_AGGREGATE_IMPROVEMENT) {
+        } else if (
+            noMaterialRegression &&
+            aggregateDelta > MIN_AGGREGATE_IMPROVEMENT
+        ) {
             reasons += "candidate improves aggregate held-out score without material regression"
         } else if (noMaterialRegression) {
             reasons += "candidate is non-regressing but aggregate improvement is insufficient"
@@ -790,28 +843,26 @@ class MemoryBackedNativeTrainingPipeline(
             candidateCheckpointId = candidateCheckpointId,
             baselineCheckpointId = baselineCheckpointId,
             candidateEvaluation = candidate.evaluation,
-            baselineEvaluation = baseline?.evaluation,
+            baselineEvaluation = baselineEvaluation,
             noMaterialRegression = noMaterialRegression,
             aggregateDelta = aggregateDelta,
             reasons = reasons.distinct()
         )
     }
 
-    override fun promotionCandidate(
-        candidateCheckpointId: NativeCheckpointId,
-        baselineCheckpointId: NativeCheckpointId?
+    private fun persistPromotion(
+        candidate: NativeCheckpointEvaluationRecord,
+        comparison: NativeCheckpointComparison
     ): NativeModelPromotionCandidate {
-        val candidateEvaluation = requireNotNull(getEvaluation(candidateCheckpointId))
-        val comparison = compare(candidateCheckpointId, baselineCheckpointId)
-        val promotable = candidateEvaluation.admission.admitted &&
+        val promotable = candidate.admission.admitted &&
             comparison.noMaterialRegression &&
             (
-                baselineCheckpointId == null ||
+                comparison.baselineCheckpointId == null ||
                     comparison.aggregateDelta > MIN_AGGREGATE_IMPROVEMENT
-                )
+            )
         val promotion = NativeModelPromotionCandidate(
-            checkpointId = candidateCheckpointId,
-            baselineCheckpointId = baselineCheckpointId,
+            checkpointId = comparison.candidateCheckpointId,
+            baselineCheckpointId = comparison.baselineCheckpointId,
             promotable = promotable,
             comparison = comparison,
             createdAtEpochMs = clock()
@@ -826,8 +877,13 @@ class MemoryBackedNativeTrainingPipeline(
                     producer = "native-training-pipeline",
                     confidence = 1.0,
                     parents = buildSet {
-                        add(MemoryId("native-checkpoint:" + candidateCheckpointId.value))
-                        baselineCheckpointId?.let {
+                        add(
+                            MemoryId(
+                                "native-checkpoint:" +
+                                    comparison.candidateCheckpointId.value
+                            )
+                        )
+                        comparison.baselineCheckpointId?.let {
                             add(MemoryId("native-checkpoint:" + it.value))
                         }
                     }

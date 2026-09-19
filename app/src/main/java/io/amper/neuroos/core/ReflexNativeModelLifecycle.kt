@@ -2,10 +2,13 @@ package io.amper.neuroos.core
 
 enum class ReflexNativeLifecycleStage {
     INSUFFICIENT_EVIDENCE,
+    WAITING_FOR_FRESH_EVIDENCE,
     DISABLED,
     TRAINING_FAILED,
     EVALUATION_REJECTED,
+    CHALLENGER_REJECTED,
     RECOVERED,
+    REPLACED,
     ACTIVE
 }
 
@@ -37,33 +40,38 @@ class ReflexNativeModelLifecycle(
         artifacts = artifacts
     )
 
+    @Volatile
+    private var lastRejectedEvidenceTag: String? = null
+
     @Synchronized
     fun maintain(): Result<ReflexNativeLifecycleReport> = runCatching {
-        runtime.reflexDecisionRuntime.active()?.let { active ->
-            return@runCatching report(
-                stage = ReflexNativeLifecycleStage.ACTIVE,
-                checkpointId = active.checkpointId,
-                detail = "learned Reflex checkpoint already active"
-            )
+        var current = runtime.reflexDecisionRuntime.active()
+        var recovered = false
+
+        if (current == null) {
+            val persisted = runtime.reflexDecisionRuntime.persistedIntent()
+            if (persisted?.status == ReflexRuntimeActivationIntentStatus.ACTIVE) {
+                current = runtime.reflexDecisionRuntime.recover(resolver).getOrThrow()
+                recovered = current != null
+            } else if (persisted?.status == ReflexRuntimeActivationIntentStatus.DISABLED) {
+                return@runCatching report(
+                    stage = ReflexNativeLifecycleStage.DISABLED,
+                    checkpointId = null,
+                    detail = "durable Reflex runtime intent is disabled"
+                )
+            }
         }
 
-        val persisted = runtime.reflexDecisionRuntime.persistedIntent()
-        if (persisted?.status == ReflexRuntimeActivationIntentStatus.ACTIVE) {
-            val recovered = runtime.reflexDecisionRuntime.recover(resolver).getOrThrow()
-            return@runCatching report(
-                stage = ReflexNativeLifecycleStage.RECOVERED,
-                checkpointId = recovered?.checkpointId,
-                detail = "learned Reflex checkpoint recovered and revalidated"
-            )
+        if (current == null) {
+            return@runCatching trainInitialChampion()
         }
-        if (persisted?.status == ReflexRuntimeActivationIntentStatus.DISABLED) {
-            return@runCatching report(
-                stage = ReflexNativeLifecycleStage.DISABLED,
-                checkpointId = null,
-                detail = "durable Reflex runtime intent is disabled"
-            )
-        }
+        maintainContinualLearning(
+            champion = current,
+            recovered = recovered
+        )
+    }
 
+    private fun trainInitialChampion(): ReflexNativeLifecycleReport {
         val examples = runtime.reflexExperienceDatasets.recentExamples(MAX_SELECTED_EXAMPLES)
         val actionExamples = examples.count {
             it.targetDisposition == ReflexDecisionDisposition.PROPOSE_ACTION
@@ -73,7 +81,7 @@ class ReflexNativeModelLifecycle(
             actionExamples < MIN_TOTAL_ACTION_EXAMPLES ||
             escalationExamples < MIN_TOTAL_ESCALATION_EXAMPLES
         ) {
-            return@runCatching ReflexNativeLifecycleReport(
+            return ReflexNativeLifecycleReport(
                 stage = ReflexNativeLifecycleStage.INSUFFICIENT_EVIDENCE,
                 checkpointId = null,
                 actionExamples = actionExamples,
@@ -89,69 +97,23 @@ class ReflexNativeModelLifecycle(
             examples.map { it.id.value }.sorted().joinToString("|")
         )
         val tag = evidenceDigest.take(20)
-        val spec = ReflexDecisionTrainingSpec(
-            trainingShardId = NativeDatasetShardId("real-reflex-train-$tag"),
-            holdoutShardId = NativeDatasetShardId("real-reflex-holdout-$tag"),
-            curriculumId = NativeCurriculumId("real-reflex-curriculum-$tag"),
-            manifestId = NativeDistillationManifestId("real-reflex-manifest-$tag"),
-            runId = NativeTrainingRunId("real-reflex-run-$tag"),
-            outputCheckpointId = NativeCheckpointId("real-reflex-checkpoint-$tag"),
-            teacherSnapshotIds = listOf(TEACHER_ID),
-            studentContractId = CONTRACT_ID,
-            optimizer = "sgd-softmax",
-            precision = ReflexLinearNativeTrainer.QUANTIZATION,
-            maxSequenceTokens = 512,
-            learningRate = 0.08,
-            target = NativeMobileTargetProfile(
-                outputFormat = ReflexLinearNativeTrainer.OUTPUT_FORMAT,
-                quantization = ReflexLinearNativeTrainer.QUANTIZATION,
-                maxRuntimeMemoryMb = 128,
-                contextTokens = 512,
-                androidArm64 = true
-            ),
-            teacherTemperature = 1.0,
-            teacherLossWeight = 0.0,
-            holdoutRatio = 0.25,
-            minTrainingPerClass = MIN_TRAINING_PER_CLASS,
-            minHoldoutPerClass = MIN_HOLDOUT_PER_CLASS,
-            limit = MAX_SELECTED_EXAMPLES
+        val spec = trainingSpec(
+            tag = tag,
+            parentCheckpointId = null,
+            selectedExampleIds = null,
+            continual = false
         )
-
-        var checkpoint = runtime.nativeModelFoundation.getCheckpoint(spec.outputCheckpointId)
-        if (checkpoint == null) {
-            runtime.nativeTrainingPipeline.getRun(spec.runId)?.let { existing ->
-                if (existing.status == NativeTrainingRunStatus.FAILED) {
-                    return@runCatching ReflexNativeLifecycleReport(
-                        stage = ReflexNativeLifecycleStage.TRAINING_FAILED,
-                        checkpointId = null,
-                        actionExamples = actionExamples,
-                        escalationExamples = escalationExamples,
-                        detail = "previous concrete Reflex training attempt failed: " +
-                            (existing.failureCode ?: "unknown")
-                    )
-                }
-            }
-            val prepared = runtime.reflexDecisionTraining.prepare(spec)
-            val finished = runtime.nativeTrainingPipeline.execute(
-                prepared.run.id,
-                trainer
-            )
-            if (finished.status != NativeTrainingRunStatus.SUCCEEDED) {
-                return@runCatching ReflexNativeLifecycleReport(
-                    stage = ReflexNativeLifecycleStage.TRAINING_FAILED,
-                    checkpointId = null,
-                    actionExamples = actionExamples,
-                    escalationExamples = escalationExamples,
-                    detail = "concrete Reflex trainer failed: " +
-                        (finished.failureCode ?: "unknown")
-                )
-            }
-            checkpoint = requireNotNull(
-                runtime.nativeModelFoundation.getCheckpoint(spec.outputCheckpointId)
-            ) {
-                "successful Reflex training did not publish checkpoint lineage"
-            }
-        }
+        val checkpoint = trainCheckpoint(
+            spec = spec,
+            actionExamples = actionExamples,
+            escalationExamples = escalationExamples
+        ) ?: return ReflexNativeLifecycleReport(
+            stage = ReflexNativeLifecycleStage.TRAINING_FAILED,
+            checkpointId = null,
+            actionExamples = actionExamples,
+            escalationExamples = escalationExamples,
+            detail = "concrete Reflex trainer failed"
+        )
 
         val evaluation = runtime.nativeTrainingPipeline.getEvaluation(checkpoint.id)
             ?: runtime.reflexDecisionEvaluation.evaluate(
@@ -160,7 +122,7 @@ class ReflexNativeModelLifecycle(
                 evaluator = evaluator
             )
         if (!evaluation.admission.admitted) {
-            return@runCatching ReflexNativeLifecycleReport(
+            return ReflexNativeLifecycleReport(
                 stage = ReflexNativeLifecycleStage.EVALUATION_REJECTED,
                 checkpointId = checkpoint.id,
                 actionExamples = actionExamples,
@@ -174,13 +136,244 @@ class ReflexNativeModelLifecycle(
             weightArtifactSha256 = checkpoint.weightArtifactSha256
         ).getOrThrow()
         val activation = runtime.reflexDecisionRuntime.activate(port).getOrThrow()
-        ReflexNativeLifecycleReport(
+        lastRejectedEvidenceTag = null
+        return ReflexNativeLifecycleReport(
             stage = ReflexNativeLifecycleStage.ACTIVE,
             checkpointId = activation.checkpointId,
             actionExamples = actionExamples,
             escalationExamples = escalationExamples,
             detail = "AMPER-owned Reflex Linear V1 trained, admitted and activated"
         )
+    }
+
+    private fun maintainContinualLearning(
+        champion: ReflexDecisionRuntimeActivation,
+        recovered: Boolean
+    ): ReflexNativeLifecycleReport {
+        val consumed = consumedEvidenceIds(champion.checkpointId)
+        val fresh = runtime.reflexExperienceDatasets
+            .recentExamples(MAX_SELECTED_EXAMPLES)
+            .filterNot { it.id in consumed }
+        val actionExamples = fresh.count {
+            it.targetDisposition == ReflexDecisionDisposition.PROPOSE_ACTION
+        }
+        val escalationExamples = fresh.size - actionExamples
+
+        if (
+            actionExamples < MIN_CONTINUAL_ACTION_EXAMPLES ||
+            escalationExamples < MIN_CONTINUAL_ESCALATION_EXAMPLES
+        ) {
+            return ReflexNativeLifecycleReport(
+                stage = if (recovered) {
+                    ReflexNativeLifecycleStage.RECOVERED
+                } else {
+                    ReflexNativeLifecycleStage.WAITING_FOR_FRESH_EVIDENCE
+                },
+                checkpointId = champion.checkpointId,
+                actionExamples = actionExamples,
+                escalationExamples = escalationExamples,
+                detail =
+                    "champion active; waiting for at least $MIN_CONTINUAL_ACTION_EXAMPLES fresh " +
+                        "ACTION and $MIN_CONTINUAL_ESCALATION_EXAMPLES fresh ESCALATE examples"
+            )
+        }
+
+        ensureFoundation()
+        val evidenceDigest = reflexLinearSha256(
+            champion.checkpointId.value + "|" +
+                fresh.map { it.id.value }.sorted().joinToString("|")
+        )
+        val tag = evidenceDigest.take(20)
+        if (lastRejectedEvidenceTag == tag) {
+            return ReflexNativeLifecycleReport(
+                stage = ReflexNativeLifecycleStage.CHALLENGER_REJECTED,
+                checkpointId = champion.checkpointId,
+                actionExamples = actionExamples,
+                escalationExamples = escalationExamples,
+                detail = "same fresh-evidence challenger was already rejected in this process"
+            )
+        }
+
+        val spec = trainingSpec(
+            tag = tag,
+            parentCheckpointId = champion.checkpointId,
+            selectedExampleIds = fresh.map { it.id },
+            continual = true
+        )
+        val checkpoint = trainCheckpoint(
+            spec = spec,
+            actionExamples = actionExamples,
+            escalationExamples = escalationExamples
+        ) ?: run {
+            lastRejectedEvidenceTag = tag
+            return ReflexNativeLifecycleReport(
+                stage = ReflexNativeLifecycleStage.TRAINING_FAILED,
+                checkpointId = champion.checkpointId,
+                actionExamples = actionExamples,
+                escalationExamples = escalationExamples,
+                detail = "continual Reflex challenger training failed"
+            )
+        }
+
+        val candidateEvaluation = runtime.nativeTrainingPipeline.getEvaluation(checkpoint.id)
+            ?: runtime.reflexDecisionEvaluation.evaluate(
+                checkpointId = checkpoint.id,
+                holdoutShardId = spec.holdoutShardId,
+                evaluator = evaluator
+            )
+        if (!candidateEvaluation.admission.admitted) {
+            lastRejectedEvidenceTag = tag
+            return ReflexNativeLifecycleReport(
+                stage = ReflexNativeLifecycleStage.EVALUATION_REJECTED,
+                checkpointId = champion.checkpointId,
+                actionExamples = actionExamples,
+                escalationExamples = escalationExamples,
+                detail = "challenger rejected by admission: " +
+                    candidateEvaluation.admission.reasons.joinToString("; ")
+            )
+        }
+
+        val championCommonHoldout = runtime.reflexDecisionEvaluation.score(
+            checkpointId = champion.checkpointId,
+            holdoutShardId = spec.holdoutShardId,
+            evaluator = evaluator
+        )
+        val promotion = runtime.nativeTrainingPipeline.promotionCandidateAgainstEvaluation(
+            candidateCheckpointId = checkpoint.id,
+            baselineCheckpointId = champion.checkpointId,
+            baselineEvaluation = championCommonHoldout
+        )
+        if (!promotion.promotable) {
+            lastRejectedEvidenceTag = tag
+            return ReflexNativeLifecycleReport(
+                stage = ReflexNativeLifecycleStage.CHALLENGER_REJECTED,
+                checkpointId = champion.checkpointId,
+                actionExamples = actionExamples,
+                escalationExamples = escalationExamples,
+                detail = promotion.comparison.reasons.joinToString("; ")
+            )
+        }
+
+        val port = resolver.resolve(
+            checkpointId = checkpoint.id,
+            weightArtifactSha256 = checkpoint.weightArtifactSha256
+        ).getOrThrow()
+        val activation = runtime.reflexDecisionRuntime.replace(
+            port = port,
+            promotion = promotion
+        ).getOrThrow()
+        lastRejectedEvidenceTag = null
+        return ReflexNativeLifecycleReport(
+            stage = ReflexNativeLifecycleStage.REPLACED,
+            checkpointId = activation.checkpointId,
+            actionExamples = actionExamples,
+            escalationExamples = escalationExamples,
+            detail =
+                "fresh-evidence challenger improved the common holdout and replaced champion " +
+                    champion.checkpointId.value
+        )
+    }
+
+    private fun trainCheckpoint(
+        spec: ReflexDecisionTrainingSpec,
+        actionExamples: Int,
+        escalationExamples: Int
+    ): NativeCheckpointLineage? {
+        runtime.nativeModelFoundation.getCheckpoint(spec.outputCheckpointId)?.let {
+            return it
+        }
+        runtime.nativeTrainingPipeline.getRun(spec.runId)?.let { existing ->
+            if (existing.status == NativeTrainingRunStatus.FAILED) {
+                return null
+            }
+        }
+        val prepared = runtime.reflexDecisionTraining.prepare(spec)
+        val finished = runtime.nativeTrainingPipeline.execute(
+            prepared.run.id,
+            trainer
+        )
+        if (finished.status != NativeTrainingRunStatus.SUCCEEDED) {
+            return null
+        }
+        return requireNotNull(
+            runtime.nativeModelFoundation.getCheckpoint(spec.outputCheckpointId)
+        ) {
+            "successful Reflex training did not publish checkpoint lineage; " +
+                "action=$actionExamples escalation=$escalationExamples"
+        }
+    }
+
+    private fun trainingSpec(
+        tag: String,
+        parentCheckpointId: NativeCheckpointId?,
+        selectedExampleIds: List<ReflexExperienceExampleId>?,
+        continual: Boolean
+    ): ReflexDecisionTrainingSpec {
+        val prefix = if (continual) "real-reflex-continual" else "real-reflex"
+        return ReflexDecisionTrainingSpec(
+            trainingShardId = NativeDatasetShardId("$prefix-train-$tag"),
+            holdoutShardId = NativeDatasetShardId("$prefix-holdout-$tag"),
+            curriculumId = NativeCurriculumId("$prefix-curriculum-$tag"),
+            manifestId = NativeDistillationManifestId("$prefix-manifest-$tag"),
+            runId = NativeTrainingRunId("$prefix-run-$tag"),
+            outputCheckpointId = NativeCheckpointId("$prefix-checkpoint-$tag"),
+            teacherSnapshotIds = listOf(TEACHER_ID),
+            studentContractId = CONTRACT_ID,
+            parentCheckpointId = parentCheckpointId,
+            optimizer = "sgd-softmax",
+            precision = ReflexLinearNativeTrainer.QUANTIZATION,
+            maxSequenceTokens = 512,
+            learningRate = if (continual) CONTINUAL_LEARNING_RATE else 0.08,
+            target = NativeMobileTargetProfile(
+                outputFormat = ReflexLinearNativeTrainer.OUTPUT_FORMAT,
+                quantization = ReflexLinearNativeTrainer.QUANTIZATION,
+                maxRuntimeMemoryMb = 128,
+                contextTokens = 512,
+                androidArm64 = true
+            ),
+            teacherTemperature = 1.0,
+            teacherLossWeight = 0.0,
+            holdoutRatio = if (continual) CONTINUAL_HOLDOUT_RATIO else 0.25,
+            minTrainingPerClass = if (continual) {
+                MIN_CONTINUAL_TRAINING_PER_CLASS
+            } else {
+                MIN_TRAINING_PER_CLASS
+            },
+            minHoldoutPerClass = if (continual) {
+                MIN_CONTINUAL_HOLDOUT_PER_CLASS
+            } else {
+                MIN_HOLDOUT_PER_CLASS
+            },
+            limit = MAX_SELECTED_EXAMPLES,
+            selectedExampleIds = selectedExampleIds
+        )
+    }
+
+    private fun consumedEvidenceIds(
+        checkpointId: NativeCheckpointId
+    ): Set<ReflexExperienceExampleId> {
+        val consumed = linkedSetOf<ReflexExperienceExampleId>()
+        val visited = linkedSetOf<NativeCheckpointId>()
+        var cursor: NativeCheckpointId? = checkpointId
+        while (cursor != null && visited.add(cursor)) {
+            val checkpoint = requireNotNull(runtime.nativeModelFoundation.getCheckpoint(cursor)) {
+                "active Reflex lineage is unavailable: " + cursor.value
+            }
+            checkpoint.datasetShardIds.forEach { shardId ->
+                runtime.reflexExperienceDatasets.getShard(shardId)
+                    ?.exampleIds
+                    ?.let(consumed::addAll)
+            }
+            runtime.nativeTrainingPipeline.getEvaluation(cursor)
+                ?.evaluation
+                ?.reflexDecision
+                ?.holdoutShardId
+                ?.let(runtime.reflexExperienceDatasets::getShard)
+                ?.exampleIds
+                ?.let(consumed::addAll)
+            cursor = checkpoint.parentCheckpointId
+        }
+        return consumed
     }
 
     fun resolver(): NativeReflexDecisionPortResolver = resolver
@@ -254,6 +447,13 @@ class ReflexNativeModelLifecycle(
         const val MIN_TOTAL_ESCALATION_EXAMPLES = 32
         const val MIN_TRAINING_PER_CLASS = 16
         const val MIN_HOLDOUT_PER_CLASS = 16
+
+        const val MIN_CONTINUAL_ACTION_EXAMPLES = 24
+        const val MIN_CONTINUAL_ESCALATION_EXAMPLES = 24
+        const val MIN_CONTINUAL_TRAINING_PER_CLASS = 8
+        const val MIN_CONTINUAL_HOLDOUT_PER_CLASS = 16
         const val MAX_SELECTED_EXAMPLES = 256
+        const val CONTINUAL_HOLDOUT_RATIO = 0.35
+        const val CONTINUAL_LEARNING_RATE = 0.03
     }
 }

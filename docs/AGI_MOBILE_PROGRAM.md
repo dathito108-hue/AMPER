@@ -1030,3 +1030,38 @@ Phase490 adds regression coverage for all ten new Reflex skill routes, malformed
 learned-capability versus deterministic-binder agreement, and non-deceptive external-action rendering.
 The existing ToolDescriptor -> SovereignActionLoop -> AuthorityGate -> explicit approval ->
 DurableAssistantActionExecutor/receipt chain is unchanged.
+
+
+### Completion checkpoint — Phase491-495
+Phase491 extends the canonical deterministic Reflex partitioner with an optional explicit immutable
+example-id selection. This lets lifecycle code isolate genuinely fresh governed evidence without
+creating a second dataset, sharding, curriculum or training stack. Normal callers retain the previous
+recent-evidence behavior.
+
+Phase492 changes ReflexNativeModelLifecycle from one-shot training into bounded continual learning.
+An active champion no longer permanently stops maintenance. AMPER walks the champion's parent lineage,
+collects every training-shard and held-out example already consumed by that lineage, and considers only
+new privacy-preserving Reflex examples. Retraining begins only after at least 24 fresh ACTION and 24
+fresh ESCALATE examples exist. The candidate uses the active checkpoint as parent, preserving learned
+weights while applying a lower continual-learning rate.
+
+Phase493 keeps promotion statistically comparable without mutating historical evaluation records.
+Each continual candidate reserves at least 16 fresh examples per class for a common holdout that is
+disjoint from the full champion lineage. The candidate's admission evaluation remains immutable and
+persisted; the champion is scored ephemerally on that exact fresh holdout. The existing
+NativeTrainingPipeline metric/regression logic then builds a canonical promotion candidate against
+that supplied common-holdout baseline. A rejected challenger never replaces the live checkpoint, and
+identical rejected evidence is not retrained repeatedly during the same process.
+
+Phase494 activates only promotable challengers through an explicit verified-replacement path on the
+existing CanonicalReflexDecisionRuntimeController. Its replacement gate revalidates candidate
+admission, checkpoint/baseline identity and the complete common-holdout comparison before swapping the
+live port. The former champion remains the runtime standby, so the existing health controller can
+automatically roll back after repeated failures or slow predictions. Candidate lineage records the
+champion as parent; no separate model authority path is introduced.
+
+Phase495 adds regression coverage for explicit fresh-evidence partition isolation and for a real
+parented challenger that learns a previously unseen mobile capability, wins the common holdout,
+replaces its champion, and then returns to waiting for new evidence. ToolDescriptor,
+CanonicalReflexActionArgumentBinder, SovereignActionLoop, AuthorityGate, explicit approval and durable
+receipts remain unchanged.

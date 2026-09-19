@@ -30,6 +30,32 @@ class ReflexExperiencePartitionTest {
         assertTrue(partition.authorityBearing.not())
     }
 
+    @Test
+    fun explicitSelectionPartitionsOnlyNamedFreshEvidence() {
+        val memory = InMemoryMemoryOs()
+        val foundation = MemoryBackedNativeModelFoundation(memory)
+        val store = MemoryBackedReflexExperienceDatasetStore(memory, foundation)
+        seed(store, "old")
+        val oldIds = store.recentExamples(6).map { it.id }.toSet()
+        seed(store, "fresh")
+        val freshIds = store.recentExamples(6)
+            .map { it.id }
+            .filterNot { it in oldIds }
+
+        val partition = DeterministicReflexExperiencePartitioner(store).partition(
+            trainingShardId = NativeDatasetShardId("fresh-train"),
+            holdoutShardId = NativeDatasetShardId("fresh-holdout"),
+            holdoutRatio = 0.34,
+            minTrainingPerClass = 2,
+            minHoldoutPerClass = 1,
+            limit = 6,
+            selectedExampleIds = freshIds
+        )
+
+        assertEquals(freshIds.toSet(), partition.selectedExampleIds)
+        assertTrue(partition.selectedExampleIds.intersect(oldIds).isEmpty())
+    }
+
     private fun fixture(prefix: String): Fixture {
         val memory = InMemoryMemoryOs()
         val foundation = MemoryBackedNativeModelFoundation(memory)

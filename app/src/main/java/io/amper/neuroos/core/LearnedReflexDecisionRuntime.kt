@@ -55,6 +55,12 @@ fun interface ReflexDecisionRuntimeReplacementGate {
         candidate: NativeReflexDecisionPort,
         baselineCheckpointId: NativeCheckpointId
     ): Result<Unit>
+
+    fun validate(
+        candidate: NativeReflexDecisionPort,
+        baselineCheckpointId: NativeCheckpointId,
+        promotion: NativeModelPromotionCandidate
+    ): Result<Unit> = validate(candidate, baselineCheckpointId)
 }
 
 object RejectingReflexDecisionRuntimeReplacementGate : ReflexDecisionRuntimeReplacementGate {
@@ -81,6 +87,36 @@ class CanonicalReflexDecisionRuntimeReplacementGate(
         )
         require(promotion.promotable) {
             "Reflex challenger is not promotable over the active champion"
+        }
+    }
+
+    override fun validate(
+        candidate: NativeReflexDecisionPort,
+        baselineCheckpointId: NativeCheckpointId,
+        promotion: NativeModelPromotionCandidate
+    ): Result<Unit> = runCatching {
+        activationGate.validate(candidate).getOrThrow()
+        require(promotion.checkpointId == candidate.checkpointId) {
+            "Reflex promotion proof checkpoint does not match candidate"
+        }
+        require(promotion.baselineCheckpointId == baselineCheckpointId) {
+            "Reflex promotion proof baseline does not match active champion"
+        }
+        val commonHoldoutBaseline = requireNotNull(
+            promotion.comparison.baselineEvaluation
+        ) {
+            "Reflex promotion proof has no common-holdout baseline evaluation"
+        }
+        val verified = training.promotionCandidateAgainstEvaluation(
+            candidateCheckpointId = candidate.checkpointId,
+            baselineCheckpointId = baselineCheckpointId,
+            baselineEvaluation = commonHoldoutBaseline
+        )
+        require(verified.promotable) {
+            "Reflex challenger is not promotable over the common-holdout champion"
+        }
+        require(verified.comparison == promotion.comparison) {
+            "Reflex promotion proof does not match canonical comparison"
         }
     }
 }
@@ -227,6 +263,15 @@ data class ReflexDecisionRuntimeActivation(
 
 interface ReflexDecisionRuntimeController : ReflexDecisionCortex {
     fun activate(port: NativeReflexDecisionPort): Result<ReflexDecisionRuntimeActivation>
+
+    fun replace(
+        port: NativeReflexDecisionPort,
+        promotion: NativeModelPromotionCandidate
+    ): Result<ReflexDecisionRuntimeActivation> =
+        Result.failure(
+            IllegalStateException("verified Reflex runtime replacement is unavailable")
+        )
+
     fun recover(
         resolver: NativeReflexDecisionPortResolver
     ): Result<ReflexDecisionRuntimeActivation?>
@@ -297,31 +342,65 @@ class CanonicalReflexDecisionRuntimeController(
             } else {
                 activationGate.validate(port).getOrThrow()
             }
-
-            val activatedAt = clock()
-            val next = ReflexDecisionRuntimeActivation(
-                checkpointId = port.checkpointId,
-                weightArtifactSha256 = port.weightArtifactSha256,
-                activatedAtEpochMs = activatedAt
+            activateValidated(
+                port = port,
+                currentActivation = currentActivation,
+                replacing = replacing
             )
-            activationStore.persistActive(next, activatedAt)
-
-            if (replacing) {
-                standbyPort = activePort
-                standbyActivation = currentActivation
-            } else if (currentActivation == null) {
-                standbyPort = null
-                standbyActivation = null
-            }
-            activePort = port
-            activation = next
-            lastLearnedInferenceAtEpochMs = null
-            healthState = ReflexRuntimeHealthSnapshot(
-                checkpointId = next.checkpointId,
-                automaticRollbacks = healthState.automaticRollbacks
-            )
-            next
         }
+
+    @Synchronized
+    override fun replace(
+        port: NativeReflexDecisionPort,
+        promotion: NativeModelPromotionCandidate
+    ): Result<ReflexDecisionRuntimeActivation> = runCatching {
+        val currentActivation = requireNotNull(activation) {
+            "verified Reflex replacement requires an active champion"
+        }
+        require(currentActivation.checkpointId != port.checkpointId) {
+            "verified Reflex replacement candidate is already active"
+        }
+        replacementGate.validate(
+            candidate = port,
+            baselineCheckpointId = currentActivation.checkpointId,
+            promotion = promotion
+        ).getOrThrow()
+        activateValidated(
+            port = port,
+            currentActivation = currentActivation,
+            replacing = true
+        )
+    }
+
+    private fun activateValidated(
+        port: NativeReflexDecisionPort,
+        currentActivation: ReflexDecisionRuntimeActivation?,
+        replacing: Boolean
+    ): ReflexDecisionRuntimeActivation {
+        val activatedAt = clock()
+        val next = ReflexDecisionRuntimeActivation(
+            checkpointId = port.checkpointId,
+            weightArtifactSha256 = port.weightArtifactSha256,
+            activatedAtEpochMs = activatedAt
+        )
+        activationStore.persistActive(next, activatedAt)
+
+        if (replacing) {
+            standbyPort = activePort
+            standbyActivation = currentActivation
+        } else if (currentActivation == null) {
+            standbyPort = null
+            standbyActivation = null
+        }
+        activePort = port
+        activation = next
+        lastLearnedInferenceAtEpochMs = null
+        healthState = ReflexRuntimeHealthSnapshot(
+            checkpointId = next.checkpointId,
+            automaticRollbacks = healthState.automaticRollbacks
+        )
+        return next
+    }
 
     @Synchronized
     override fun recover(

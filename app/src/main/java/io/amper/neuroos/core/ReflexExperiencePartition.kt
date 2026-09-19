@@ -38,7 +38,8 @@ interface ReflexExperiencePartitioner {
         holdoutRatio: Double = 0.20,
         minTrainingPerClass: Int = 2,
         minHoldoutPerClass: Int = 1,
-        limit: Int = 256
+        limit: Int = 256,
+        selectedExampleIds: List<ReflexExperienceExampleId>? = null
     ): ReflexExperiencePartition
 }
 
@@ -57,7 +58,8 @@ class DeterministicReflexExperiencePartitioner(
         holdoutRatio: Double,
         minTrainingPerClass: Int,
         minHoldoutPerClass: Int,
-        limit: Int
+        limit: Int,
+        selectedExampleIds: List<ReflexExperienceExampleId>?
     ): ReflexExperiencePartition {
         require(trainingShardId != holdoutShardId)
         require(holdoutRatio > 0.0 && holdoutRatio < 1.0)
@@ -65,7 +67,22 @@ class DeterministicReflexExperiencePartitioner(
         require(minHoldoutPerClass > 0)
         require(limit in 1..MemoryBackedReflexExperienceDatasetStore.MAX_SHARD_EXAMPLES)
 
-        val selected = store.recentExamples(limit)
+        val selected = selectedExampleIds?.let { ids ->
+            require(ids.isNotEmpty()) {
+                "explicit Reflex partition selection cannot be empty"
+            }
+            require(ids.size <= limit) {
+                "explicit Reflex partition selection exceeds limit"
+            }
+            require(ids.distinct().size == ids.size) {
+                "explicit Reflex partition selection contains duplicate example ids"
+            }
+            ids.map { id ->
+                requireNotNull(store.getExample(id)) {
+                    "explicit Reflex partition references missing example: " + id.value
+                }
+            }
+        } ?: store.recentExamples(limit)
         val actions = selected.filter {
             it.targetDisposition == ReflexDecisionDisposition.PROPOSE_ACTION
         }
