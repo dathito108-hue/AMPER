@@ -235,7 +235,7 @@ class GoalPortfolioCoordinationTest {
         val decoded = DurableGoalPortfolioCodec.decode(encoded).getOrThrow()
         val restored = decoded.single { it.sourceGoalId == coordinated.sourceGoalId }
 
-        assertTrue(encoded.startsWith("AMPER_DURABLE_GOAL_PORTFOLIO_V4"))
+        assertTrue(encoded.startsWith("AMPER_DURABLE_GOAL_PORTFOLIO_V5"))
         assertEquals(2, restored.selectionCount)
         assertEquals(15L, restored.lastSelectedAtEpochMs)
         assertEquals(setOf(prerequisite.sourceGoalId), restored.dependsOnGoalIds)
