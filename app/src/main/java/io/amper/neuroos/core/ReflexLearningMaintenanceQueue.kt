@@ -241,11 +241,16 @@ class ReflexBackgroundMaintenanceCoordinator(
     private val lifecycle: ReflexNativeModelLifecycle,
     private val queue: ReflexLearningMaintenanceQueue,
     private val deviceStatusSource: DeviceStatusSource? = null,
+    private val telemetry: ReflexLearningSchedulerTelemetry =
+        NoopReflexLearningSchedulerTelemetry,
     private val clock: () -> Long = System::currentTimeMillis
 ) {
     fun pendingTicket(): ReflexLearningMaintenanceTicket? = queue.pending()
 
-    fun tick(force: Boolean = false): Result<ReflexBackgroundMaintenanceResult> = runCatching {
+    fun tick(force: Boolean = false): Result<ReflexBackgroundMaintenanceResult> {
+        var attemptedTicket: ReflexLearningMaintenanceTicket? = null
+        var attemptedAtEpochMs: Long? = null
+        return runCatching {
         val ticket = queue.pending() ?: return@runCatching ReflexBackgroundMaintenanceResult(
             stage = ReflexBackgroundMaintenanceStage.IDLE,
             detail = "no durable Reflex maintenance ticket"
@@ -264,6 +269,8 @@ class ReflexBackgroundMaintenanceCoordinator(
             )
         }
 
+        attemptedTicket = ticket
+        attemptedAtEpochMs = now
         val retryDelay = retryDelayMs(ticket.attempts)
         queue.recordAttempt(
             expectedEvidenceDigest = ticket.evidenceDigest,
@@ -288,6 +295,12 @@ class ReflexBackgroundMaintenanceCoordinator(
 
             else -> false
         }
+        telemetry.observeMaintenanceAttempt(
+            queueWaitMs = (now - ticket.firstQueuedAtEpochMs).coerceAtLeast(0L),
+            completed = completed,
+            failed = false,
+            observedAtEpochMs = now
+        )
         ReflexBackgroundMaintenanceResult(
             stage = if (completed) {
                 ReflexBackgroundMaintenanceStage.COMPLETED
@@ -299,6 +312,17 @@ class ReflexBackgroundMaintenanceCoordinator(
             detail = report.detail
         )
     }.recover { error ->
+        val failedTicket = attemptedTicket
+        val failedAt = attemptedAtEpochMs
+        if (failedTicket != null && failedAt != null) {
+            telemetry.observeMaintenanceAttempt(
+                queueWaitMs =
+                    (failedAt - failedTicket.firstQueuedAtEpochMs).coerceAtLeast(0L),
+                completed = false,
+                failed = true,
+                observedAtEpochMs = failedAt
+            )
+        }
         ReflexBackgroundMaintenanceResult(
             stage = ReflexBackgroundMaintenanceStage.FAILED,
             attempts = queue.pending()?.attempts ?: 0,
@@ -306,10 +330,14 @@ class ReflexBackgroundMaintenanceCoordinator(
                 (error.message ?: error::class.java.simpleName)
         )
     }
+    }
 
     private fun retryDelayMs(attempts: Int): Long {
         val shift = attempts.coerceIn(0, MAX_BACKOFF_SHIFT)
-        return (BASE_RETRY_MS shl shift).coerceAtMost(MAX_RETRY_MS)
+        val tunedBase = (
+            BASE_RETRY_MS * telemetry.tuningProfile().retryDelayMultiplier.toLong()
+            ).coerceAtMost(MAX_RETRY_MS)
+        return (tunedBase shl shift).coerceAtMost(MAX_RETRY_MS)
     }
 
     companion object {
