@@ -209,21 +209,57 @@ class GoalOutcomeStrategyTransferTest {
         verified: Boolean,
         observedAt: Long
     ) {
-        val plan = terminalPlan(planId, objective)
-        val checkpoint = if (verified) {
-            verifiedCheckpoint(goalId, objective, plan)
-        } else {
-            PersistentGoalExecutiveCheckpoint(
-                sourceGoalId = goalId,
-                objective = objective,
-                conversationId = plan.conversationId,
-                priority = 0.8,
-                stage = PersistentGoalExecutiveStage.RECOVERY_EXHAUSTED,
-                plannedPlanId = plan.id,
-                recoveryCount = PersistentGoalExecutiveCheckpoint.MAX_RECOVERY_GENERATIONS,
-                lastFailureCode = "RECOVERY_LIMIT_REACHED",
-                updatedAtEpochMs = observedAt
-            )
+        val status = when (outcome) {
+            GoalOutcomeEvidenceKind.VERIFIED_SUCCESS,
+            GoalOutcomeEvidenceKind.EVIDENCE_EXHAUSTED -> PlanStepStatus.EXECUTED
+            GoalOutcomeEvidenceKind.EXECUTION_EXHAUSTED -> PlanStepStatus.FAILED
+            GoalOutcomeEvidenceKind.AUTHORITY_BLOCKED -> PlanStepStatus.DENIED
+            GoalOutcomeEvidenceKind.PARTIAL_EXECUTION_BLOCKED -> PlanStepStatus.FAILED
+        }
+        val plan = terminalPlan(planId, objective, status = status)
+        val checkpoint = when (outcome) {
+            GoalOutcomeEvidenceKind.VERIFIED_SUCCESS ->
+                verifiedCheckpoint(goalId, objective, plan)
+            GoalOutcomeEvidenceKind.EXECUTION_EXHAUSTED ->
+                PersistentGoalExecutiveCheckpoint(
+                    sourceGoalId = goalId,
+                    objective = objective,
+                    conversationId = plan.conversationId,
+                    priority = 0.8,
+                    stage = PersistentGoalExecutiveStage.RECOVERY_EXHAUSTED,
+                    plannedPlanId = plan.id,
+                    recoveryCount = PersistentGoalExecutiveCheckpoint.MAX_RECOVERY_GENERATIONS,
+                    lastFailureCode = "RECOVERY_LIMIT_REACHED",
+                    updatedAtEpochMs = observedAt
+                )
+            GoalOutcomeEvidenceKind.AUTHORITY_BLOCKED ->
+                PersistentGoalExecutiveCheckpoint(
+                    sourceGoalId = goalId,
+                    objective = objective,
+                    conversationId = plan.conversationId,
+                    priority = 0.8,
+                    stage = PersistentGoalExecutiveStage.RECOVERY_BLOCKED,
+                    plannedPlanId = plan.id,
+                    lastFailureCode = "AUTHORITY_OR_USER_BLOCK",
+                    updatedAtEpochMs = observedAt
+                )
+            GoalOutcomeEvidenceKind.EVIDENCE_EXHAUSTED ->
+                PersistentGoalExecutiveCheckpoint(
+                    sourceGoalId = goalId,
+                    objective = objective,
+                    conversationId = plan.conversationId,
+                    priority = 0.8,
+                    stage = PersistentGoalExecutiveStage.FOLLOW_UP_EXHAUSTED,
+                    plannedPlanId = plan.id,
+                    followUpCount = PersistentGoalExecutiveCheckpoint.MAX_FOLLOW_UP_GENERATIONS,
+                    lastVerificationVerdict = GoalSatisfactionVerdict.FOLLOW_UP_REQUIRED,
+                    lastVerificationConfidence = 0.70,
+                    lastVerificationReason = "more evidence required",
+                    lastFailureCode = "GOAL_FOLLOW_UP_LIMIT",
+                    updatedAtEpochMs = observedAt
+                )
+            GoalOutcomeEvidenceKind.PARTIAL_EXECUTION_BLOCKED ->
+                error("partial execution fixture requires a multi-step plan")
         }
         model.observe(
             checkpoint = checkpoint,
@@ -256,7 +292,8 @@ class GoalOutcomeStrategyTransferTest {
     private fun terminalPlan(
         id: String,
         goal: String,
-        conversationId: ConversationId = ConversationId("phase336-conversation")
+        conversationId: ConversationId = ConversationId("phase336-conversation"),
+        status: PlanStepStatus = PlanStepStatus.EXECUTED
     ): SovereignPlan = SovereignPlan(
         id = PlanId(id),
         conversationId = conversationId,
@@ -268,7 +305,7 @@ class GoalOutcomeStrategyTransferTest {
                 capability = capability,
                 reason = "Use current live contract only",
                 input = "secret-input",
-                status = PlanStepStatus.EXECUTED,
+                status = status,
                 boundToolId = ToolId("phase336-provider"),
                 boundSideEffect = ToolSideEffect.READ_ONLY
             )
