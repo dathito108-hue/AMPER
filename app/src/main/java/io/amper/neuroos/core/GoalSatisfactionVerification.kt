@@ -122,14 +122,14 @@ object GoalSatisfactionProtocol {
                 append(".capability=").append(sanitize(step.capability.value, 96))
                 append(";status=").append(step.status.name)
                 append(";sideEffect=").append(step.boundSideEffect?.name ?: "UNKNOWN")
-                append(";output=").append(sanitize(outcome?.output.orEmpty(), 512))
+                append(";output=").append(sanitize(outcome?.output.orEmpty(), 256))
             }
         }
         val stateEvidence = state.canonicalLines()
             .joinToString("\n")
-            .take(2_800)
+            .take(1_800)
 
-        return buildString {
+        val prompt = buildString {
             appendLine("You are AMPER's independent goal-satisfaction verifier.")
             appendLine("Use only the supplied executed-step outcomes and current cognitive evidence.")
             appendLine("Do not assume a real-world result that is not evidenced.")
@@ -151,7 +151,11 @@ object GoalSatisfactionProtocol {
             appendLine("confidence=0.00")
             appendLine("reason=single concise evidence-based reason")
             append(CLOSE)
-        }.take(maxChars)
+        }
+        require(prompt.length <= maxChars) {
+            "goal-verification prompt exceeds bounded character budget"
+        }
+        return prompt
     }
 
     private fun sanitizeReason(value: String): String = sanitize(value, 256)
