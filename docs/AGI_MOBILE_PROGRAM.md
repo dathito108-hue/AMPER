@@ -728,3 +728,18 @@ bound trainer can publish the immutable checkpoint lineage, while a trainer that
 run/manifest identity but the wrong verified-experience binding produces a FAILED run and no
 checkpoint. These checks do not promote or register the model; held-out evaluation, admission and
 runtime promotion remain downstream gates.
+
+
+### Implemented checkpoint — Phase416-420
+Phase416 adds deterministic train/holdout partitioning over verified AMPER experience using an
+identity-derived SHA-256 ordering rather than insertion order. Phase417 extends the canonical
+NativeExperienceDatasetStore with explicit example-set shard materialization so both sides retain the
+same GENERATED_INTERNAL rights, payload SHA-256 and provenance guarantees as earlier shards.
+Phase418 makes train and holdout shards strictly disjoint while requiring their union to equal the
+exact bounded selected example set. Phase419 allows the existing curriculum/training coordinator to
+reuse a pre-materialized training shard unchanged; because materializeShard returns the immutable
+existing shard, holdout examples cannot leak back into curriculum synthesis or training. Phase420
+exposes the partitioner as nativeExperiencePartition through AmperRuntime and fails closed when the
+verified-experience pool cannot satisfy both minimum training and holdout depths. The holdout shard is
+data only: it grants no authority and is not automatically used for checkpoint admission until a
+later evaluation phase explicitly consumes it.

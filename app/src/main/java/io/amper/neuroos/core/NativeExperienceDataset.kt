@@ -71,6 +71,12 @@ interface NativeExperienceDatasetStore {
         limit: Int = 256
     ): NativeExperienceDatasetShard
 
+    fun materializeShardFromExamples(
+        id: NativeDatasetShardId,
+        exampleIds: List<NativeExperienceExampleId>
+    ): NativeExperienceDatasetShard =
+        error("explicit native-experience shard selection is unavailable")
+
     fun getShard(id: NativeDatasetShardId): NativeExperienceDatasetShard?
 }
 
@@ -174,23 +180,47 @@ class MemoryBackedNativeExperienceDatasetStore(
         require(minExamples > 0)
         require(limit in minExamples..MAX_SHARD_EXAMPLES)
         getShard(id)?.let { return it }
-        require(foundation.getDatasetShard(id) == null) {
-            "native dataset id already belongs to another dataset"
-        }
-
         val examples = recentExamples(limit)
             .sortedBy { it.id.value }
         require(examples.size >= minExamples) {
             "insufficient verified native-experience examples"
         }
+        return materializeShardFromExamples(
+            id = id,
+            exampleIds = examples.map { it.id }
+        )
+    }
 
+    @Synchronized
+    override fun materializeShardFromExamples(
+        id: NativeDatasetShardId,
+        exampleIds: List<NativeExperienceExampleId>
+    ): NativeExperienceDatasetShard {
+        require(exampleIds.isNotEmpty())
+        require(exampleIds.size <= MAX_SHARD_EXAMPLES)
+        require(exampleIds.distinct().size == exampleIds.size)
+        val normalizedIds = exampleIds.sortedBy { it.value }
+
+        getShard(id)?.let { existing ->
+            require(existing.exampleIds == normalizedIds) {
+                "native experience shard id is already bound to different examples"
+            }
+            return existing
+        }
+        require(foundation.getDatasetShard(id) == null) {
+            "native dataset id already belongs to another dataset"
+        }
+
+        val examples = normalizedIds.map { exampleId ->
+            requireNotNull(getExample(exampleId)) {
+                "native experience shard references missing example: " + exampleId.value
+            }
+        }
         val payload = examples.joinToString(
             separator = "\n",
             transform = NativeExperienceDatasetCodec::trainingLine
         )
-        val capabilities = examples
-            .flatMap { it.strategy.capabilities }
-            .toSet()
+        val capabilities = examples.flatMap { it.strategy.capabilities }.toSet()
         val createdAt = examples.maxOf { it.observedAtEpochMs }
         val manifest = NativeDatasetShardManifest(
             id = id,
@@ -204,10 +234,9 @@ class MemoryBackedNativeExperienceDatasetStore(
         )
         val shard = NativeExperienceDatasetShard(
             manifest = manifest,
-            exampleIds = examples.map { it.id },
+            exampleIds = normalizedIds,
             payload = payload
         )
-
         memory.transaction {
             foundation.putDatasetShard(manifest)
             remember(
