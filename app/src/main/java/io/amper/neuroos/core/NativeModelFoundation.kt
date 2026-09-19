@@ -692,10 +692,10 @@ private object NativeFoundationCodec {
     ).joinToString(";")
 
     private fun encodeCapabilities(values: Set<CapabilityId>): String =
-        values.map { it.value }.sorted().joinToString(",") { enc(it) }
+        values.map { it.value }.sorted().joinToString(".") { enc(it) }
 
     private fun decodeCapabilities(value: String): Set<CapabilityId> =
-        value.split(',')
+        value.split('.')
             .filter { it.isNotBlank() }
             .map { CapabilityId(dec(it)) }
             .toSet()
