@@ -625,3 +625,16 @@ practice occurred after the latest real failure. Phase380 applies the same aged 
 to learning-pressure relief and structural strategy transfer; expired or invalidated evidence
 contributes zero, while authority/user outcomes remain neutral. Aging never changes authority and
 never turns practice into execution evidence.
+
+
+### Implemented checkpoint — Phase381-385
+Phase381 distills only real-world requalified repair evidence into restart-safe structural strategy
+memory keyed by ordered capability sequence. Phase382 requires two consecutive governed
+VERIFIED_SUCCESS outcomes before a distilled pattern becomes active; practice-only evidence cannot
+enter this memory. Phase383 resets the consecutive-success streak on execution or goal-evidence
+failure while authority/user and partial-execution outcomes remain neutral. Phase384 retrieves
+active patterns only when structural similarity is at least 0.75 and the target strategy still has
+live, non-expired requalification coverage for every required capability. Phase385 adds at most
++0.03 bounded portfolio support from the distilled memory. This bonus never modifies hierarchical
+credit, never widens tool admission or approval, and disappears when live requalification expires
+or is invalidated.

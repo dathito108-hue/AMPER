@@ -191,6 +191,7 @@ class AmperRuntime private constructor(
     val goalTransferCalibration: GoalTransferCalibrationModel,
     val goalHierarchicalStrategyCredit: GoalHierarchicalStrategyCreditModel,
     val goalRepairValidation: GoalRepairValidationModel,
+    val goalRepairStrategyMemory: GoalRepairStrategyMemory,
     val goalStrategyPortfolio: GoalContextualStrategyPortfolio,
     val goalGraphs: SovereignGoalGraphStore,
     val pendingApprovals: PendingAssistantApprovalStore,
@@ -334,6 +335,10 @@ class AmperRuntime private constructor(
                 memory = memory,
                 credit = goalHierarchicalStrategyCredit
             )
+            val goalRepairStrategyMemory = MemoryBackedGoalRepairStrategyMemory(
+                memory = memory,
+                repairValidation = goalRepairValidation
+            )
             val autonomousLearning = MemoryBackedAutonomousLearningModel(
                 memory = memory,
                 competence = competence,
@@ -400,7 +405,8 @@ class AmperRuntime private constructor(
             val goalStrategyPortfolio = MemoryBackedGoalContextualStrategyPortfolio(
                 memory = memory,
                 hierarchicalCredit = goalHierarchicalStrategyCredit,
-                repairValidation = goalRepairValidation
+                repairValidation = goalRepairValidation,
+                repairStrategyMemory = goalRepairStrategyMemory
             )
             val goalGraphs = MemoryBackedSovereignGoalGraphStore(memory)
             val pendingApprovals = MemoryBackedPendingAssistantApprovalStore(memory)
@@ -447,6 +453,7 @@ class AmperRuntime private constructor(
                 goalTransferCalibration = goalTransferCalibration,
                 goalHierarchicalStrategyCredit = goalHierarchicalStrategyCredit,
                 goalRepairValidation = goalRepairValidation,
+                goalRepairStrategyMemory = goalRepairStrategyMemory,
                 goalStrategyPortfolio = goalStrategyPortfolio,
                 goalGraphs = goalGraphs,
                 pendingApprovals = pendingApprovals,
