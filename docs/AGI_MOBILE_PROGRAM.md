@@ -231,6 +231,17 @@ and critic to the same cognitive-state digest, so policy cannot drift between th
 Metacognitive state remains authority=false and cannot approve side effects, modify ToolDescriptors
 or widen device/external authority.
 
+### Implemented checkpoint — Phase261-265
+Phase261 projects canonical perception.* world observations into typed bounded perceptual evidence.
+Phase262 preserves source/producer/confidence provenance and continues to exclude raw image/audio
+attachment bytes from Memory OS and cognitive prompts. Phase263 classifies observations as FRESH,
+RECENT or STALE so old device state cannot silently remain planning-eligible. Phase264 fuses the
+bounded percept snapshot into the integrated cognitive digest/readiness and lets current perception
+contribute to world confidence and uncertainty. Phase265 gives the independent critic the exact same
+percept snapshot/digest seen by planning, eliminating live-perception drift across a single decision.
+Perceptual evidence remains authority=false and cannot itself trigger capture, execute a tool or
+grant device/external permission.
+
 ## CI budget policy
 
 GitHub Actions is a scarce verification resource.
