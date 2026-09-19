@@ -237,8 +237,10 @@ class GoalOutcomeStrategyTransferTest {
         ).getOrThrow()
 
         val prompt = requests.single().prompt
-        assertTrue(prompt.contains("<GOAL_OUTCOME_STRATEGY_TRANSFER>"))
+        assertTrue(prompt.contains("<GOAL_OUTCOME_COUNTERFACTUAL_TRANSFER>"))
         assertTrue(prompt.contains("candidate.1.capabilities=phase336.read"))
+        assertTrue(prompt.contains("projected_support="))
+        assertTrue(prompt.contains("cognitive_state_digest="))
         assertTrue(prompt.contains("authority=false"))
         assertFalse(prompt.contains("phase339-history-goal"))
         assertFalse(prompt.contains("phase339-history-plan"))
