@@ -335,7 +335,10 @@ object GoalTransferCalibrationPolicy {
     ): GoalTransferCalibrationAdjustment {
         require(nowEpochMs >= 0L)
 
-        val ageMs = candidate.latestAnalogousObservedAtEpochMs
+        val recencyAnchor = candidate.latestSuccessfulObservedAtEpochMs
+            .takeIf { it > 0L }
+            ?: candidate.latestAnalogousObservedAtEpochMs
+        val ageMs = recencyAnchor
             .takeIf { it > 0L }
             ?.let { (nowEpochMs - it).coerceAtLeast(0L) }
         val recencyMultiplier = when {
