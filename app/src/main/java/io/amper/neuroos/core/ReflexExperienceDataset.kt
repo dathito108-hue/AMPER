@@ -71,7 +71,7 @@ data class ReflexExperienceDatasetShard(
         require(manifest.sha256 == reflexExperienceSha256(payload))
     }
 
-    val authorityBearing: Boolean
+    override val authorityBearing: Boolean
         get() = false
 }
 
