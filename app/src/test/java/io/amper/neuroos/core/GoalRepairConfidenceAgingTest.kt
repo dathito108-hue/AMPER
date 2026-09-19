@@ -27,7 +27,8 @@ class GoalRepairConfidenceAgingTest {
             1L
         val aging = fixture.repair.requalificationAssessment(capability, fixture.now)
         assertEquals(GoalRepairRequalificationFreshness.AGING, aging?.freshness)
-        assertTrue((aging?.effectiveConfidence ?: 0.0) in 0.0..<fresh)
+        val agingConfidence = aging?.effectiveConfidence ?: 0.0
+        assertTrue(agingConfidence > 0.0 && agingConfidence < fresh)
 
         fixture.now = 1_000L +
             MemoryBackedGoalRepairValidationModel.MAX_REQUALIFICATION_AGE_MS +
