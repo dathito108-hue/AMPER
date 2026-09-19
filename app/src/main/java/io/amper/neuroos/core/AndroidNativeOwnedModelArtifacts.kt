@@ -61,9 +61,14 @@ class AndroidAppPrivateModelArtifactSource(
  */
 class AndroidAppPrivateModelArtifactResolver(
     private val rootDir: File
-) : ModelArtifactResolver {
-    override fun resolve(model: InstalledModel): ModelArtifactSource? {
-        val locator = model.locator
+) : ModelArtifactResolver, MultimodalProjectorArtifactResolver {
+    override fun resolve(model: InstalledModel): ModelArtifactSource? =
+        resolveLocator(model.locator)
+
+    override fun resolve(projector: InstalledMultimodalProjector): ModelArtifactSource? =
+        resolveLocator(projector.locator)
+
+    private fun resolveLocator(locator: String): ModelArtifactSource? {
         if (!locator.startsWith(PREFIX)) return null
         val fileName = locator.removePrefix(PREFIX)
         if (!fileName.matches(AndroidAppPrivateModelArtifactSource.FILE_NAME)) return null
