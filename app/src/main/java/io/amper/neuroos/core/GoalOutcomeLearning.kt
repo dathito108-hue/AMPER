@@ -162,8 +162,7 @@ class MemoryBackedGoalOutcomeLearningModel(
 
         val digest = observationDigest(
             sourceGoalId = checkpoint.sourceGoalId,
-            planId = terminalPlan.id,
-            outcome = outcome
+            planId = terminalPlan.id
         )
         val id = MemoryId("goal-outcome:$digest")
         memory.get(id)
@@ -171,6 +170,12 @@ class MemoryBackedGoalOutcomeLearningModel(
             ?.let { GoalOutcomeEvidenceCodec.decode(it.content) }
             ?.let { existing ->
                 require(existing.observationDigest == digest)
+                require(existing.outcome == outcome) {
+                    "terminal goal outcome changed for an already observed plan"
+                }
+                require(existing.strategy == StrategySignature.from(terminalPlan)) {
+                    "terminal goal strategy changed for an already observed plan"
+                }
                 return existing
             }
 
@@ -277,9 +282,8 @@ class MemoryBackedGoalOutcomeLearningModel(
 
     private fun observationDigest(
         sourceGoalId: String,
-        planId: PlanId,
-        outcome: GoalOutcomeEvidenceKind
-    ): String = sha256("$sourceGoalId\n${planId.value}\n${outcome.name}")
+        planId: PlanId
+    ): String = sha256("$sourceGoalId\n${planId.value}")
 
     companion object {
         const val RECORD_KIND = "goal-outcome-evidence-v1"
