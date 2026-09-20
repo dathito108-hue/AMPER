@@ -92,6 +92,32 @@ interface StreamingInferenceBackend : InferenceBackend {
  *
  * Cancellation is not a backend failure and must not be translated into a synthetic success.
  */
+/**
+ * Latency guard for a caller that requested streaming but selected a backend that can only return
+ * a completed response. Without this bound a mobile CPU backend may legally consume a several-
+ * hundred-token budget while exposing no partial text, which looks indistinguishable from a hang.
+ *
+ * True streaming backends retain the caller's complete output budget.
+ */
+object TitanBlockingStreamFallbackPolicy {
+    const val MAX_OUTPUT_TOKENS: Int = 64
+
+    fun bound(
+        backend: InferenceBackend,
+        request: InferenceRequest
+    ): InferenceRequest =
+        if (backend is StreamingInferenceBackend) {
+            request
+        } else {
+            request.copy(
+                maxOutputTokens = minOf(
+                    request.maxOutputTokens,
+                    MAX_OUTPUT_TOKENS
+                )
+            )
+        }
+}
+
 interface CancellableStreamingInferenceBackend : StreamingInferenceBackend {
     fun inferStream(
         model: InstalledModel,
