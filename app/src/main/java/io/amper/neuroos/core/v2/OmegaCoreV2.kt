@@ -200,6 +200,7 @@ object OmegaArchitectureLock {
         OmegaMilestone(
             OmegaMilestoneId.M3_AMNE2_RUNTIME,
             listOf(
+                "verified AMI2 to AMNE2 execution admission boundary",
                 "ARM64 kernel dispatch",
                 "NEON DOTPROD I8MM FP16 qualification",
                 "mmap paging and KV management",
