@@ -24,7 +24,9 @@ data class Amne2HardwareFingerprint(
     companion object {
         fun from(snapshot: AmiHardwareSnapshot): Amne2HardwareFingerprint =
             Amne2HardwareFingerprint(
-                features = snapshot.features.toSortedSet(compareBy(AmiHardwareFeature::ordinal)),
+                features = snapshot.features
+                    .sortedBy { it.ordinal }
+                    .toCollection(linkedSetOf()),
                 logicalProcessors = snapshot.logicalProcessors,
                 memoryClassMb = snapshot.memoryClassMb,
                 lowRamDevice = snapshot.lowRamDevice
