@@ -204,7 +204,7 @@ jobs:
             echo "workflow_run_id=$GITHUB_RUN_ID"
             echo "workflow_run_number=$GITHUB_RUN_NUMBER"
             echo "package_mode=amper-single-core-ami-amne-only"
-            echo "amne_native_abi=2"
+            echo "amne_native_abi=3"
           } > "$OUT.provenance.txt"
       - uses: actions/upload-artifact@v4
         if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
