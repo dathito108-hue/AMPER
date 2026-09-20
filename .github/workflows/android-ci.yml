@@ -31,6 +31,9 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       native_changed: ${{ steps.changes.outputs.native_changed }}
+      mtmd_changed: ${{ steps.changes.outputs.mtmd_changed }}
+      amne_changed: ${{ steps.changes.outputs.amne_changed }}
+      llama_changed: ${{ steps.changes.outputs.llama_changed }}
       operational_llama: ${{ steps.changes.outputs.operational_llama }}
     steps:
       - uses: actions/checkout@v4
@@ -45,29 +48,65 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           echo "operational_llama=false" >> "$GITHUB_OUTPUT"
+          echo "native_changed=false" >> "$GITHUB_OUTPUT"
+          echo "mtmd_changed=false" >> "$GITHUB_OUTPUT"
+          echo "amne_changed=false" >> "$GITHUB_OUTPUT"
+          echo "llama_changed=false" >> "$GITHUB_OUTPUT"
+
           if [[ "$EVENT_NAME" == "workflow_dispatch" && "$MODE" == "full" ]]; then
             echo "native_changed=true" >> "$GITHUB_OUTPUT"
+            echo "mtmd_changed=true" >> "$GITHUB_OUTPUT"
+            echo "amne_changed=true" >> "$GITHUB_OUTPUT"
+            echo "llama_changed=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            echo "native_changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           if [[ "$EVENT_NAME" == "push" ]]; then
-            echo "native_changed=false" >> "$GITHUB_OUTPUT"
             CHANGED="$(git diff --name-only HEAD^ "$GITHUB_SHA")"
             if printf "%s\n" "$CHANGED" | grep -qx '.github/operational-apk-trigger'; then
               echo "operational_llama=true" >> "$GITHUB_OUTPUT"
             fi
             exit 0
           fi
+
           git fetch --no-tags origin "$BASE_SHA" --depth=1
           CHANGED="$(git diff --name-only "$BASE_SHA" "$GITHUB_SHA")"
           printf "%s\n" "$CHANGED"
-          if printf "%s\n" "$CHANGED" | grep -Eq '^(app/src/main/cpp/|app/src/main/jni/|.*CMakeLists\.txt$|app/build\.gradle|build\.gradle|settings\.gradle|gradle/)'; then
+
+          if printf "%s\n" "$CHANGED" | grep -Eq '^app/src/mtmdNative/'; then
+            echo "mtmd_changed=true" >> "$GITHUB_OUTPUT"
             echo "native_changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "native_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+          if printf "%s\n" "$CHANGED" | grep -Eq '^app/src/amneNative/'; then
+            echo "amne_changed=true" >> "$GITHUB_OUTPUT"
+            echo "native_changed=true" >> "$GITHUB_OUTPUT"
+          fi
+          if printf "%s\n" "$CHANGED" | grep -Eq '^app/src/llamaAar/'; then
+            echo "llama_changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          if printf "%s\n" "$CHANGED" | grep -qx 'app/build.gradle.kts'; then
+            BUILD_DIFF="$(git diff "$BASE_SHA" "$GITHUB_SHA" -- app/build.gradle.kts)"
+            if printf "%s\n" "$BUILD_DIFF" | grep -Eqi 'mtmd|spirv|vulkan'; then
+              echo "mtmd_changed=true" >> "$GITHUB_OUTPUT"
+              echo "native_changed=true" >> "$GITHUB_OUTPUT"
+            fi
+            if printf "%s\n" "$BUILD_DIFF" | grep -Eqi 'amne'; then
+              echo "amne_changed=true" >> "$GITHUB_OUTPUT"
+              echo "native_changed=true" >> "$GITHUB_OUTPUT"
+            fi
+            if printf "%s\n" "$BUILD_DIFF" | grep -Eqi 'llama'; then
+              echo "llama_changed=true" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+          if printf "%s\n" "$CHANGED" | grep -Eq '^(app/src/main/cpp/|app/src/main/jni/|build.gradle|settings.gradle|gradle/)'; then
+            echo "native_changed=true" >> "$GITHUB_OUTPUT"
+            echo "mtmd_changed=true" >> "$GITHUB_OUTPUT"
+            echo "amne_changed=true" >> "$GITHUB_OUTPUT"
+            echo "llama_changed=true" >> "$GITHUB_OUTPUT"
           fi
       - uses: actions/setup-java@v4
         with:
@@ -76,6 +115,14 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Qualify AMNE native reference math on host
+        if: steps.changes.outputs.amne_changed == 'true'
+        run: |
+          g++ -std=c++20 -O2 -Wall -Wextra -Werror -ffp-contract=off \
+            app/src/amneNative/cpp/amne_kernels.cpp \
+            app/src/amneNative/cpp/amne_reference_test.cpp \
+            -o /tmp/amne-reference-test
+          /tmp/amne-reference-test
       - name: Unit tests
         run: gradle :app:testDebugUnitTest --stacktrace
       - name: Build canonical debug APK
@@ -153,7 +200,7 @@ jobs:
 
   optional-llama-aar:
     needs: verify
-    if: needs.verify.outputs.native_changed == 'true'
+    if: needs.verify.outputs.llama_changed == 'true'
     continue-on-error: true
     runs-on: ubuntu-latest
     steps:
@@ -180,9 +227,39 @@ jobs:
           name: AMPER-llama-aar-debug
           path: app/build/outputs/apk/debug/app-debug.apk
 
+  amne-native-arm64:
+    needs: verify
+    if: needs.verify.outputs.amne_changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Install Android NDK and CMake
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "ndk;27.2.12479018" \
+            "cmake;3.22.1"
+      - name: Build AMNE + llama fallback arm64 APK
+        run: gradle :app:assembleDebug -PwithAmneNative=true -PwithLlamaAar=true --stacktrace
+      - name: Verify packaged AMNE and fallback runtime
+        run: |
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          unzip -l "$APK" > /tmp/amper-amne-apk-files.txt
+          grep -q 'lib/arm64-v8a/libamne.so' /tmp/amper-amne-apk-files.txt
+          grep -q 'lib/arm64-v8a/libllama_jni.so' /tmp/amper-amne-apk-files.txt
+          grep -q 'lib/arm64-v8a/libllama.so' /tmp/amper-amne-apk-files.txt
+
   native-mtmd-arm64:
     needs: verify
-    if: needs.verify.outputs.native_changed == 'true'
+    if: needs.verify.outputs.mtmd_changed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -218,7 +295,7 @@ jobs:
 
   native-mtmd-vulkan-arm64:
     needs: verify
-    if: needs.verify.outputs.native_changed == 'true'
+    if: needs.verify.outputs.mtmd_changed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 55
     steps:
