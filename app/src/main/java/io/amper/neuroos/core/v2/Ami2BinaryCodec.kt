@@ -214,6 +214,12 @@ class Ami2CanonicalBinaryWriter {
         require(recomputed == foundation.semanticSha256) {
             "AMI2 foundation semantic digest is not canonical"
         }
+        require(
+            foundation.foundationId ==
+                Ami2CompilationPlanner.foundationIdForSemantic(foundation.semanticSha256)
+        ) {
+            "AMI2 foundation id is not canonical for its semantic digest"
+        }
     }
 
     private fun planSections(
@@ -432,8 +438,13 @@ class Ami2CanonicalBinaryReader {
             semanticSha256 == requireField(manifest, "semantic_sha256", "AMI2 manifest")
         ) { "AMI2 manifest semantic digest mismatch" }
 
+        val foundationId = requireField(manifest, "foundation_id", "AMI2 manifest")
+        require(
+            foundationId == Ami2CompilationPlanner.foundationIdForSemantic(semanticSha256)
+        ) { "AMI2 foundation id does not match semantic digest" }
+
         val foundation = Ami2FoundationIdentity(
-            foundationId = requireField(manifest, "foundation_id", "AMI2 manifest"),
+            foundationId = foundationId,
             architectureId = requireField(manifest, "architecture", "AMI2 manifest"),
             lineage = lineage,
             tokenizerSha256 = digest(Ami2ArtifactRole.TOKENIZER),
