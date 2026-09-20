@@ -29,6 +29,20 @@ internal object AndroidAppPrivateStorage {
         return canonical
     }
 
+    fun canonicalCacheDir(context: Context): File =
+        canonicalDirectory(context.cacheDir, "Android app-private cache")
+
+    internal fun canonicalDirectory(directory: File, label: String): File {
+        val canonical = directory.canonicalFile
+        require(canonical.exists()) {
+            "$label directory does not exist: $canonical"
+        }
+        require(canonical.isDirectory) {
+            "$label path is not a directory: $canonical"
+        }
+        return canonical
+    }
+
     fun sovereignDir(context: Context): File =
         File(canonicalFilesDir(context), "amper-sovereign")
 }
