@@ -46,8 +46,12 @@ fun interface AmcfCycleExecutionPort {
     ): Result<AmcfCycleObservation>
 }
 
-fun interface AmcfRecurrentStateCommitObserver {
-    fun committed(state: AmcfRecurrentState)
+/**
+ * Best-effort observability hook only. It does not own recurrent-state persistence/commit and its
+ * failure cannot change the authoritative orchestrator result.
+ */
+fun interface AmcfRecurrentStateObserver {
+    fun observed(state: AmcfRecurrentState)
 }
 
 data class AmcfCycleRunResult(
@@ -80,8 +84,8 @@ data class AmcfCycleRunResult(
  */
 class AmcfCycleOrchestrator(
     private val execution: AmcfCycleExecutionPort,
-    private val commitObserver: AmcfRecurrentStateCommitObserver =
-        AmcfRecurrentStateCommitObserver { }
+    private val stateObserver: AmcfRecurrentStateObserver =
+        AmcfRecurrentStateObserver { }
 ) {
     fun run(
         plan: AmcfComputeCyclePlan,
@@ -120,8 +124,8 @@ class AmcfCycleOrchestrator(
                 evidenceSufficiency = observation.evidenceSufficiency
             )
             cancellation?.throwIfCancelled()
-            commitObserver.committed(state)
             states += state
+            runCatching { stateObserver.observed(state) }
 
             if (cycle.kind == AmcfComputeCycleKind.DELIBERATE) {
                 val decision = AmcfEarlyExitGate.decide(
