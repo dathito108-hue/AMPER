@@ -44,6 +44,14 @@ class OmegaCoreV2Test {
             "m4-amcf-foundation-has-consolidated-qualification-gate" in
                 OmegaArchitectureLock.invariants
         )
+        assertTrue(
+            "agent-task-origin-and-background-mode-are-canonical" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "agent-core-never-owns-tool-authority" in
+                OmegaArchitectureLock.invariants
+        )
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
@@ -192,6 +200,12 @@ class OmegaCoreV2Test {
                 .contains(
                     "FAST REASON DEEP VERIFY evidence passes one consolidated M4 qualification gate"
                 )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains("canonical user-request and proactive-trigger task contract")
         )
     }
 
