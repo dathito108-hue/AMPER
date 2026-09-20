@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import io.amper.neuroos.core.AmperExecutionLanes
 import io.amper.neuroos.core.AmperRuntime
 import io.amper.neuroos.core.AssistantStreamEvent
+import io.amper.neuroos.core.AssistantTurnStage
 import io.amper.neuroos.core.AutonomousGoalScheduler
 import io.amper.neuroos.core.AutonomousGovernedPlanRunner
 import io.amper.neuroos.core.InferenceCancellationSignal
@@ -1977,21 +1978,45 @@ class MainActivity : ComponentActivity() {
                                                 "RUNNING · AMPER cognition → Titan route → local model..."
                                         }
                                     }
-                                    val result = assistant.respondStreaming(
+                                    val result = assistant.respondStreamingObserved(
                                         conversationId = thread,
                                         userPrompt = userPrompt,
                                         attachments = turnAttachments,
-                                        cancellation = cancellation
-                                    ) { event ->
-                                        runOnUiThread {
-                                            if (conversationId == thread) {
-                                                when (event) {
-                                                    AssistantStreamEvent.Reset -> inferenceOutput = ""
-                                                    is AssistantStreamEvent.Text -> inferenceOutput += event.text
+                                        cancellation = cancellation,
+                                        onStage = { stage ->
+                                            runOnUiThread {
+                                                if (
+                                                    conversationId == thread &&
+                                                    activeInferenceCancellation === cancellation
+                                                ) {
+                                                    inferenceStatus = when (stage) {
+                                                        AssistantTurnStage.RUNTIME_TICK ->
+                                                            "RUNNING · stage RUNTIME_TICK"
+                                                        AssistantTurnStage.REFLEX ->
+                                                            "RUNNING · stage REFLEX"
+                                                        AssistantTurnStage.NATIVE_SYSTEM2 ->
+                                                            "RUNNING · stage NATIVE_SYSTEM2"
+                                                        AssistantTurnStage.TITAN_INFERENCE ->
+                                                            "RUNNING · stage TITAN_INFERENCE"
+                                                        AssistantTurnStage.ACTION_EVALUATION ->
+                                                            "RUNNING · stage ACTION_EVALUATION"
+                                                        AssistantTurnStage.FINALIZING ->
+                                                            "RUNNING · stage FINALIZING"
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        onEvent = { event ->
+                                            runOnUiThread {
+                                                if (conversationId == thread) {
+                                                    when (event) {
+                                                        AssistantStreamEvent.Reset -> inferenceOutput = ""
+                                                        is AssistantStreamEvent.Text -> inferenceOutput += event.text
+                                                    }
                                                 }
                                             }
                                         }
-                                    }
+                                    )
                                     runOnUiThread {
                                         if (activeInferenceCancellation === cancellation) {
                                             activeInferenceCancellation = null
