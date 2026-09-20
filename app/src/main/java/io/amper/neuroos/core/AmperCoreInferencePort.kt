@@ -33,6 +33,16 @@ class AmperCoreInferencePort(
 
     fun health(): BackendHealth = coreBackend.health()
 
+    /**
+     * Production AMPER Core has one active foundation, so model-choice hints have no semantic role.
+     * Capability, context, attachments, temperature and resource policy remain unchanged.
+     */
+    fun normalizeRequest(request: InferenceRequest): InferenceRequest =
+        request.copy(
+            preferredModelId = null,
+            userPreferredModelId = null
+        )
+
     fun nativeRuntimePackaged(): Boolean = AmneNativeRuntimeProbe.isPackaged()
 
     /**
