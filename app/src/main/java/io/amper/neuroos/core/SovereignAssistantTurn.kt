@@ -325,8 +325,8 @@ class SovereignAssistantTurnCoordinator(
             maxOutputTokens = boundInferenceProfile.maxOutputTokens,
             temperature = boundInferenceProfile.temperature,
             preferredCapabilityProfiles = preferredProfiles,
-            preferredModelId = previousModelId,
-            userPreferredModelId = runtime.conversations.preferredModelId(conversationId),
+            preferredModelId = null,
+            userPreferredModelId = null,
             sessionRoutingPreference = boundInferenceProfile.sessionRoutingPreference,
             attachments = attachments
         )
@@ -788,8 +788,8 @@ class SovereignAssistantTurnCoordinator(
                     maxOutputTokens = boundInferenceProfile.maxOutputTokens,
                     temperature = boundInferenceProfile.temperature,
                     preferredCapabilityProfiles = preferredCapabilityProfiles,
-                    preferredModelId = first.modelId,
-                    userPreferredModelId = runtime.conversations.preferredModelId(conversationId),
+                    preferredModelId = null,
+                    userPreferredModelId = null,
                     sessionRoutingPreference = boundInferenceProfile.sessionRoutingPreference
                 ),
                 cancellation = cancellation,
@@ -947,8 +947,8 @@ class SovereignAssistantTurnCoordinator(
                 maxOutputTokens = boundInferenceProfile.maxOutputTokens,
                 temperature = boundInferenceProfile.temperature,
                 preferredCapabilityProfiles = preferredCapabilityProfiles,
-                preferredModelId = preferredModelId,
-                userPreferredModelId = runtime.conversations.preferredModelId(conversationId),
+                preferredModelId = null,
+                userPreferredModelId = null,
                 sessionRoutingPreference = boundInferenceProfile.sessionRoutingPreference
             ),
             cancellation = cancellation,
