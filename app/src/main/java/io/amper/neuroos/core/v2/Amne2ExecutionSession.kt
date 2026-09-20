@@ -6,6 +6,7 @@ import io.amper.neuroos.core.AmiDecoderStackExecutor
 import io.amper.neuroos.core.AmiDecoderStackPlan
 import io.amper.neuroos.core.AmiDecoderStackPlanner
 import io.amper.neuroos.core.AmiDecoderStackState
+import io.amper.neuroos.core.AmiGeneratedToken
 import io.amper.neuroos.core.AmiGenerationConfig
 import io.amper.neuroos.core.AmiGenerationResult
 import io.amper.neuroos.core.AmiHardwareSnapshot
@@ -111,7 +112,8 @@ class Amne2ExecutionSession internal constructor(
     fun generate(
         promptTokenIds: IntArray,
         config: AmiGenerationConfig,
-        cancellation: InferenceCancellationSignal? = null
+        cancellation: InferenceCancellationSignal? = null,
+        onToken: ((AmiGeneratedToken) -> Unit)? = null
     ): Result<AmiGenerationResult> =
         withExecutionLease {
             AmiAutoregressiveGenerator(maxWindowBytes)
@@ -124,7 +126,8 @@ class Amne2ExecutionSession internal constructor(
                     promptTokenIds = promptTokenIds,
                     config = config,
                     hardware = hardware,
-                    cancellation = cancellation
+                    cancellation = cancellation,
+                    onToken = onToken
                 )
                 .getOrThrow()
         }
