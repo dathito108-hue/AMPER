@@ -1401,7 +1401,7 @@ class MainActivity : ComponentActivity() {
                                     )
                                     Text(
                                         "Compile the selected GGUF directly into canonical AMI2. " +
-                                            "SOURCE_EXACT preserves foundation tensor bytes; AMI1 remains runtime compatibility until AMNE2."
+                                            "SOURCE_EXACT preserves foundation tensor bytes; production execution uses AMNE2."
                                     )
                                     Button(
                                         enabled = !amiCompileBusy,
@@ -1446,9 +1446,9 @@ class MainActivity : ComponentActivity() {
                                     ) {
                                         Text(
                                             if (amiCompileBusy) {
-                                                "Compiling GGUF → AMI..."
+                                                "Compiling GGUF → AMI2..."
                                             } else {
-                                                "Compile selected GGUF → AMI"
+                                                "Compile selected GGUF → AMI2"
                                             }
                                         )
                                     }
