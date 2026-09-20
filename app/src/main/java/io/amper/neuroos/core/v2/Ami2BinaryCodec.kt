@@ -193,6 +193,9 @@ class Ami2CanonicalBinaryWriter {
         require(sha256(payloads.logicalGraph) == foundation.logicalGraphSha256) {
             "AMI2 logical-graph payload does not match foundation identity"
         }
+        require(sha256(payloads.tensorIndex) == foundation.tensorIndexSha256) {
+            "AMI2 tensor-index payload does not match foundation identity"
+        }
         require(sha256(payloads.foundationWeights) == foundation.canonicalWeightsSha256) {
             "AMI2 foundation-weight payload does not match foundation identity"
         }
@@ -203,6 +206,7 @@ class Ami2CanonicalBinaryWriter {
             tokenizerSha256 = foundation.tokenizerSha256,
             chatProtocolSha256 = foundation.chatProtocolSha256,
             logicalGraphSha256 = foundation.logicalGraphSha256,
+            tensorIndexSha256 = foundation.tensorIndexSha256,
             canonicalWeightsSha256 = foundation.canonicalWeightsSha256,
             tensorCount = foundation.tensorCount,
             vocabularySize = foundation.vocabularySize
@@ -291,6 +295,7 @@ class Ami2CanonicalBinaryWriter {
             append("tokenizer_sha256=").append(f.tokenizerSha256).append('\n')
             append("chat_protocol_sha256=").append(f.chatProtocolSha256).append('\n')
             append("logical_graph_sha256=").append(f.logicalGraphSha256).append('\n')
+            append("tensor_index_sha256=").append(f.tensorIndexSha256).append('\n')
             append("canonical_weights_sha256=").append(f.canonicalWeightsSha256).append('\n')
             append("tensor_count=").append(f.tensorCount).append('\n')
             append("vocabulary_size=").append(f.vocabularySize).append('\n')
@@ -396,6 +401,10 @@ class Ami2CanonicalBinaryReader {
                 digest(Ami2ArtifactRole.LOGICAL_GRAPH)
         ) { "AMI2 logical-graph identity does not match section table" }
         require(
+            requireField(manifest, "tensor_index_sha256", "AMI2 manifest") ==
+                digest(Ami2ArtifactRole.TENSOR_INDEX)
+        ) { "AMI2 tensor-index identity does not match section table" }
+        require(
             requireField(manifest, "canonical_weights_sha256", "AMI2 manifest") ==
                 digest(Ami2ArtifactRole.FOUNDATION_WEIGHTS)
         ) { "AMI2 foundation-weight identity does not match section table" }
@@ -406,6 +415,7 @@ class Ami2CanonicalBinaryReader {
             tokenizerSha256 = digest(Ami2ArtifactRole.TOKENIZER),
             chatProtocolSha256 = digest(Ami2ArtifactRole.CHAT_PROTOCOL),
             logicalGraphSha256 = digest(Ami2ArtifactRole.LOGICAL_GRAPH),
+            tensorIndexSha256 = digest(Ami2ArtifactRole.TENSOR_INDEX),
             canonicalWeightsSha256 = digest(Ami2ArtifactRole.FOUNDATION_WEIGHTS),
             tensorCount = requireField(manifest, "tensor_count", "AMI2 manifest").toInt(),
             vocabularySize = requireField(
@@ -429,6 +439,7 @@ class Ami2CanonicalBinaryReader {
             tokenizerSha256 = digest(Ami2ArtifactRole.TOKENIZER),
             chatProtocolSha256 = digest(Ami2ArtifactRole.CHAT_PROTOCOL),
             logicalGraphSha256 = digest(Ami2ArtifactRole.LOGICAL_GRAPH),
+            tensorIndexSha256 = digest(Ami2ArtifactRole.TENSOR_INDEX),
             canonicalWeightsSha256 = digest(Ami2ArtifactRole.FOUNDATION_WEIGHTS),
             semanticSha256 = semanticSha256,
             tensorCount = requireField(manifest, "tensor_count", "AMI2 manifest").toInt(),
@@ -595,8 +606,8 @@ class Ami2CanonicalBinaryReader {
     private fun parseFields(text: String, label: String): Map<String, String> {
         val fields = linkedMapOf<String, String>()
         text.lineSequence()
-            .map(String::trim)
-            .filter(String::isNotEmpty)
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
             .forEach { line ->
                 val separator = line.indexOf('=')
                 require(separator > 0) { "$label contains malformed field" }
