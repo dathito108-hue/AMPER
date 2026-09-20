@@ -121,7 +121,8 @@ class GgufToAmi2StreamingCompilerTest {
             opens += 1
             if (opens == mutateOnOpen) {
                 bytes = bytes.copyOf().also { current ->
-                    current[current.lastIndex] = (current.last() xor 0x01)
+                    current[current.lastIndex] =
+                        (current.last().toInt() xor 0x01).toByte()
                 }
             }
             return ByteArrayInputStream(bytes)
