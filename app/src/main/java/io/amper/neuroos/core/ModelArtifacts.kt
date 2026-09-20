@@ -22,7 +22,8 @@ interface ModelArtifactSource {
  * keep any resource needed for the path alive for the whole block.
  *
  * This base interface does not promise that the path is descriptor-bound. A plain
- * filesystem path can still be substituted between verification and native open.
+ * filesystem path can still be substituted between verification and native open unless a stronger
+ * descriptor-bound or validated app-private contract is also implemented.
  */
 interface NativeModelPathSource : ModelArtifactSource {
     fun <T> withNativePath(block: (String) -> T): T
@@ -62,8 +63,8 @@ internal fun ModelArtifactSource.requireTrustedNativePathSource(
 /**
  * Generic file source used by JVM tooling/tests and non-native inspection. Its native path is
  * a normal filesystem pathname, so it intentionally does NOT implement
- * [DescriptorBoundNativeModelPathSource]. Android production import uses a descriptor-bound
- * content-URI source instead.
+ * [DescriptorBoundNativeModelPathSource]. Android production content URIs are staged into a
+ * validated app-private cache before native loading instead of exposing arbitrary filesystem paths.
  */
 class FileModelArtifactSource(private val file: File) : NativeModelPathSource {
     override val locator: String = file.absolutePath
