@@ -139,7 +139,8 @@ class AmcfProductionFoundationInferencePort(
     private val endpoint: AmcfFoundationInferenceEndpoint,
     private val context: AmcfFoundationInferenceContext,
     private val qualityEvaluator: AmcfCycleQualityEvaluator =
-        AmcfConservativeCycleQualityEvaluator
+        AmcfConservativeCycleQualityEvaluator,
+    private val frozenCognitiveSnapshot: AmcfFrozenCognitiveSnapshot? = null
 ) : AmcfCycleExecutionPort {
     private val transientLock = Any()
     private val transientCandidates = linkedMapOf<String, String>()
@@ -241,6 +242,13 @@ class AmcfProductionFoundationInferencePort(
         appendLine("cycle_index=" + request.cycle.index)
         appendLine("cycle_kind=" + request.cycle.kind.name)
         appendLine("compute_mode=" + request.plan.mode.name)
+        frozenCognitiveSnapshot?.let { snapshot ->
+            appendLine("cognitive_state_digest=" + snapshot.cognitiveStateDigest)
+            appendLine("cognitive_query_digest=" + snapshot.queryDigest)
+            appendLine("<FROZEN_COGNITIVE_STATE>")
+            appendLine(snapshot.boundedGuidance)
+            appendLine("</FROZEN_COGNITIVE_STATE>")
+        }
         request.previousState?.let { previous ->
             appendLine("previous_candidate_digest=" + previous.candidateDigest)
             appendLine("previous_evidence_digest=" + previous.evidenceDigest)
