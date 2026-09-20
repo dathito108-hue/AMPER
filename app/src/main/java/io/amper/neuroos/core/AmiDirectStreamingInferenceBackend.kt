@@ -6,6 +6,10 @@ import io.amper.neuroos.core.v2.Amne2ContextPressurePolicy
 import io.amper.neuroos.core.v2.Amne2ExecutionSession
 import io.amper.neuroos.core.v2.Amne2MemoryBudget
 import io.amper.neuroos.core.v2.Amne2ExecutionSessionFactory
+import io.amper.neuroos.core.v2.Amne2HotSessionTelemetry
+import io.amper.neuroos.core.v2.Amne2HotSessionTelemetryState
+import io.amper.neuroos.core.v2.Amne2RuntimeReadinessSnapshot
+import io.amper.neuroos.core.v2.Amne2RuntimeReadinessTelemetry
 import io.amper.neuroos.core.v2.StoredAmi2Artifact
 import java.util.concurrent.ConcurrentHashMap
 
@@ -137,6 +141,38 @@ class AmiDirectStreamingInferenceBackend(
                 "AMPER Core · native matrix admission pending; no foreign fallback runtime"
             },
             hardwareAcceleration = acceleratedMatrices
+        )
+    }
+
+    /**
+     * Model-specific M3 readiness snapshot for diagnostics/telemetry.
+     *
+     * This is deliberately side-effect free: it consumes the prepared AMI2/AMNE2 facts and current
+     * hot-session state without opening a new session, retuning hardware, or modifying KV.
+     */
+    fun runtimeReadiness(
+        model: InstalledModel
+    ): Result<Amne2RuntimeReadinessSnapshot> = runCatching {
+        val key = model.descriptor.id.value + ":" + model.sha256
+        val runtime = requireNotNull(prepared[key]) {
+            "AMNE2 runtime readiness is available only after model preparation"
+        }
+        val readiness = directReadiness(runtime)
+        val foundation = runtime.artifact.loaded.bundle.foundation
+        val hot = synchronized(hotSessionLock) {
+            hotSessionTelemetry(model)
+        }
+
+        Amne2RuntimeReadinessTelemetry.snapshot(
+            foundationId = foundation.foundationId,
+            semanticSha256 = foundation.semanticSha256,
+            artifactSha256 = runtime.artifact.loaded.fileSha256,
+            sourceSha256 = foundation.lineage.sourceSha256,
+            memoryBudget = runtime.memoryBudget,
+            requiredMatrixPrimitives = readiness.requiredMatrixPrimitives,
+            referenceOnlyMatrixPrimitives = readiness.referenceOnlyMatrixPrimitives,
+            backendByPrimitive = readiness.backendByPrimitive,
+            hotSession = hot
         )
     }
 
@@ -558,6 +594,23 @@ class AmiDirectStreamingInferenceBackend(
             memoryBudget = memoryBudget,
             requiredMatrixPrimitives = requiredMatrixPrimitives
         ).also { prepared[key] = it }
+    }
+
+    private fun hotSessionTelemetry(
+        model: InstalledModel
+    ): Amne2HotSessionTelemetry {
+        val current = hotSession ?: return Amne2HotSessionTelemetry.none()
+        val matches = current.identity.modelId == model.descriptor.id.value
+        return Amne2HotSessionTelemetry(
+            state = if (matches) {
+                Amne2HotSessionTelemetryState.ACTIVE_MATCHING_MODEL
+            } else {
+                Amne2HotSessionTelemetryState.ACTIVE_OTHER_MODEL
+            },
+            kvPosition = current.session.position,
+            committedTokens = current.committedTokenIds.size,
+            maxContextTokens = current.session.maxContextTokens
+        )
     }
 
     private fun prepareInstructionPrompt(
