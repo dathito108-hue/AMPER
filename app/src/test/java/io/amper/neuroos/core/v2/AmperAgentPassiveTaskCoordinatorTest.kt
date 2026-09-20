@@ -53,14 +53,16 @@ class AmperAgentPassiveTaskCoordinatorTest {
         ).getOrThrow()
 
         port.nextAdvance = {
+            val waitingPlan = port.current.copy(
+                steps = port.current.steps.map { step ->
+                    step.copy(status = PlanStepStatus.REQUIRES_CONFIRMATION)
+                }
+            )
+            port.current = waitingPlan
             PlanAdvanceResult.PendingApproval(
-                plan = current.copy(
-                    steps = current.steps.map { step ->
-                        step.copy(status = PlanStepStatus.REQUIRES_CONFIRMATION)
-                    }
-                ).also { current = it },
-                step = current.steps.first(),
-                proposal = current.steps.first().proposal()
+                plan = waitingPlan,
+                step = waitingPlan.steps.first(),
+                proposal = waitingPlan.steps.first().proposal()
             )
         }
 
