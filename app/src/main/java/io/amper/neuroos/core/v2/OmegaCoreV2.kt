@@ -179,6 +179,7 @@ object OmegaArchitectureLock {
         "agent-task-origin-and-background-mode-are-canonical",
         "agent-core-never-owns-tool-authority",
         "passive-agent-tasks-reuse-persistent-sovereign-plans",
+        "agent-continuation-restores-exact-durable-plan-without-replay",
         "gguf-is-import-source-only",
         "adaptive-compute-fast-to-deep",
         "verification-before-confidence",
@@ -253,6 +254,7 @@ object OmegaArchitectureLock {
             listOf(
                 "canonical user-request and proactive-trigger task contract",
                 "passive user-request tasks reuse persistent sovereign plans and governed approvals",
+                "foreground and persisted user tasks restore exact durable state without replay",
                 "passive tool execution",
                 "proactive goals and triggers",
                 "foreground continuation after UI exit",
