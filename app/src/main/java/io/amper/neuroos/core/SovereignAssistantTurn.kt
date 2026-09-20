@@ -199,12 +199,30 @@ class SovereignAssistantTurnCoordinator(
             cancellation = cancellation
         )
 
+    fun respondStreamingObserved(
+        conversationId: ConversationId,
+        userPrompt: String,
+        attachments: List<InferenceAttachment>,
+        cancellation: InferenceCancellationSignal,
+        onStage: (AssistantTurnStage) -> Unit,
+        onEvent: (AssistantStreamEvent) -> Unit
+    ): Result<SovereignAssistantTurnResult> =
+        respondInternal(
+            conversationId = conversationId,
+            userPrompt = userPrompt,
+            attachments = attachments,
+            stream = onEvent,
+            cancellation = cancellation,
+            stageObserver = onStage
+        )
+
     private fun respondInternal(
         conversationId: ConversationId,
         userPrompt: String,
         attachments: List<InferenceAttachment>,
         stream: ((AssistantStreamEvent) -> Unit)?,
-        cancellation: InferenceCancellationSignal? = null
+        cancellation: InferenceCancellationSignal? = null,
+        stageObserver: ((AssistantTurnStage) -> Unit)? = null
     ): Result<SovereignAssistantTurnResult> = runCatching {
         cancellation?.throwIfCancelled()
         require(userPrompt.isNotBlank())
@@ -221,12 +239,17 @@ class SovereignAssistantTurnCoordinator(
         val previousModelId = runtime.conversations.latestAssistantModelId(conversationId)
         val previousSelectedCapabilities =
             runtime.conversations.latestAssistantSelectedCapabilities(conversationId)
+
+        emitStage(stageObserver, AssistantTurnStage.RUNTIME_TICK)
         runtime.tick(userPrompt)
+        cancellation?.throwIfCancelled()
+
         if (
             attachments.isEmpty() &&
             userPrompt.length <= ReflexDecisionRequest.MAX_INPUT_CHARS &&
             boundInferenceProfile.reflectionMode == ConversationReflectionMode.STANDARD
         ) {
+            emitStage(stageObserver, AssistantTurnStage.REFLEX)
             val reflexDecision = runtime.reflexDecisionCortex.decide(
                 ReflexDecisionRequest(
                     userInput = userPrompt,
@@ -242,12 +265,26 @@ class SovereignAssistantTurnCoordinator(
                 cancellation = cancellation
             )?.let { return@runCatching it }
         }
-        val system2Deliberation = runtime.nativeSystem2.deliberate(
-            goal = userPrompt,
-            allowedCapabilities = advertisedCapabilities,
-            descriptors = reflexDescriptors()
-        ).getOrNull()
+
         val explicitProfiles = capabilityPolicy.preferredProfiles(userPrompt, turnRequiredCapabilities)
+        val requiresSystem2 =
+            boundInferenceProfile.reflectionMode == ConversationReflectionMode.VERIFY ||
+                AssistantNativeSystem2AdmissionPolicy.requiresDeliberation(
+                    userPrompt = userPrompt,
+                    attachments = attachments,
+                    explicitProfiles = explicitProfiles
+                )
+        val system2Deliberation = if (requiresSystem2) {
+            emitStage(stageObserver, AssistantTurnStage.NATIVE_SYSTEM2)
+            runtime.nativeSystem2.deliberate(
+                goal = userPrompt,
+                allowedCapabilities = advertisedCapabilities,
+                descriptors = reflexDescriptors()
+            ).getOrNull()
+        } else {
+            null
+        }
+        cancellation?.throwIfCancelled()
         val basePreferredProfiles = if (explicitProfiles.isNotEmpty()) {
             explicitProfiles
         } else {
@@ -289,6 +326,7 @@ class SovereignAssistantTurnCoordinator(
         } else {
             null
         }
+        emitStage(stageObserver, AssistantTurnStage.TITAN_INFERENCE)
         val firstResult = inferRequest(
             request = firstRequest,
             cancellation = cancellation,
@@ -299,6 +337,7 @@ class SovereignAssistantTurnCoordinator(
         }
         val first = firstResult.getOrThrow()
 
+        emitStage(stageObserver, AssistantTurnStage.ACTION_EVALUATION)
         val action = actions.evaluateModelOutput(first.text)
         if (action.status == ActionStatus.EXECUTED) {
             runCatching {
@@ -924,6 +963,14 @@ class SovereignAssistantTurnCoordinator(
             inferencePasses = priorInferencePasses + 1,
             reflectionApplied = false
         )
+    }
+
+    private fun emitStage(
+        observer: ((AssistantTurnStage) -> Unit)?,
+        stage: AssistantTurnStage
+    ) {
+        if (observer == null) return
+        runCatching { observer(stage) }
     }
 
     private fun reflexDescriptors(): List<ToolDescriptor> =
