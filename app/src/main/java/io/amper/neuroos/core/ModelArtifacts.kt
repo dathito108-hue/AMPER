@@ -37,6 +37,29 @@ interface NativeModelPathSource : ModelArtifactSource {
 interface DescriptorBoundNativeModelPathSource : NativeModelPathSource
 
 /**
+ * Native path backed by an AMPER-controlled app-private file rather than /proc/self/fd.
+ *
+ * Android 16/SELinux may deny reopening /proc/self/fd/<n> by pathname even when the app owns the
+ * descriptor. This contract permits a real app-private pathname only when the source guarantees
+ * that the file is inside a validated private directory and keeps its filesystem identity stable
+ * for the complete callback. Native backends must still re-verify the staged bytes against the
+ * installed SHA-256/GGUF identity immediately before loading.
+ */
+interface AppPrivateNativeModelPathSource : NativeModelPathSource
+
+internal fun ModelArtifactSource.requireTrustedNativePathSource(
+    consumer: String
+): NativeModelPathSource {
+    require(
+        this is DescriptorBoundNativeModelPathSource ||
+            this is AppPrivateNativeModelPathSource
+    ) {
+        "$consumer requires a descriptor-bound or verified app-private model path"
+    }
+    return this as NativeModelPathSource
+}
+
+/**
  * Generic file source used by JVM tooling/tests and non-native inspection. Its native path is
  * a normal filesystem pathname, so it intentionally does NOT implement
  * [DescriptorBoundNativeModelPathSource]. Android production import uses a descriptor-bound
