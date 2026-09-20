@@ -373,7 +373,8 @@ object TitanBackendPolicy {
             return TitanBackendEvaluation(
                 eligible = false,
                 score = 0,
-                rejectionReason = "memory-budget"
+                rejectionReason =
+                    "memory-budget:estimated=${cost.estimatedMemoryMb}MiB,budget=${budget.memoryMb}MiB"
             )
         }
 
