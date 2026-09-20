@@ -176,6 +176,8 @@ object OmegaArchitectureLock {
         "amcf-quality-reuses-integrated-cognitive-readiness",
         "amcf-run-cognitive-snapshot-is-frozen",
         "m4-amcf-foundation-has-consolidated-qualification-gate",
+        "agent-task-origin-and-background-mode-are-canonical",
+        "agent-core-never-owns-tool-authority",
         "gguf-is-import-source-only",
         "adaptive-compute-fast-to-deep",
         "verification-before-confidence",
@@ -248,6 +250,7 @@ object OmegaArchitectureLock {
         OmegaMilestone(
             OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON,
             listOf(
+                "canonical user-request and proactive-trigger task contract",
                 "passive tool execution",
                 "proactive goals and triggers",
                 "foreground continuation after UI exit",
