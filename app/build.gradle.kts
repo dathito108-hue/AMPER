@@ -14,6 +14,9 @@ val withMtmdNative = providers.gradleProperty("withMtmdNative")
 val withMtmdVulkan = providers.gradleProperty("withMtmdVulkan")
     .map(String::toBoolean)
     .orElse(false)
+val withAmneNative = providers.gradleProperty("withAmneNative")
+    .map(String::toBoolean)
+    .orElse(false)
 val spirvHeadersDir = providers.gradleProperty("spirvHeadersDir").orNull
 val vulkanHeadersDir = providers.gradleProperty("vulkanHeadersDir").orNull
 val withMtmdNativeRuntime = withMtmdNative.get() || withMtmdVulkan.get()
@@ -23,6 +26,9 @@ require(!(withMtmdNative.get() && withMtmdVulkan.get())) {
 }
 require(!(withLlamaAar.get() && withMtmdNativeRuntime)) {
     "withLlamaAar and native MTMD runtimes package different llama.cpp runtimes; enable only one"
+}
+require(!(withAmneNative.get() && withMtmdNativeRuntime)) {
+    "AMNE native and MTMD native use separate CMake roots; enable only one native build mode"
 }
 
 android {
@@ -37,10 +43,12 @@ android {
         versionName = "0.1.0-canonical"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "LLAMA_ANDROID_VERSION", "\"$llamaAndroidVersion\"")
-        if (withMtmdNativeRuntime) {
+        if (withMtmdNativeRuntime || withAmneNative.get()) {
             ndk {
                 abiFilters += "arm64-v8a"
             }
+        }
+        if (withMtmdNativeRuntime) {
             externalNativeBuild {
                 cmake {
                     arguments += "-DAMPER_MTMD_VULKAN=" +
@@ -73,6 +81,18 @@ android {
         externalNativeBuild {
             cmake {
                 path = file("src/mtmdNative/cpp/CMakeLists.txt")
+                version = "3.22.1"
+            }
+        }
+    }
+
+    if (withAmneNative.get()) {
+        // AMNE is a standalone ARM64 execution runtime and can coexist with the prebuilt llama AAR.
+        sourceSets.getByName("main").java.srcDir("src/amneNative/java")
+        ndkVersion = "27.2.12479018"
+        externalNativeBuild {
+            cmake {
+                path = file("src/amneNative/cpp/CMakeLists.txt")
                 version = "3.22.1"
             }
         }
