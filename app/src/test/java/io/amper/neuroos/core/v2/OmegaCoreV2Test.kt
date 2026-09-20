@@ -56,6 +56,10 @@ class OmegaCoreV2Test {
             "passive-agent-tasks-reuse-persistent-sovereign-plans" in
                 OmegaArchitectureLock.invariants
         )
+        assertTrue(
+            "agent-continuation-restores-exact-durable-plan-without-replay" in
+                OmegaArchitectureLock.invariants
+        )
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
@@ -217,6 +221,14 @@ class OmegaCoreV2Test {
                 .exitCriteria
                 .contains(
                     "passive user-request tasks reuse persistent sovereign plans and governed approvals"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "foreground and persisted user tasks restore exact durable state without replay"
                 )
         )
     }
