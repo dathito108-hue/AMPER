@@ -1,6 +1,5 @@
 package io.amper.neuroos.core
 
-import android.os.ParcelFileDescriptor
 import java.io.File
 import java.io.FileInputStream
 import java.io.InputStream
@@ -8,13 +7,14 @@ import java.nio.file.Files
 import java.nio.file.LinkOption
 
 /**
- * Descriptor-bound source for AMPER-owned GGUF artifacts stored inside the app-private sovereign
- * directory. Native backends receive /proc/self/fd/<n> while the ParcelFileDescriptor remains open.
+ * Stable app-private native source for AMPER-owned GGUF artifacts stored inside the sovereign
+ * directory. The native backend receives the validated real pathname because Android may deny
+ * reopening /proc/self/fd by pathname.
  */
 class AndroidAppPrivateModelArtifactSource(
     private val rootDir: File,
     private val fileName: String
-) : DescriptorBoundNativeModelPathSource {
+) : AppPrivateNativeModelPathSource {
     private val file: File
 
     init {
@@ -44,10 +44,10 @@ class AndroidAppPrivateModelArtifactSource(
 
     override fun <T> withNativePath(block: (String) -> T): T {
         SovereignPathIdentity.requireManagedFile(file, allowMissingLeaf = false)
-        val descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-        descriptor.use {
-            return block("/proc/self/fd/" + it.fd)
-        }
+        val before = SovereignPathIdentity.snapshot(file)
+        val result = block(file.toPath().toAbsolutePath().normalize().toString())
+        SovereignPathIdentity.requireSameIdentity(before, file)
+        return result
     }
 
     companion object {

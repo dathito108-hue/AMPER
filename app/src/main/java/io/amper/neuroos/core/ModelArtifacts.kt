@@ -22,7 +22,8 @@ interface ModelArtifactSource {
  * keep any resource needed for the path alive for the whole block.
  *
  * This base interface does not promise that the path is descriptor-bound. A plain
- * filesystem path can still be substituted between verification and native open.
+ * filesystem path can still be substituted between verification and native open unless a stronger
+ * descriptor-bound or validated app-private contract is also implemented.
  */
 interface NativeModelPathSource : ModelArtifactSource {
     fun <T> withNativePath(block: (String) -> T): T
@@ -37,10 +38,33 @@ interface NativeModelPathSource : ModelArtifactSource {
 interface DescriptorBoundNativeModelPathSource : NativeModelPathSource
 
 /**
+ * Native path backed by an AMPER-controlled app-private file rather than /proc/self/fd.
+ *
+ * Android 16/SELinux may deny reopening /proc/self/fd/<n> by pathname even when the app owns the
+ * descriptor. This contract permits a real app-private pathname only when the source guarantees
+ * that the file is inside a validated private directory and keeps its filesystem identity stable
+ * for the complete callback. Native backends must still re-verify the staged bytes against the
+ * installed SHA-256/GGUF identity immediately before loading.
+ */
+interface AppPrivateNativeModelPathSource : NativeModelPathSource
+
+internal fun ModelArtifactSource.requireTrustedNativePathSource(
+    consumer: String
+): NativeModelPathSource {
+    require(
+        this is DescriptorBoundNativeModelPathSource ||
+            this is AppPrivateNativeModelPathSource
+    ) {
+        "$consumer requires a descriptor-bound or verified app-private model path"
+    }
+    return this as NativeModelPathSource
+}
+
+/**
  * Generic file source used by JVM tooling/tests and non-native inspection. Its native path is
  * a normal filesystem pathname, so it intentionally does NOT implement
- * [DescriptorBoundNativeModelPathSource]. Android production import uses a descriptor-bound
- * content-URI source instead.
+ * [DescriptorBoundNativeModelPathSource]. Android production content URIs are staged into a
+ * validated app-private cache before native loading instead of exposing arbitrary filesystem paths.
  */
 class FileModelArtifactSource(private val file: File) : NativeModelPathSource {
     override val locator: String = file.absolutePath

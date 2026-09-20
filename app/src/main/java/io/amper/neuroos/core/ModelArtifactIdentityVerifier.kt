@@ -8,8 +8,9 @@ import java.io.File
  *
  * The verifier intentionally compares the full GGUF content identity: SHA-256, observed
  * length and structural header counters. When a native backend supplies a path inside an
- * already-held descriptor lease (for example /proc/self/fd/<n> from an Android content URI),
- * [verifyNativePath] inspects that exact descriptor-backed path before the native loader runs.
+ * trusted native-path lease (descriptor-bound where supported, or a validated app-private staged
+ * file on Android builds that deny /proc/self/fd pathname reopening), [verifyNativePath] inspects
+ * those exact bytes before the native loader runs.
  * Phase 78 shares [ModelRuntimeIdentity] with warm-session reuse so locator/declared-length
  * checks cannot be skipped simply because a native model is already resident.
  */

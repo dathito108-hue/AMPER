@@ -308,18 +308,18 @@ class MtmdNativeInferenceBackend(
         cancellation: InferenceCancellationSignal
     ): Result<BackendPreparationResult> = runCatching {
         cancellation.throwIfCancelled()
-        require(source is DescriptorBoundNativeModelPathSource) {
-            "native MTMD preparation requires a descriptor-bound text-model path"
-        }
+        val nativeModelSource = source.requireTrustedNativePathSource(
+            "native MTMD preparation text model"
+        )
         val binding = requireNotNull(projectors.get(model.descriptor.id)) {
             "no multimodal projector is paired with model ${model.descriptor.id.value}"
         }
         val projectorSource = requireNotNull(projectorArtifacts.resolve(binding)) {
             "paired multimodal projector artifact is unavailable"
         }
-        require(projectorSource is DescriptorBoundNativeModelPathSource) {
-            "native MTMD preparation requires a descriptor-bound projector path"
-        }
+        val nativeProjectorSource = projectorSource.requireTrustedNativePathSource(
+            "native MTMD preparation projector"
+        )
         val requestedKinds = request.attachments.map { it.kind }.toSet()
         require(supportedAttachmentKinds(model).containsAll(requestedKinds)) {
             "preparation attachment kinds exceed paired model/projector declaration"
@@ -332,13 +332,13 @@ class MtmdNativeInferenceBackend(
         val cost = estimate(model, request)
         val identity = warmIdentity(model, binding, cost)
 
-        source.withNativePath { modelPath ->
-            modelVerifier.verifyNativePath(model, source, modelPath).getOrThrow()
+        nativeModelSource.withNativePath { modelPath ->
+            modelVerifier.verifyNativePath(model, nativeModelSource, modelPath).getOrThrow()
             cancellation.throwIfCancelled()
-            projectorSource.withNativePath { projectorPath ->
+            nativeProjectorSource.withNativePath { projectorPath ->
                 cancellation.throwIfCancelled()
                 projectorVerifier
-                    .verifyNativePath(binding, projectorSource, projectorPath)
+                    .verifyNativePath(binding, nativeProjectorSource, projectorPath)
                     .getOrThrow()
                 cancellation.throwIfCancelled()
                 val actualKinds = engine.probeProjector(projectorPath).getOrThrow()
@@ -465,18 +465,18 @@ class MtmdNativeInferenceBackend(
         onChunk: (InferenceChunk) -> Unit
     ): Result<InferenceResponse> = runCatching {
         cancellation.throwIfCancelled()
-        require(source is DescriptorBoundNativeModelPathSource) {
-            "native MTMD requires a descriptor-bound text-model path"
-        }
+        val nativeModelSource = source.requireTrustedNativePathSource(
+            "native MTMD text model"
+        )
         val binding = requireNotNull(projectors.get(model.descriptor.id)) {
             "no multimodal projector is paired with model ${model.descriptor.id.value}"
         }
         val projectorSource = requireNotNull(projectorArtifacts.resolve(binding)) {
             "paired multimodal projector artifact is unavailable"
         }
-        require(projectorSource is DescriptorBoundNativeModelPathSource) {
-            "native MTMD requires a descriptor-bound projector path"
-        }
+        val nativeProjectorSource = projectorSource.requireTrustedNativePathSource(
+            "native MTMD projector"
+        )
 
         val requestedKinds = request.attachments.map { it.kind }.toSet()
         require(supportedAttachmentKinds(model).containsAll(requestedKinds)) {
@@ -486,9 +486,9 @@ class MtmdNativeInferenceBackend(
         val cost = estimate(model, request)
         var chunkIndex = 0
         var sessionReused = false
-        val generation = source.withNativePath { modelPath ->
-            modelVerifier.verifyNativePath(model, source, modelPath).getOrThrow()
-            projectorSource.withNativePath { projectorPath ->
+        val generation = nativeModelSource.withNativePath { modelPath ->
+            modelVerifier.verifyNativePath(model, nativeModelSource, modelPath).getOrThrow()
+            nativeProjectorSource.withNativePath { projectorPath ->
                 projectorVerifier
                     .verifyNativePath(binding, projectorSource, projectorPath)
                     .getOrThrow()

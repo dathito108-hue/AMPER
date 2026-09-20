@@ -10,7 +10,6 @@ import io.amper.neuroos.core.BackendResourceReconciliation
 import io.amper.neuroos.core.BackendSessionAffinity
 import io.amper.neuroos.core.BackendState
 import io.amper.neuroos.core.ConcurrencyLimitedInferenceBackend
-import io.amper.neuroos.core.DescriptorBoundNativeModelPathSource
 import io.amper.neuroos.core.GgufInspector
 import io.amper.neuroos.core.GgufTensorLayoutProfile
 import io.amper.neuroos.core.GgufTensorLayoutProfiles
@@ -23,10 +22,12 @@ import io.amper.neuroos.core.ModelArtifactIdentityVerifier
 import io.amper.neuroos.core.ModelArtifactSource
 import io.amper.neuroos.core.ModelId
 import io.amper.neuroos.core.ModelRuntimeIdentity
+import io.amper.neuroos.core.NativeModelPathSource
 import io.amper.neuroos.core.MmapGgufMemoryEstimator
 import io.amper.neuroos.core.PreparableInferenceBackend
 import io.amper.neuroos.core.ResourceBudget
 import io.amper.neuroos.core.ResourceReclaimingInferenceBackend
+import io.amper.neuroos.core.requireTrustedNativePathSource
 import io.amper.neuroos.core.TitanBackendPack
 import io.amper.neuroos.core.TitanPromptTokenEstimator
 import java.util.concurrent.locks.ReentrantLock
@@ -148,9 +149,7 @@ private class LlamaAarInferenceBackend(
         source: ModelArtifactSource,
         request: InferenceRequest
     ): Result<BackendPreparationResult> = runCatching {
-        require(source is DescriptorBoundNativeModelPathSource) {
-            "llama.cpp AAR requires a descriptor-bound native model path"
-        }
+        val nativeSource = source.requireTrustedNativePathSource("llama.cpp AAR")
         val identity = ModelRuntimeIdentity.bind(model, source)
         val cost = estimate(model, request)
         val temperature = request.temperature.toFloat()
@@ -158,7 +157,7 @@ private class LlamaAarInferenceBackend(
         sessionLock.withLock {
             val ensured = ensureSessionLocked(
                 model = model,
-                source = source,
+                source = nativeSource,
                 identity = identity,
                 cost = cost,
                 temperature = temperature
@@ -172,9 +171,7 @@ private class LlamaAarInferenceBackend(
         source: ModelArtifactSource,
         request: InferenceRequest
     ): Result<InferenceResponse> = runCatching {
-        require(source is DescriptorBoundNativeModelPathSource) {
-            "llama.cpp AAR requires a descriptor-bound native model path"
-        }
+        val nativeSource = source.requireTrustedNativePathSource("llama.cpp AAR")
 
         val identity = ModelRuntimeIdentity.bind(model, source)
         val cost = estimate(model, request)
@@ -183,7 +180,7 @@ private class LlamaAarInferenceBackend(
         sessionLock.withLock {
             val ensured = ensureSessionLocked(
                 model = model,
-                source = source,
+                source = nativeSource,
                 identity = identity,
                 cost = cost,
                 temperature = temperature
@@ -243,7 +240,7 @@ private class LlamaAarInferenceBackend(
 
     private fun ensureSessionLocked(
         model: InstalledModel,
-        source: DescriptorBoundNativeModelPathSource,
+        source: NativeModelPathSource,
         identity: ModelRuntimeIdentity,
         cost: InferenceCost,
         temperature: Float
