@@ -115,8 +115,14 @@ class Amne2ExecutionViewFactory(
 
     fun open(
         artifactFile: File,
-        hardware: AmiHardwareSnapshot
+        hardware: AmiHardwareSnapshot,
+        requestedMaxWindowBytes: Int? = null
     ): Result<Amne2ExecutionView> = runCatching {
+        val effectiveMaxWindowBytes = requestedMaxWindowBytes
+            ?.also { require(it > 0) }
+            ?.let { minOf(it, maxWindowBytes) }
+            ?: maxWindowBytes
+
         val loaded = reader.read(
             artifactFile,
             verifySectionDigests = true
@@ -129,7 +135,7 @@ class Amne2ExecutionViewFactory(
             file = artifactFile,
             loaded = loaded,
             admitted = admitted,
-            maxWindowBytes = maxWindowBytes
+            maxWindowBytes = effectiveMaxWindowBytes
         )
     }
 
