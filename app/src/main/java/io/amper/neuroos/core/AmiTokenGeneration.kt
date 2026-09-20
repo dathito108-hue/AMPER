@@ -350,8 +350,9 @@ class AmiAutoregressiveGenerator(
 
             var stopped = false
             var currentHidden = requireNotNull(lastHidden)
+            val random = Random(config.sampling.seed)
 
-            repeat(config.maxNewTokens) {
+            for (generationIndex in 0 until config.maxNewTokens) {
                 val outputHead = outputExecutor.execute(
                     loaded = loaded,
                     graph = graph,
@@ -364,44 +365,41 @@ class AmiAutoregressiveGenerator(
                     logits = outputHead.logits,
                     config = config.sampling,
                     history = history.toIntArray(),
-                    random = Random(
-                        config.sampling.seed + generated.size.toLong()
-                    )
+                    random = random
                 )
                 val tokenId = sample.tokenId
                 generated += tokenId
                 history += tokenId
 
                 val tokenPosition = state.position
+                if (tokenId in config.stopTokenIds) {
+                    traces += AmiGeneratedToken(
+                        tokenId = tokenId,
+                        probability = sample.probability,
+                        position = tokenPosition,
+                        decodeWallTimeMs = 0L,
+                        outputHeadWallTimeMs = outputHead.wallTimeMs
+                    )
+                    stopped = true
+                    break
+                }
+
+                val decoded = stackExecutor.executeToken(
+                    loaded = loaded,
+                    graph = graph,
+                    plan = stackPlan,
+                    state = state,
+                    tokenId = tokenId,
+                    hardware = hardware
+                ).getOrThrow()
+                currentHidden = decoded.output
                 traces += AmiGeneratedToken(
                     tokenId = tokenId,
                     probability = sample.probability,
                     position = tokenPosition,
-                    decodeWallTimeMs = 0L,
+                    decodeWallTimeMs = decoded.wallTimeMs,
                     outputHeadWallTimeMs = outputHead.wallTimeMs
                 )
-
-                if (tokenId in config.stopTokenIds) {
-                    stopped = true
-                    return@repeat
-                }
-
-                if (generated.size < config.maxNewTokens) {
-                    val decoded = stackExecutor.executeToken(
-                        loaded = loaded,
-                        graph = graph,
-                        plan = stackPlan,
-                        state = state,
-                        tokenId = tokenId,
-                        hardware = hardware
-                    ).getOrThrow()
-                    currentHidden = decoded.output
-                    traces[traces.lastIndex] = traces.last().copy(
-                        decodeWallTimeMs = decoded.wallTimeMs
-                    )
-                }
-
-                if (stopped) return@repeat
             }
 
             AmiGenerationResult(
