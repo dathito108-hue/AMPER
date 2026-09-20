@@ -230,6 +230,8 @@ class SovereignAssistantTurnCoordinator(
         val turnRequiredCapabilities =
             baselineCapabilities + MultimodalInferencePolicy.requiredCapabilities(attachments)
         discardSupersededPendingApprovals(conversationId)
+        val explicitPromptOverride =
+            runtime.inferenceProfiles.profile(conversationId)?.maxPromptChars != null
         val boundInferenceProfile = runtime.inferenceProfiles.bind(
             conversationId = conversationId,
             fallbackMaxOutputTokens = maxOutputTokens,
@@ -301,10 +303,20 @@ class SovereignAssistantTurnCoordinator(
                 existing = basePreferredProfiles
             )
         } ?: basePreferredProfiles
+        val firstPromptBudgetChars =
+            AssistantInteractivePromptBudgetPolicy.firstPassBudget(
+                configuredPromptChars = boundInferenceProfile.maxPromptChars,
+                userPrompt = userPrompt,
+                attachments = attachments,
+                preferredProfiles = preferredProfiles,
+                reflectionMode = boundInferenceProfile.reflectionMode,
+                requiresSystem2 = requiresSystem2,
+                explicitPromptOverride = explicitPromptOverride
+            )
         val firstPrompt = buildFirstPrompt(
             conversationId = conversationId,
             userPrompt = userPrompt,
-            promptBudgetChars = boundInferenceProfile.maxPromptChars,
+            promptBudgetChars = firstPromptBudgetChars,
             system2Deliberation = system2Deliberation
         )
         val firstRequest = InferenceRequest(

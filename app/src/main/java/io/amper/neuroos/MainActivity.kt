@@ -1978,6 +1978,7 @@ class MainActivity : ComponentActivity() {
                                                 "RUNNING · AMPER cognition → Titan route → local model..."
                                         }
                                     }
+                                    val assistantStartedNs = System.nanoTime()
                                     val result = assistant.respondStreamingObserved(
                                         conversationId = thread,
                                         userPrompt = userPrompt,
@@ -2017,6 +2018,8 @@ class MainActivity : ComponentActivity() {
                                             }
                                         }
                                     )
+                                    val assistantWallMs =
+                                        (System.nanoTime() - assistantStartedNs) / 1_000_000L
                                     runOnUiThread {
                                         if (activeInferenceCancellation === cancellation) {
                                             activeInferenceCancellation = null
@@ -2041,8 +2044,25 @@ class MainActivity : ComponentActivity() {
                                                             val speed = turn.response.tokensPerSecond
                                                                 ?.let { value -> " · %.1f tok/s".format(value) }
                                                                 .orEmpty()
+                                                            val outputTokens = turn.response.outputTokens
+                                                                ?.let { " · $it tok" }
+                                                                .orEmpty()
+                                                            val promptEval = turn.response.promptEvalTimeMs
+                                                                ?.let { " · prompt ${it}ms" }
+                                                                .orEmpty()
+                                                            val generation = turn.response.generationTimeMs
+                                                                ?.let { " · generation ${it}ms" }
+                                                                .orEmpty()
+                                                            val session = if (turn.response.sessionReused) {
+                                                                " · warm"
+                                                            } else {
+                                                                " · cold"
+                                                            }
                                                             val turns = runtime.conversations.recent(thread).size
-                                                            inferenceStatus = "${turn.response.backendId} · ${turn.inferencePasses} pass · turns $turns$action$speed"
+                                                            inferenceStatus =
+                                                                "${turn.response.backendId} · ${turn.inferencePasses} pass · turns $turns" +
+                                                                    "$action$session$outputTokens$speed$promptEval$generation" +
+                                                                    " · wall ${assistantWallMs}ms"
                                                         }
 
                                                         is SovereignAssistantTurnResult.PendingApproval -> {
