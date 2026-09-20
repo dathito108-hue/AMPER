@@ -184,7 +184,7 @@ class AmneNativeNeonKernels : AmneKernelBackend {
 
     companion object {
         const val BACKEND_ID: String = "amne-arm64-neon-v1"
-        const val NATIVE_ABI_VERSION: Int = 1
+        const val NATIVE_ABI_VERSION: Int = 2
 
         init {
             System.loadLibrary("amper_amne")
