@@ -1,3 +1,3 @@
-AMPER operational APK trigger v8
-purpose=compact-interactive-prompt-latency
-phase=597
+AMPER operational APK trigger v9
+purpose=on-device-gguf-to-ami-compiler
+phase=600
