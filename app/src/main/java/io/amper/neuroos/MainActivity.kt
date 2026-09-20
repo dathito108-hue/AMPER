@@ -57,6 +57,7 @@ import io.amper.neuroos.core.AndroidTimerPrepareToolProvider
 import io.amper.neuroos.core.AndroidLiveAudioAttachmentCapture
 import io.amper.neuroos.core.AndroidModelImportService
 import io.amper.neuroos.core.AndroidAppPrivateModelArtifactResolver
+import io.amper.neuroos.core.AndroidAmiCompilationService
 import io.amper.neuroos.core.AndroidActivePerceptionPort
 import io.amper.neuroos.core.AndroidAppPrivateStorage
 import io.amper.neuroos.core.AndroidMultimodalProjectorImportService
@@ -280,6 +281,12 @@ class MainActivity : ComponentActivity() {
                     )
                 )
             }
+            val amiCompilationService = remember {
+                AndroidAmiCompilationService(
+                    rootDir = File(sovereignDir, "ami-models"),
+                    modelArtifacts = modelArtifacts
+                )
+            }
             val titan = remember {
                 TitanCortexRuntime(
                     models = modelRegistry,
@@ -490,6 +497,12 @@ class MainActivity : ComponentActivity() {
             }
 
             var importStatus by remember { mutableStateOf("Model catalog ready") }
+            var amiCompileBusy by remember { mutableStateOf(false) }
+            var amiStatus by remember {
+                mutableStateOf(
+                    "AMI mobile compiler ready · SOURCE_EXACT foundation preservation"
+                )
+            }
             var importCodeGeneration by remember { mutableStateOf(false) }
             var importPlanning by remember { mutableStateOf(false) }
             var importVision by remember { mutableStateOf(false) }
@@ -1212,6 +1225,63 @@ class MainActivity : ComponentActivity() {
                                     ) {
                                         Text("Save installed model profile")
                                     }
+
+                                    Text(
+                                        "AMPER Mobile Intelligence (.ami)",
+                                        style = MaterialTheme.typography.titleMedium
+                                    )
+                                    Text(
+                                        "Compile the selected GGUF into AMPER's mobile format. " +
+                                            "SOURCE_EXACT copies foundation tensor bytes without requantization."
+                                    )
+                                    Button(
+                                        enabled = !amiCompileBusy,
+                                        onClick = {
+                                            amiCompileBusy = true
+                                            amiStatus =
+                                                "AMI · compiling ${selected.displayName} · " +
+                                                    "verifying source → tensor index → exact foundation copy..."
+                                            val startedNs = System.nanoTime()
+                                            executionLanes.executeMaintenance {
+                                                val result = amiCompilationService.compile(selected)
+                                                val wallMs =
+                                                    (System.nanoTime() - startedNs) / 1_000_000L
+                                                runOnUiThread {
+                                                    amiCompileBusy = false
+                                                    result.fold(
+                                                        onSuccess = { stored ->
+                                                            val sizeMiB =
+                                                                stored.file.length().toDouble() /
+                                                                    (1024.0 * 1024.0)
+                                                            amiStatus =
+                                                                "AMI PASS · ${stored.file.name} · " +
+                                                                    "arch=${stored.architecture.value} · " +
+                                                                    "SOURCE_EXACT · %.1f MiB".format(sizeMiB) +
+                                                                    " · foundation sha256 " +
+                                                                    stored.foundationSha256.take(12) +
+                                                                    " · verified all sections · wall ${wallMs}ms"
+                                                        },
+                                                        onFailure = { error ->
+                                                            amiStatus =
+                                                                "AMI compile rejected · " +
+                                                                    (error.message
+                                                                        ?: error::class.java.simpleName) +
+                                                                    " · source GGUF unchanged"
+                                                        }
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    ) {
+                                        Text(
+                                            if (amiCompileBusy) {
+                                                "Compiling GGUF → AMI..."
+                                            } else {
+                                                "Compile selected GGUF → AMI"
+                                            }
+                                        )
+                                    }
+                                    Text(amiStatus)
 
                                     val projector = projectorCatalog.get(selectedId)
                                     val hasMultimodalProfile =
