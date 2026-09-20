@@ -1,3 +1,3 @@
-AMPER operational APK trigger v6
-purpose=blocking-backend-latency-budget
-phase=595
+AMPER operational APK trigger v7
+purpose=warm-interactive-blocking-latency
+phase=596
