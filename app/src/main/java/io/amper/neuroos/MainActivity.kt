@@ -551,21 +551,21 @@ class MainActivity : ComponentActivity() {
                 )
             }
             var detachArmedModelId by remember { mutableStateOf<ModelId?>(null) }
-            var preferredModelId by remember { mutableStateOf(initialPreferredModelId) }
-            var preferredPreparationCancellation by remember {
-                mutableStateOf<InferenceCancellationSignal?>(null)
-            }
-            DisposableEffect(preferredPreparationCancellation) {
-                val activePreparation = preferredPreparationCancellation
-                onDispose {
-                    activePreparation?.cancel()
-                }
+            var coreFoundationModelId by remember {
+                mutableStateOf(initialCoreFoundationState.activeModelId)
             }
             var modelSummary by remember {
-                mutableStateOf(catalog.list().joinToString { it.displayName }.ifBlank { "No user GGUF installed" })
+                mutableStateOf(
+                    catalog.list().joinToString { it.displayName }
+                        .ifBlank { "No imported weight source" }
+                )
             }
-            var hasModel by remember { mutableStateOf(catalog.list().isNotEmpty()) }
-            var prompt by remember { mutableStateOf("What model and backend are you using right now?") }
+            var hasModel by remember {
+                mutableStateOf(initialCoreFoundationState.activeModelId != null)
+            }
+            var prompt by remember {
+                mutableStateOf("Bạn là ai và đang dùng lõi suy luận nào?")
+            }
             var conversationId by remember {
                 mutableStateOf(
                     restoredApproval?.conversationId
@@ -581,9 +581,9 @@ class MainActivity : ComponentActivity() {
                     restoredApproval?.let {
                         "Restored pending action: ${it.proposal.capability.value} · not executed"
                     } ?: if (hasRuntimeBackend) {
-                        "Titan backend ready: " + backends.list().joinToString { it.id }
+                        "AMPER Single-Core ready · " + backends.list().joinToString { it.id }
                     } else {
-                        "No inference backend · text=${backendStatus.detail} · mtmd=${mtmdEngineStatus.detail}"
+                        "AMPER Core runtime unavailable"
                     }
                 )
             }
