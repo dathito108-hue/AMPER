@@ -204,7 +204,9 @@ class AmiLayerKvCache(
         require(maxTokens > 0)
     }
 
-    private val tokens = ArrayList<AmiKvToken>(maxTokens)
+    // Do not reserve the complete model context up front on mobile. Long-context models may
+    // advertise tens/hundreds of thousands of tokens; cache storage grows only as tokens arrive.
+    private val tokens = ArrayList<AmiKvToken>(minOf(maxTokens, 64))
 
     val size: Int
         get() = tokens.size
@@ -241,6 +243,13 @@ class AmiLayerKvCache(
 
     fun clear() {
         tokens.clear()
+    }
+
+    internal fun truncate(tokenCount: Int) {
+        require(tokenCount in 0..tokens.size)
+        while (tokens.size > tokenCount) {
+            tokens.removeAt(tokens.lastIndex)
+        }
     }
 }
 
