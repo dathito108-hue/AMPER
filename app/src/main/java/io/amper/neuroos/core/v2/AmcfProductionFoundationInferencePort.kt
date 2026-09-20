@@ -141,8 +141,8 @@ class AmcfProductionFoundationInferencePort(
     private val qualityEvaluator: AmcfCycleQualityEvaluator =
         AmcfConservativeCycleQualityEvaluator
 ) : AmcfCycleExecutionPort {
-    private var lastExecutedCycleIndex: Int = 0
-    private var transientCandidate: String? = null
+    private val transientLock = Any()
+    private val transientCandidates = linkedMapOf<String, String>()
 
     override fun execute(
         request: AmcfCycleExecutionRequest,
@@ -152,19 +152,8 @@ class AmcfProductionFoundationInferencePort(
             "AMCF production port foundation does not match the active AMI2/AMNE2 endpoint"
         }
         require(request.cycle.foundation == endpoint.foundation)
-        require(request.cycle.index > lastExecutedCycleIndex) {
-            "AMCF production cycle execution must advance monotonically"
-        }
         request.previousState?.let { previous ->
             require(previous.foundation == endpoint.foundation)
-            require(previous.completedCycleIndex == lastExecutedCycleIndex) {
-                "AMCF production port transient state is not aligned with committed recurrent state"
-            }
-        }
-        if (request.previousState == null) {
-            require(lastExecutedCycleIndex == 0) {
-                "AMCF production port cannot restart a run with stale transient state"
-            }
         }
 
         val signal = cancellation ?: InferenceCancellationSignal()
@@ -230,10 +219,9 @@ class AmcfProductionFoundationInferencePort(
 
         signal.throwIfCancelled()
 
-        // Transient candidate is not an authoritative recurrent-state commit. It exists only so the
-        // next bounded cycle can refine the prior answer without storing hidden reasoning text.
-        transientCandidate = candidateText
-        lastExecutedCycleIndex = request.cycle.index
+        // Candidate text is keyed by its digest. A later cycle may read it only when the
+        // orchestrator supplies a previousState carrying that committed candidate digest.
+        rememberCandidate(candidateDigest, candidateText)
 
         AmcfCycleObservation(
             candidateDigest = candidateDigest,
@@ -260,11 +248,14 @@ class AmcfProductionFoundationInferencePort(
             appendLine("previous_uncertainty=" + format(previous.uncertainty))
             appendLine("previous_evidence_sufficiency=" + format(previous.evidenceSufficiency))
         }
-        transientCandidate?.let { candidate ->
-            appendLine("<PREVIOUS_CANDIDATE>")
-            appendLine(candidate)
-            appendLine("</PREVIOUS_CANDIDATE>")
-        }
+        request.previousState
+            ?.candidateDigest
+            ?.let(::candidateFor)
+            ?.let { candidate ->
+                appendLine("<PREVIOUS_CANDIDATE>")
+                appendLine(candidate)
+                appendLine("</PREVIOUS_CANDIDATE>")
+            }
         appendLine("<USER_REQUEST>")
         appendLine(context.userPrompt)
         appendLine("</USER_REQUEST>")
@@ -275,6 +266,21 @@ class AmcfProductionFoundationInferencePort(
         )
         append("</AMCF_FOUNDATION_CYCLE>")
     }
+
+    private fun rememberCandidate(digest: String, text: String) {
+        synchronized(transientLock) {
+            transientCandidates[digest] = text
+            while (transientCandidates.size > MAX_TRANSIENT_CANDIDATES) {
+                val oldest = transientCandidates.keys.first()
+                transientCandidates.remove(oldest)
+            }
+        }
+    }
+
+    private fun candidateFor(digest: String): String? =
+        synchronized(transientLock) {
+            transientCandidates[digest]
+        }
 
     private fun cycleInstruction(kind: AmcfComputeCycleKind): String =
         when (kind) {
@@ -301,6 +307,7 @@ class AmcfProductionFoundationInferencePort(
     companion object {
         private val REASONING_CAPABILITY = CapabilityId("reasoning")
         private const val MAX_TRANSIENT_CANDIDATE_CHARS: Int = 8 * 1024
+        private const val MAX_TRANSIENT_CANDIDATES: Int = 2
         private val EMPTY_EVIDENCE_DIGEST: String = sha256("AMCF-EVIDENCE-EMPTY-V1")
     }
 }
