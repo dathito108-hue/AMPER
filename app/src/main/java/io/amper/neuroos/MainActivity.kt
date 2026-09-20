@@ -63,6 +63,7 @@ import io.amper.neuroos.core.AndroidLiveAudioAttachmentCapture
 import io.amper.neuroos.core.AndroidModelImportService
 import io.amper.neuroos.core.AndroidAppPrivateModelArtifactResolver
 import io.amper.neuroos.core.AndroidAmiCompilationService
+import io.amper.neuroos.core.v2.AndroidAmi2CompilationService
 import io.amper.neuroos.core.AndroidAmiHardwareProfiler
 import io.amper.neuroos.core.AmiDecoderFfnExecutor
 import io.amper.neuroos.core.AmiDecoderFfnPlanner
@@ -302,6 +303,12 @@ class MainActivity : ComponentActivity() {
                         { model -> contentModelArtifacts.resolve(model) },
                         { model -> nativeModelArtifacts.resolve(model) }
                     )
+                )
+            }
+            val ami2CompilationService = remember {
+                AndroidAmi2CompilationService(
+                    rootDir = File(sovereignDir, "ami2-models"),
+                    modelArtifacts = modelArtifacts
                 )
             }
             val amiCompilationService = remember {
@@ -1127,6 +1134,9 @@ class MainActivity : ComponentActivity() {
                             importStatus = "Inspecting GGUF and computing SHA-256..."
                             executionLanes.executeInteractive {
                                 val result = importer.install(uri, profile).mapCatching { model ->
+                                    // M2 canonical import: AMI2 is published first.
+                                    ami2CompilationService.compileDirect(model).getOrThrow()
+                                    // Temporary M3 bridge: current inference still consumes AMI1/AMNE1.
                                     amiCompilationService.compile(model).getOrThrow()
                                     titan.unloadAll().getOrThrow()
                                     coreFoundationController.activate(model.descriptor.id)
@@ -1144,7 +1154,7 @@ class MainActivity : ComponentActivity() {
                                             coreFoundationModelId = model.descriptor.id
                                             importStatus =
                                                 "AMPER Core foundation updated from ${model.displayName} · " +
-                                                    "GGUF → AMI SOURCE_EXACT · $capabilities"
+                                                    "GGUF → AMI2 canonical · AMI1 runtime bridge · $capabilities"
                                             modelSummary = catalog.list().joinToString { it.displayName }
                                             hasModel = true
                                             profileModelId = model.descriptor.id
@@ -1392,19 +1402,19 @@ class MainActivity : ComponentActivity() {
                                         style = MaterialTheme.typography.titleMedium
                                     )
                                     Text(
-                                        "Compile the selected GGUF into AMPER's mobile format. " +
-                                            "SOURCE_EXACT copies foundation tensor bytes without requantization."
+                                        "Compile the selected GGUF directly into canonical AMI2. " +
+                                            "SOURCE_EXACT preserves foundation tensor bytes; AMI1 remains runtime compatibility until AMNE2."
                                     )
                                     Button(
                                         enabled = !amiCompileBusy,
                                         onClick = {
                                             amiCompileBusy = true
                                             amiStatus =
-                                                "AMI · compiling ${selected.displayName} · " +
-                                                    "verifying source → tensor index → exact foundation copy..."
+                                                "AMI2 · compiling ${selected.displayName} · " +
+                                                    "verifying source → semantic identity → streaming foundation copy..."
                                             val startedNs = System.nanoTime()
                                             executionLanes.executeMaintenance {
-                                                val result = amiCompilationService.compile(selected)
+                                                val result = ami2CompilationService.compileDirect(selected)
                                                 val wallMs =
                                                     (System.nanoTime() - startedNs) / 1_000_000L
                                                 runOnUiThread {
@@ -1415,16 +1425,18 @@ class MainActivity : ComponentActivity() {
                                                                 stored.file.length().toDouble() /
                                                                     (1024.0 * 1024.0)
                                                             amiStatus =
-                                                                "AMI PASS · ${stored.file.name} · " +
-                                                                    "arch=${stored.architecture.value} · " +
+                                                                "AMI2 PASS · ${stored.file.name} · " +
+                                                                    "arch=${stored.architectureId} · " +
                                                                     "SOURCE_EXACT · %.1f MiB".format(sizeMiB) +
+                                                                    " · semantic sha256 " +
+                                                                    stored.semanticSha256.take(12) +
                                                                     " · foundation sha256 " +
                                                                     stored.foundationSha256.take(12) +
                                                                     " · verified all sections · wall ${wallMs}ms"
                                                         },
                                                         onFailure = { error ->
                                                             amiStatus =
-                                                                "AMI compile rejected · " +
+                                                                "AMI2 compile rejected · " +
                                                                     (error.message
                                                                         ?: error::class.java.simpleName) +
                                                                     " · source GGUF unchanged"
@@ -1752,7 +1764,7 @@ class MainActivity : ComponentActivity() {
                                                             coreFoundationModelId = activated.descriptor.id
                                                             hasModel = true
                                                             profileStatus =
-                                                                "AMPER Core foundation active · ${activated.displayName} · AMI/AMNE only"
+                                                                "AMPER Core foundation active · ${activated.displayName} · AMI2 canonical · AMI1/AMNE1 runtime bridge"
                                                         },
                                                         onFailure = { error ->
                                                             profileStatus =

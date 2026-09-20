@@ -193,7 +193,8 @@ object OmegaArchitectureLock {
                 "GGUF/source weights compile into AMI2",
                 "tokenizer/chat protocol preserved",
                 "device-independent logical graph separated from device packs",
-                "deterministic lineage and integrity verified"
+                "deterministic lineage and integrity verified",
+                "new GGUF imports publish direct canonical AMI2 before any legacy runtime bridge"
             )
         ),
         OmegaMilestone(
