@@ -186,6 +186,7 @@ class AmiPreservedGgufMetadataReader(
         count: ULong,
         depth: Int
     ) {
+        require(depth < 16) { "GGUF metadata nesting exceeds reader limit" }
         when (elementType) {
             GGUF_TYPE_UINT8,
             GGUF_TYPE_INT8,
@@ -224,7 +225,6 @@ class AmiPreservedGgufMetadataReader(
             }
             else -> error("invalid GGUF metadata array element type: $elementType")
         }
-        require(depth < 16) { "GGUF metadata nesting exceeds reader limit" }
     }
 
     private fun readString(
