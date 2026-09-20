@@ -75,15 +75,23 @@ class Amne2ExecutionAdmission(
     fun admit(
         artifactFile: File,
         hardware: AmiHardwareSnapshot
+    ): Result<Amne2AdmittedFoundation> =
+        reader.read(
+            file = artifactFile,
+            verifySectionDigests = true
+        ).fold(
+            onSuccess = { loaded -> admitVerified(loaded, hardware) },
+            onFailure = { error -> Result.failure(error) }
+        )
+
+    internal fun admitVerified(
+        loaded: Ami2LoadedBinaryArtifact,
+        hardware: AmiHardwareSnapshot
     ): Result<Amne2AdmittedFoundation> = runCatching {
         require(Ami2MigrationContract.productionExecutionEngine == "AMNE2") {
             "OMEGA execution contract no longer targets AMNE2"
         }
 
-        val loaded = reader.read(
-            file = artifactFile,
-            verifySectionDigests = true
-        ).getOrThrow()
         val foundation = loaded.bundle.foundation
 
         require(loaded.bundle.artifacts == Ami2FoundationContract.mandatoryArtifacts) {
