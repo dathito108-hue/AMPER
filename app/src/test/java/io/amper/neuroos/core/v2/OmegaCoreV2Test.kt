@@ -51,6 +51,14 @@ class OmegaCoreV2Test {
                     "verified AMI2 decoder semantic binding reuses the qualified decoder stack"
                 )
         )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M3_AMNE2_RUNTIME }
+                .exitCriteria
+                .contains(
+                    "single AMNE2 execution session owns decoder plan KV state and cancellation"
+                )
+        )
     }
 
     @Test
