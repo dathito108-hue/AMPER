@@ -7,7 +7,8 @@ data class AmiDirectPreparedModel(
     val graph: AmiTensorGraph,
     val metadata: AmiGgufMetadataSnapshot,
     val tokenizer: AmiTokenizerLexicon,
-    val stackPlan: AmiDecoderStackPlan
+    val stackPlan: AmiDecoderStackPlan,
+    val requiredMatrixPrimitives: Set<AmneKernelPrimitive>
 )
 
 /**
@@ -48,7 +49,9 @@ class AmiDirectStreamingInferenceBackend(
                 runtime.tokenizer,
                 request.prompt
             ).size
-            promptTokens > 0 &&
+            val readiness = directReadiness(runtime)
+            readiness.ready &&
+                promptTokens > 0 &&
                 promptTokens.toLong() + request.maxOutputTokens.toLong() <=
                     runtime.stackPlan.maxContextTokens.toLong()
         }.getOrDefault(false)
@@ -57,23 +60,41 @@ class AmiDirectStreamingInferenceBackend(
     override fun requestRejectionReason(
         model: InstalledModel,
         request: InferenceRequest
-    ): String = when {
-        request.attachments.isNotEmpty() -> "ami-direct-text-only"
-        artifactLookup(model) == null -> "ami-artifact-not-compiled"
-        else -> "ami-direct-request-unsupported"
+    ): String {
+        if (request.attachments.isNotEmpty()) return "ami-direct-text-only"
+        if (artifactLookup(model) == null) return "ami-artifact-not-compiled"
+
+        val runtime = prepareModel(model).getOrNull()
+            ?: return "ami-direct-model-unsupported"
+        val readiness = runCatching { directReadiness(runtime) }.getOrNull()
+        if (readiness != null && !readiness.ready) {
+            return "ami-direct-native-matrix-not-admitted:" +
+                readiness.referenceOnlyMatrixPrimitives
+                    .sortedBy { it.ordinal }
+                    .joinToString(",") { it.name }
+        }
+        return "ami-direct-request-unsupported"
     }
 
     override fun health(): BackendHealth {
         val nativeAdmission = AmneProcessKernelRuntime.admission()
-        val accelerated = nativeAdmission?.admittedPrimitives?.isNotEmpty() == true
+        val acceleratedMatrices = nativeAdmission?.admittedPrimitives
+            ?.any {
+                it == AmneKernelPrimitive.MATVEC_F32 ||
+                    it == AmneKernelPrimitive.MATVEC_Q4_0 ||
+                    it == AmneKernelPrimitive.MATVEC_Q8_0 ||
+                    it == AmneKernelPrimitive.MATVEC_Q4_K ||
+                    it == AmneKernelPrimitive.MATVEC_Q5_K ||
+                    it == AmneKernelPrimitive.MATVEC_Q6_K
+            } == true
         return BackendHealth(
-            state = BackendState.READY,
-            detail = if (accelerated) {
-                "direct AMI decoder · qualified AMNE acceleration"
+            state = if (acceleratedMatrices) BackendState.READY else BackendState.DEGRADED,
+            detail = if (acceleratedMatrices) {
+                "direct AMI decoder · native matrix admission active"
             } else {
-                "direct AMI decoder · reference kernels available"
+                "direct AMI locked · run AMNE device admission; llama fallback remains available"
             },
-            hardwareAcceleration = accelerated
+            hardwareAcceleration = acceleratedMatrices
         )
     }
 
@@ -291,19 +312,38 @@ class AmiDirectStreamingInferenceBackend(
         val stackPlan = AmiDecoderStackPlanner
             .plan(graph, metadata)
             .getOrThrow()
+        val outputPlan = AmiOutputHeadPlanner
+            .plan(graph, metadata, stackPlan)
+            .getOrThrow()
 
         require(tokenizer.vocabularySize == stackPlan.vocabularySize) {
             "AMI tokenizer vocabulary differs from decoder vocabulary"
         }
+
+        val requiredMatrixPrimitives =
+            AmiDirectExecutionAdmissionPolicy.requiredMatrixPrimitives(
+                stack = stackPlan,
+                output = outputPlan
+            )
 
         AmiDirectPreparedModel(
             artifact = artifact,
             graph = graph,
             metadata = metadata,
             tokenizer = tokenizer,
-            stackPlan = stackPlan
+            stackPlan = stackPlan,
+            requiredMatrixPrimitives = requiredMatrixPrimitives
         ).also { prepared[key] = it }
     }
+
+    private fun directReadiness(
+        runtime: AmiDirectPreparedModel
+    ): AmiDirectExecutionReadiness =
+        AmiDirectExecutionAdmissionPolicy.evaluate(
+            requiredMatrixPrimitives = runtime.requiredMatrixPrimitives,
+            registry = AmneProcessKernelRuntime.registry(),
+            hardware = hardwareSnapshot()
+        )
 
     companion object {
         const val BACKEND_ID: String = "amne-ami-direct"
