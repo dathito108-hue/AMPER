@@ -12,6 +12,8 @@ class AmneNativeNeonKernels : AmneKernelBackend {
         primitives = setOf(
             AmneKernelPrimitive.DOT_F32,
             AmneKernelPrimitive.MATVEC_F32,
+            AmneKernelPrimitive.MATVEC_Q4_0,
+            AmneKernelPrimitive.MATVEC_Q8_0,
             AmneKernelPrimitive.RMS_NORM_F32,
             AmneKernelPrimitive.SILU_F32,
             AmneKernelPrimitive.SWIGLU_F32,
@@ -53,26 +55,40 @@ class AmneNativeNeonKernels : AmneKernelBackend {
         rows: Int,
         columns: Int,
         vector: FloatArray
-    ): FloatArray =
-        AmneReferenceCpuKernels.matVecQ4_0(
-            matrixBlocks = matrixBlocks,
-            rows = rows,
-            columns = columns,
-            vector = vector
+    ): FloatArray {
+        require(rows > 0 && columns > 0)
+        require(columns % AmneTensorEncoding.Q4_0.blockSize == 0)
+        require(vector.size == columns)
+        val blocksPerRow = columns / AmneTensorEncoding.Q4_0.blockSize
+        require(
+            matrixBlocks.size ==
+                Math.multiplyExact(
+                    Math.multiplyExact(rows, blocksPerRow),
+                    AmneTensorEncoding.Q4_0.blockBytes
+                )
         )
+        return nativeMatVecQ4_0(matrixBlocks, rows, columns, vector)
+    }
 
     override fun matVecQ8_0(
         matrixBlocks: ByteArray,
         rows: Int,
         columns: Int,
         vector: FloatArray
-    ): FloatArray =
-        AmneReferenceCpuKernels.matVecQ8_0(
-            matrixBlocks = matrixBlocks,
-            rows = rows,
-            columns = columns,
-            vector = vector
+    ): FloatArray {
+        require(rows > 0 && columns > 0)
+        require(columns % AmneTensorEncoding.Q8_0.blockSize == 0)
+        require(vector.size == columns)
+        val blocksPerRow = columns / AmneTensorEncoding.Q8_0.blockSize
+        require(
+            matrixBlocks.size ==
+                Math.multiplyExact(
+                    Math.multiplyExact(rows, blocksPerRow),
+                    AmneTensorEncoding.Q8_0.blockBytes
+                )
         )
+        return nativeMatVecQ8_0(matrixBlocks, rows, columns, vector)
+    }
 
     override fun rmsNormF32(
         input: FloatArray,
@@ -120,6 +136,20 @@ class AmneNativeNeonKernels : AmneKernelBackend {
 
     private external fun nativeMatVecF32(
         matrix: FloatArray,
+        rows: Int,
+        columns: Int,
+        vector: FloatArray
+    ): FloatArray
+
+    private external fun nativeMatVecQ4_0(
+        matrixBlocks: ByteArray,
+        rows: Int,
+        columns: Int,
+        vector: FloatArray
+    ): FloatArray
+
+    private external fun nativeMatVecQ8_0(
+        matrixBlocks: ByteArray,
         rows: Int,
         columns: Int,
         vector: FloatArray
