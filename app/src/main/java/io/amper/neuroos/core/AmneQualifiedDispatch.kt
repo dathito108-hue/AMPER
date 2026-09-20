@@ -61,22 +61,19 @@ object AmneDispatchAdmissionPolicy {
 
         val normalized = linkedMapOf<AmneKernelPrimitive, AmnePrimitiveBenchmark>()
         measurements.forEach { result ->
-            require(normalized.put(result.primitive, result) == null) {
+            val recalculated = result.copy(
+                admitted = numericalQualificationPassed &&
+                    result.speedup >= minimumSpeedup &&
+                    result.candidateMedianNs < result.referenceMedianNs
+            )
+            require(normalized.put(result.primitive, recalculated) == null) {
                 "duplicate AMNE benchmark primitive: " + result.primitive
             }
         }
 
-        val admitted =
-            if (!numericalQualificationPassed) {
-                emptySet()
-            } else {
-                normalized.values
-                    .filter {
-                        it.speedup >= minimumSpeedup &&
-                            it.candidateMedianNs < it.referenceMedianNs
-                    }
-                    .mapTo(linkedSetOf()) { it.primitive }
-            }
+        val admitted = normalized.values
+            .filter { it.admitted }
+            .mapTo(linkedSetOf()) { it.primitive }
 
         return AmneBackendAdmission(
             backendId = backendId,
