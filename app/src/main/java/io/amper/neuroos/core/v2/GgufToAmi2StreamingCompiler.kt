@@ -23,8 +23,20 @@ class GgufToAmi2StreamingCompiler(
         require(destination.extension.equals("ami", ignoreCase = true)) {
             "AMI2 destination must use the .ami extension"
         }
-        require(source.locator != destination.absolutePath) {
+        val destinationCanonical = destination.canonicalFile
+        val stagingCanonical = File(
+            destination.parentFile ?: File("."),
+            destination.name + ".partial"
+        ).canonicalFile
+        val sourceLocatorFile = source.locator
+            .takeIf { it.startsWith("/") }
+            ?.let(::File)
+            ?.canonicalFile
+        require(sourceLocatorFile == null || sourceLocatorFile != destinationCanonical) {
             "GGUF source and AMI2 destination must be different artifacts"
+        }
+        require(sourceLocatorFile == null || sourceLocatorFile != stagingCanonical) {
+            "GGUF source cannot alias the AMI2 staging artifact"
         }
 
         val firstInspection = inspector.inspect(source).getOrThrow()
@@ -94,6 +106,16 @@ class GgufToAmi2StreamingCompiler(
             ),
             destination = destination
         ).getOrThrow()
+
+        val finalInspection = inspector.inspect(source).getOrThrow()
+        val sourceStable =
+            finalInspection.sha256 == firstInspection.sha256 &&
+                finalInspection.lengthBytes == sourceLength &&
+                finalInspection.header == firstInspection.header
+        if (!sourceStable) {
+            output.file.delete()
+            error("GGUF source changed during direct AMI2 streaming emission")
+        }
 
         Ami2DirectGgufCompileResult(
             sourceSha256 = firstInspection.sha256,
