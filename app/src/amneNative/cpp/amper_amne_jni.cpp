@@ -86,6 +86,63 @@ float dotNeon(const float* left, const float* right, int length) {
     return sum;
 }
 
+std::pair<int, int> scaleMinK4(
+    const std::uint8_t* scales,
+    int index
+) {
+    if (index < 4) {
+        return {
+            static_cast<int>(scales[index] & 63U),
+            static_cast<int>(scales[index + 4] & 63U)
+        };
+    }
+    return {
+        static_cast<int>(
+            (scales[index + 4] & 0x0fU) |
+            ((scales[index - 4] >> 6U) << 4U)
+        ),
+        static_cast<int>(
+            (scales[index + 4] >> 4U) |
+            ((scales[index] >> 6U) << 4U)
+        )
+    };
+}
+
+float readHalf(const std::uint8_t* bytes) {
+    const std::uint16_t bits =
+        static_cast<std::uint16_t>(bytes[0]) |
+        (static_cast<std::uint16_t>(bytes[1]) << 8U);
+    return halfToFloat(bits);
+}
+
+bool validateKQuantShape(
+    JNIEnv* env,
+    jbyteArray matrixArray,
+    jint rows,
+    jint columns,
+    jfloatArray vectorArray,
+    jint blockElements,
+    jint blockBytes,
+    const char* label
+) {
+    if (matrixArray == nullptr || vectorArray == nullptr || rows <= 0 || columns <= 0) {
+        throwIllegalArgument(env, label);
+        return false;
+    }
+    if ((columns % blockElements) != 0 || env->GetArrayLength(vectorArray) != columns) {
+        throwIllegalArgument(env, "AMNE K-quant matvec shape mismatch");
+        return false;
+    }
+    const jlong blocksPerRow = columns / blockElements;
+    const jlong expectedBytes =
+        static_cast<jlong>(rows) * blocksPerRow * static_cast<jlong>(blockBytes);
+    if (env->GetArrayLength(matrixArray) != expectedBytes) {
+        throwIllegalArgument(env, "AMNE K-quant matrix byte length mismatch");
+        return false;
+    }
+    return true;
+}
+
 jfloatArray makeFloatArray(JNIEnv* env, const std::vector<float>& values) {
     jfloatArray result = env->NewFloatArray(static_cast<jsize>(values.size()));
     if (result == nullptr) {
@@ -313,6 +370,262 @@ Java_io_amper_neuroos_core_AmneNativeNeonKernels_nativeMatVecQ8_10(
 
 extern "C"
 JNIEXPORT jfloatArray JNICALL
+Java_io_amper_neuroos_core_AmneNativeNeonKernels_nativeMatVecQ4K(
+    JNIEnv* env,
+    jobject,
+    jbyteArray matrixArray,
+    jint rows,
+    jint columns,
+    jfloatArray vectorArray
+) {
+    if (!validateKQuantShape(
+            env, matrixArray, rows, columns, vectorArray, 256, 144,
+            "AMNE Q4_K matvec arguments are invalid")) {
+        return nullptr;
+    }
+
+    jbyte* matrixRaw = env->GetByteArrayElements(matrixArray, nullptr);
+    jfloat* vector = env->GetFloatArrayElements(vectorArray, nullptr);
+    if (matrixRaw == nullptr || vector == nullptr) {
+        if (matrixRaw != nullptr) env->ReleaseByteArrayElements(matrixArray, matrixRaw, JNI_ABORT);
+        if (vector != nullptr) env->ReleaseFloatArrayElements(vectorArray, vector, JNI_ABORT);
+        return nullptr;
+    }
+
+    const auto* matrix = reinterpret_cast<const std::uint8_t*>(matrixRaw);
+    const int blocksPerRow = columns / 256;
+    std::vector<float> output(static_cast<std::size_t>(rows));
+
+    std::size_t blockOffset = 0U;
+    for (jint row = 0; row < rows; ++row) {
+        double sum = 0.0;
+        for (int block = 0; block < blocksPerRow; ++block) {
+            const float d = readHalf(matrix + blockOffset);
+            const float dmin = readHalf(matrix + blockOffset + 2U);
+            const std::uint8_t* scales = matrix + blockOffset + 4U;
+            const std::uint8_t* qs = matrix + blockOffset + 16U;
+            const int vectorBlockBase = block * 256;
+
+            int scaleIndex = 0;
+            for (int group = 0; group < 4; ++group) {
+                const auto first = scaleMinK4(scales, scaleIndex);
+                const auto second = scaleMinK4(scales, scaleIndex + 1);
+                const float d1 = d * static_cast<float>(first.first);
+                const float m1 = dmin * static_cast<float>(first.second);
+                const float d2 = d * static_cast<float>(second.first);
+                const float m2 = dmin * static_cast<float>(second.second);
+                const std::uint8_t* packed = qs + group * 32;
+                const int groupBase = vectorBlockBase + group * 64;
+
+                for (int l = 0; l < 32; ++l) {
+                    const std::uint8_t q = packed[l];
+                    const float w1 =
+                        d1 * static_cast<float>(q & 0x0fU) - m1;
+                    const float w2 =
+                        d2 * static_cast<float>(q >> 4U) - m2;
+                    sum += static_cast<double>(w1) *
+                        static_cast<double>(vector[groupBase + l]);
+                    sum += static_cast<double>(w2) *
+                        static_cast<double>(vector[groupBase + 32 + l]);
+                }
+                scaleIndex += 2;
+            }
+            blockOffset += 144U;
+        }
+        output[static_cast<std::size_t>(row)] = static_cast<float>(sum);
+    }
+
+    env->ReleaseByteArrayElements(matrixArray, matrixRaw, JNI_ABORT);
+    env->ReleaseFloatArrayElements(vectorArray, vector, JNI_ABORT);
+    return makeFloatArray(env, output);
+}
+
+extern "C"
+JNIEXPORT jfloatArray JNICALL
+Java_io_amper_neuroos_core_AmneNativeNeonKernels_nativeMatVecQ5K(
+    JNIEnv* env,
+    jobject,
+    jbyteArray matrixArray,
+    jint rows,
+    jint columns,
+    jfloatArray vectorArray
+) {
+    if (!validateKQuantShape(
+            env, matrixArray, rows, columns, vectorArray, 256, 176,
+            "AMNE Q5_K matvec arguments are invalid")) {
+        return nullptr;
+    }
+
+    jbyte* matrixRaw = env->GetByteArrayElements(matrixArray, nullptr);
+    jfloat* vector = env->GetFloatArrayElements(vectorArray, nullptr);
+    if (matrixRaw == nullptr || vector == nullptr) {
+        if (matrixRaw != nullptr) env->ReleaseByteArrayElements(matrixArray, matrixRaw, JNI_ABORT);
+        if (vector != nullptr) env->ReleaseFloatArrayElements(vectorArray, vector, JNI_ABORT);
+        return nullptr;
+    }
+
+    const auto* matrix = reinterpret_cast<const std::uint8_t*>(matrixRaw);
+    const int blocksPerRow = columns / 256;
+    std::vector<float> output(static_cast<std::size_t>(rows));
+
+    std::size_t blockOffset = 0U;
+    for (jint row = 0; row < rows; ++row) {
+        double sum = 0.0;
+        for (int block = 0; block < blocksPerRow; ++block) {
+            const float d = readHalf(matrix + blockOffset);
+            const float dmin = readHalf(matrix + blockOffset + 2U);
+            const std::uint8_t* scales = matrix + blockOffset + 4U;
+            const std::uint8_t* qh = matrix + blockOffset + 16U;
+            const std::uint8_t* ql = matrix + blockOffset + 48U;
+            const int vectorBlockBase = block * 256;
+
+            int scaleIndex = 0;
+            int highMask1 = 1;
+            int highMask2 = 2;
+            for (int group = 0; group < 4; ++group) {
+                const auto first = scaleMinK4(scales, scaleIndex);
+                const auto second = scaleMinK4(scales, scaleIndex + 1);
+                const float d1 = d * static_cast<float>(first.first);
+                const float m1 = dmin * static_cast<float>(first.second);
+                const float d2 = d * static_cast<float>(second.first);
+                const float m2 = dmin * static_cast<float>(second.second);
+                const std::uint8_t* packed = ql + group * 32;
+                const int groupBase = vectorBlockBase + group * 64;
+
+                for (int l = 0; l < 32; ++l) {
+                    const std::uint8_t low = packed[l];
+                    const std::uint8_t high = qh[l];
+                    const int q1 =
+                        static_cast<int>(low & 0x0fU) +
+                        ((high & static_cast<std::uint8_t>(highMask1)) != 0U ? 16 : 0);
+                    const int q2 =
+                        static_cast<int>(low >> 4U) +
+                        ((high & static_cast<std::uint8_t>(highMask2)) != 0U ? 16 : 0);
+                    const float w1 = d1 * static_cast<float>(q1) - m1;
+                    const float w2 = d2 * static_cast<float>(q2) - m2;
+                    sum += static_cast<double>(w1) *
+                        static_cast<double>(vector[groupBase + l]);
+                    sum += static_cast<double>(w2) *
+                        static_cast<double>(vector[groupBase + 32 + l]);
+                }
+
+                scaleIndex += 2;
+                highMask1 <<= 2;
+                highMask2 <<= 2;
+            }
+            blockOffset += 176U;
+        }
+        output[static_cast<std::size_t>(row)] = static_cast<float>(sum);
+    }
+
+    env->ReleaseByteArrayElements(matrixArray, matrixRaw, JNI_ABORT);
+    env->ReleaseFloatArrayElements(vectorArray, vector, JNI_ABORT);
+    return makeFloatArray(env, output);
+}
+
+extern "C"
+JNIEXPORT jfloatArray JNICALL
+Java_io_amper_neuroos_core_AmneNativeNeonKernels_nativeMatVecQ6K(
+    JNIEnv* env,
+    jobject,
+    jbyteArray matrixArray,
+    jint rows,
+    jint columns,
+    jfloatArray vectorArray
+) {
+    if (!validateKQuantShape(
+            env, matrixArray, rows, columns, vectorArray, 256, 210,
+            "AMNE Q6_K matvec arguments are invalid")) {
+        return nullptr;
+    }
+
+    jbyte* matrixRaw = env->GetByteArrayElements(matrixArray, nullptr);
+    jfloat* vector = env->GetFloatArrayElements(vectorArray, nullptr);
+    if (matrixRaw == nullptr || vector == nullptr) {
+        if (matrixRaw != nullptr) env->ReleaseByteArrayElements(matrixArray, matrixRaw, JNI_ABORT);
+        if (vector != nullptr) env->ReleaseFloatArrayElements(vectorArray, vector, JNI_ABORT);
+        return nullptr;
+    }
+
+    const auto* matrix = reinterpret_cast<const std::uint8_t*>(matrixRaw);
+    const int blocksPerRow = columns / 256;
+    std::vector<float> output(static_cast<std::size_t>(rows));
+
+    std::size_t blockOffset = 0U;
+    for (jint row = 0; row < rows; ++row) {
+        double sum = 0.0;
+        for (int block = 0; block < blocksPerRow; ++block) {
+            const std::uint8_t* qlBase = matrix + blockOffset;
+            const std::uint8_t* qhBase = matrix + blockOffset + 128U;
+            const auto* scales =
+                reinterpret_cast<const std::int8_t*>(matrix + blockOffset + 192U);
+            const float d = readHalf(matrix + blockOffset + 208U);
+            const int vectorBlockBase = block * 256;
+
+            for (int half = 0; half < 2; ++half) {
+                const std::uint8_t* ql = qlBase + half * 64;
+                const std::uint8_t* qh = qhBase + half * 32;
+                const std::int8_t* sc = scales + half * 8;
+                const int outBase = vectorBlockBase + half * 128;
+
+                for (int l = 0; l < 32; ++l) {
+                    const int iscale = l / 16;
+                    const std::uint8_t low0 = ql[l];
+                    const std::uint8_t low1 = ql[32 + l];
+                    const std::uint8_t high = qh[l];
+
+                    const int q1 =
+                        static_cast<int>(
+                            (low0 & 0x0fU) |
+                            (((high >> 0U) & 3U) << 4U)
+                        ) - 32;
+                    const int q2 =
+                        static_cast<int>(
+                            (low1 & 0x0fU) |
+                            (((high >> 2U) & 3U) << 4U)
+                        ) - 32;
+                    const int q3 =
+                        static_cast<int>(
+                            (low0 >> 4U) |
+                            (((high >> 4U) & 3U) << 4U)
+                        ) - 32;
+                    const int q4 =
+                        static_cast<int>(
+                            (low1 >> 4U) |
+                            (((high >> 6U) & 3U) << 4U)
+                        ) - 32;
+
+                    const float w1 =
+                        d * static_cast<float>(sc[iscale]) * static_cast<float>(q1);
+                    const float w2 =
+                        d * static_cast<float>(sc[iscale + 2]) * static_cast<float>(q2);
+                    const float w3 =
+                        d * static_cast<float>(sc[iscale + 4]) * static_cast<float>(q3);
+                    const float w4 =
+                        d * static_cast<float>(sc[iscale + 6]) * static_cast<float>(q4);
+
+                    sum += static_cast<double>(w1) *
+                        static_cast<double>(vector[outBase + l]);
+                    sum += static_cast<double>(w2) *
+                        static_cast<double>(vector[outBase + 32 + l]);
+                    sum += static_cast<double>(w3) *
+                        static_cast<double>(vector[outBase + 64 + l]);
+                    sum += static_cast<double>(w4) *
+                        static_cast<double>(vector[outBase + 96 + l]);
+                }
+            }
+            blockOffset += 210U;
+        }
+        output[static_cast<std::size_t>(row)] = static_cast<float>(sum);
+    }
+
+    env->ReleaseByteArrayElements(matrixArray, matrixRaw, JNI_ABORT);
+    env->ReleaseFloatArrayElements(vectorArray, vector, JNI_ABORT);
+    return makeFloatArray(env, output);
+}
+
+extern "C"
+JNIEXPORT jfloatArray JNICALL
 Java_io_amper_neuroos_core_AmneNativeNeonKernels_nativeRmsNormF32(
     JNIEnv* env,
     jobject,
@@ -532,7 +845,7 @@ Java_io_amper_neuroos_core_AmneNativeNeonKernels_nativeAbiVersion(
     JNIEnv*,
     jobject
 ) {
-    return 2;
+    return 3;
 }
 
 JNIEXPORT jint JNI_OnLoad(JavaVM*, void*) {

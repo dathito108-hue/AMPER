@@ -14,6 +14,9 @@ class AmneNativeNeonKernels : AmneKernelBackend {
             AmneKernelPrimitive.MATVEC_F32,
             AmneKernelPrimitive.MATVEC_Q4_0,
             AmneKernelPrimitive.MATVEC_Q8_0,
+            AmneKernelPrimitive.MATVEC_Q4_K,
+            AmneKernelPrimitive.MATVEC_Q5_K,
+            AmneKernelPrimitive.MATVEC_Q6_K,
             AmneKernelPrimitive.RMS_NORM_F32,
             AmneKernelPrimitive.SILU_F32,
             AmneKernelPrimitive.SWIGLU_F32,
@@ -90,6 +93,56 @@ class AmneNativeNeonKernels : AmneKernelBackend {
         return nativeMatVecQ8_0(matrixBlocks, rows, columns, vector)
     }
 
+    override fun matVecQ4K(
+        matrixBlocks: ByteArray,
+        rows: Int,
+        columns: Int,
+        vector: FloatArray
+    ): FloatArray {
+        validateKQuant(matrixBlocks, rows, columns, vector, AmneTensorEncoding.Q4_K)
+        return nativeMatVecQ4K(matrixBlocks, rows, columns, vector)
+    }
+
+    override fun matVecQ5K(
+        matrixBlocks: ByteArray,
+        rows: Int,
+        columns: Int,
+        vector: FloatArray
+    ): FloatArray {
+        validateKQuant(matrixBlocks, rows, columns, vector, AmneTensorEncoding.Q5_K)
+        return nativeMatVecQ5K(matrixBlocks, rows, columns, vector)
+    }
+
+    override fun matVecQ6K(
+        matrixBlocks: ByteArray,
+        rows: Int,
+        columns: Int,
+        vector: FloatArray
+    ): FloatArray {
+        validateKQuant(matrixBlocks, rows, columns, vector, AmneTensorEncoding.Q6_K)
+        return nativeMatVecQ6K(matrixBlocks, rows, columns, vector)
+    }
+
+    private fun validateKQuant(
+        matrixBlocks: ByteArray,
+        rows: Int,
+        columns: Int,
+        vector: FloatArray,
+        encoding: AmneTensorEncoding
+    ) {
+        require(rows > 0 && columns > 0)
+        require(columns % encoding.blockSize == 0)
+        require(vector.size == columns)
+        val blocksPerRow = columns / encoding.blockSize
+        require(
+            matrixBlocks.size ==
+                Math.multiplyExact(
+                    Math.multiplyExact(rows, blocksPerRow),
+                    encoding.blockBytes
+                )
+        )
+    }
+
     override fun rmsNormF32(
         input: FloatArray,
         weight: FloatArray,
@@ -155,6 +208,27 @@ class AmneNativeNeonKernels : AmneKernelBackend {
         vector: FloatArray
     ): FloatArray
 
+    private external fun nativeMatVecQ4K(
+        matrixBlocks: ByteArray,
+        rows: Int,
+        columns: Int,
+        vector: FloatArray
+    ): FloatArray
+
+    private external fun nativeMatVecQ5K(
+        matrixBlocks: ByteArray,
+        rows: Int,
+        columns: Int,
+        vector: FloatArray
+    ): FloatArray
+
+    private external fun nativeMatVecQ6K(
+        matrixBlocks: ByteArray,
+        rows: Int,
+        columns: Int,
+        vector: FloatArray
+    ): FloatArray
+
     private external fun nativeRmsNormF32(
         input: FloatArray,
         weight: FloatArray,
@@ -184,7 +258,7 @@ class AmneNativeNeonKernels : AmneKernelBackend {
 
     companion object {
         const val BACKEND_ID: String = "amne-arm64-neon-v1"
-        const val NATIVE_ABI_VERSION: Int = 2
+        const val NATIVE_ABI_VERSION: Int = 3
 
         init {
             System.loadLibrary("amper_amne")
