@@ -3,7 +3,8 @@ package io.amper.neuroos.core
 class CanonicalSelfModel : SelfModel {
     private val invariants = linkedSetOf(
         "one-sovereign-identity",
-        "models-are-replaceable-capabilities",
+        "one-amper-inference-core",
+        "external-weight-sources-are-import-data-not-runtime-identities",
         "external-actions-require-authority",
         "self-evolution-stays-inside-containment",
         "evolution-keeps-recoverable-canonical-checkpoints"
