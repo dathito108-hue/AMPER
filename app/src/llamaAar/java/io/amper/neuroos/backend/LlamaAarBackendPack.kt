@@ -22,6 +22,7 @@ import io.amper.neuroos.core.ModelArtifactIdentityVerifier
 import io.amper.neuroos.core.ModelArtifactSource
 import io.amper.neuroos.core.ModelId
 import io.amper.neuroos.core.ModelRuntimeIdentity
+import io.amper.neuroos.core.NativeModelPathSource
 import io.amper.neuroos.core.MmapGgufMemoryEstimator
 import io.amper.neuroos.core.PreparableInferenceBackend
 import io.amper.neuroos.core.ResourceBudget
@@ -179,7 +180,7 @@ private class LlamaAarInferenceBackend(
         sessionLock.withLock {
             val ensured = ensureSessionLocked(
                 model = model,
-                source = source,
+                source = nativeSource,
                 identity = identity,
                 cost = cost,
                 temperature = temperature
@@ -239,7 +240,7 @@ private class LlamaAarInferenceBackend(
 
     private fun ensureSessionLocked(
         model: InstalledModel,
-        source: io.amper.neuroos.core.NativeModelPathSource,
+        source: NativeModelPathSource,
         identity: ModelRuntimeIdentity,
         cost: InferenceCost,
         temperature: Float
