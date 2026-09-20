@@ -178,6 +178,7 @@ object OmegaArchitectureLock {
         "m4-amcf-foundation-has-consolidated-qualification-gate",
         "agent-task-origin-and-background-mode-are-canonical",
         "agent-core-never-owns-tool-authority",
+        "passive-agent-tasks-reuse-persistent-sovereign-plans",
         "gguf-is-import-source-only",
         "adaptive-compute-fast-to-deep",
         "verification-before-confidence",
@@ -251,6 +252,7 @@ object OmegaArchitectureLock {
             OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON,
             listOf(
                 "canonical user-request and proactive-trigger task contract",
+                "passive user-request tasks reuse persistent sovereign plans and governed approvals",
                 "passive tool execution",
                 "proactive goals and triggers",
                 "foreground continuation after UI exit",
