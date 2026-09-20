@@ -102,7 +102,7 @@ object Ami2CompilationPlanner {
         )
 
         val foundation = Ami2FoundationIdentity(
-            foundationId = "amper-" + semanticSha256.take(32),
+            foundationId = foundationIdForSemantic(semanticSha256),
             architectureId = index.manifest.architecture.value,
             lineage = lineage,
             tokenizerSha256 = tokenizerSha256,
@@ -120,6 +120,13 @@ object Ami2CompilationPlanner {
             artifacts = Ami2FoundationContract.mandatoryArtifacts,
             migrationEvidence = Ami2MigrationEvidence(legacyContainerSha256)
         )
+    }
+
+    fun foundationIdForSemantic(semanticSha256: String): String {
+        require(semanticSha256.matches(Regex("[0-9a-f]{64}"))) {
+            "AMI2 semantic digest must be lowercase SHA-256"
+        }
+        return "amper-" + semanticSha256.take(32)
     }
 
     fun canonicalChatProtocolBytes(preservedChatTemplate: String?): ByteArray =
