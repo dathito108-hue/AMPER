@@ -186,9 +186,9 @@ class Amne2ExecutionSessionFactory(
     private val viewFactory: Amne2ExecutionViewFactory = Amne2ExecutionViewFactory(),
     private val bindingFactory: Amne2DecoderSemanticBindingFactory =
         Amne2DecoderSemanticBindingFactory(),
+    private val maxWindowBytes: Int = Amne2ExecutionViewFactory.DEFAULT_MAX_WINDOW_BYTES,
     private val hardwareAutotuner: Amne2HardwareAutotuner =
-        Amne2ProcessHardwareAutotuning.autotuner,
-    private val maxWindowBytes: Int = Amne2ExecutionViewFactory.DEFAULT_MAX_WINDOW_BYTES
+        Amne2ProcessHardwareAutotuning.autotuner
 ) {
     init {
         require(maxWindowBytes > 0)
