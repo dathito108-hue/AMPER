@@ -8,9 +8,11 @@ package io.amper.neuroos.core
  * the correctness reference remains the final fallback.
  */
 class AmneKernelRegistry(
-    backends: List<AmneKernelBackend> = listOf(AmneReferenceCpuKernels)
+    backends: List<AmneKernelBackend> = listOf(AmneReferenceCpuKernels),
+    admissions: List<AmneBackendAdmission> = emptyList()
 ) {
     private val registered: List<AmneKernelBackend>
+    private val admissionByBackendId: Map<String, AmneBackendAdmission>
 
     init {
         require(backends.isNotEmpty())
@@ -20,7 +22,15 @@ class AmneKernelRegistry(
         require(backends.any { it.descriptor.deterministicReference }) {
             "AMNE registry requires a deterministic reference backend"
         }
+        require(admissions.map { it.backendId }.distinct().size == admissions.size) {
+            "AMNE admission backend ids must be unique"
+        }
+        val backendIds = backends.mapTo(linkedSetOf()) { it.descriptor.backendId }
+        require(admissions.all { it.backendId in backendIds }) {
+            "AMNE admission references an unregistered backend"
+        }
         registered = backends.toList()
+        admissionByBackendId = admissions.associateBy { it.backendId }
     }
 
     fun backendFor(
@@ -31,6 +41,10 @@ class AmneKernelRegistry(
         return registered.asSequence()
             .filter { primitive in it.descriptor.primitives }
             .filter { availableFeatures.containsAll(it.descriptor.requiredHardware) }
+            .filter { backend ->
+                backend.descriptor.deterministicReference ||
+                    admissionByBackendId[backend.descriptor.backendId]?.admits(primitive) == true
+            }
             .sortedWith(
                 compareByDescending<AmneKernelBackend> {
                     it.descriptor.requiredHardware.size
@@ -46,6 +60,9 @@ class AmneKernelRegistry(
 
     fun descriptors(): List<AmneKernelDescriptor> =
         registered.map { it.descriptor }
+
+    fun admissionFor(backendId: String): AmneBackendAdmission? =
+        admissionByBackendId[backendId]
 }
 
 enum class AmneMatrixPath {
