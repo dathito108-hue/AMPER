@@ -23,6 +23,14 @@ class OmegaCoreV2Test {
                 .exitCriteria
                 .contains("AMI/AMNE v1 migration path to AMI2/AMNE2 is explicit")
         )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M2_AMI2_COMPILER }
+                .exitCriteria
+                .contains(
+                    "new GGUF imports publish direct canonical AMI2 before any legacy runtime bridge"
+                )
+        )
     }
 
     @Test
