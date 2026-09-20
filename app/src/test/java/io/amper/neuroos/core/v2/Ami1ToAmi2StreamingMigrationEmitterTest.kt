@@ -38,7 +38,7 @@ class Ami1ToAmi2StreamingMigrationEmitterTest {
             assertEquals(legacy.fileSha256, migration.sourceAmi1Sha256)
             assertEquals(
                 legacy.fileSha256,
-                loaded.migrationEvidence.legacyAmi1Sha256
+                requireNotNull(loaded.migrationEvidence).legacyAmi1Sha256
             )
             assertEquals(planSectionSha(legacy, AmiSectionType.TOKENIZER),
                 loaded.bundle.foundation.tokenizerSha256)

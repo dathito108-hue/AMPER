@@ -18,7 +18,7 @@ data class Ami2MigrationEvidence(
 data class Ami2CompilationPlan(
     val foundation: Ami2FoundationIdentity,
     val artifacts: Set<Ami2ArtifactRole>,
-    val migrationEvidence: Ami2MigrationEvidence
+    val migrationEvidence: Ami2MigrationEvidence? = null
 ) {
     init {
         require(artifacts == Ami2FoundationContract.mandatoryArtifacts) {
@@ -89,7 +89,7 @@ object Ami2CompilationPlanner {
             sourceByteLength = index.manifest.source.sourceByteLength
         )
 
-        val semanticSha256 = computeSemanticSha256(
+        return buildPlan(
             architectureId = index.manifest.architecture.value,
             lineage = lineage,
             tokenizerSha256 = tokenizerSha256,
@@ -98,27 +98,85 @@ object Ami2CompilationPlanner {
             tensorIndexSha256 = tensorIndexSha256,
             canonicalWeightsSha256 = canonicalWeightsSha256,
             tensorCount = index.manifest.tensorCount,
-            vocabularySize = index.manifest.vocabularySize
-        )
-
-        val foundation = Ami2FoundationIdentity(
-            foundationId = foundationIdForSemantic(semanticSha256),
-            architectureId = index.manifest.architecture.value,
-            lineage = lineage,
-            tokenizerSha256 = tokenizerSha256,
-            chatProtocolSha256 = chatProtocolSha256,
-            logicalGraphSha256 = logicalGraphSha256,
-            tensorIndexSha256 = tensorIndexSha256,
-            canonicalWeightsSha256 = canonicalWeightsSha256,
-            semanticSha256 = semanticSha256,
-            tensorCount = index.manifest.tensorCount,
-            vocabularySize = index.manifest.vocabularySize
-        )
-
-        return Ami2CompilationPlan(
-            foundation = foundation,
-            artifacts = Ami2FoundationContract.mandatoryArtifacts,
+            vocabularySize = index.manifest.vocabularySize,
             migrationEvidence = Ami2MigrationEvidence(legacyContainerSha256)
+        )
+    }
+
+    fun fromDirectGguf(
+        architectureId: String,
+        sourceSha256: String,
+        sourceByteLength: Long,
+        tokenizerSha256: String,
+        preservedChatTemplate: String?,
+        logicalGraphSha256: String,
+        tensorIndexSha256: String,
+        canonicalWeightsSha256: String,
+        tensorCount: Int,
+        vocabularySize: Int
+    ): Ami2CompilationPlan {
+        val lineage = Ami2SourceLineage(
+            source = Ami2ImportSource.GGUF_WEIGHTS,
+            sourceSha256 = sourceSha256,
+            sourceByteLength = sourceByteLength
+        )
+        require(Ami2ImportSource.GGUF_WEIGHTS in Ami2MigrationContract.acceptedWeightImportSources)
+
+        return buildPlan(
+            architectureId = architectureId,
+            lineage = lineage,
+            tokenizerSha256 = tokenizerSha256,
+            chatProtocolSha256 = sha256Bytes(
+                canonicalChatProtocolBytes(preservedChatTemplate)
+            ),
+            logicalGraphSha256 = logicalGraphSha256,
+            tensorIndexSha256 = tensorIndexSha256,
+            canonicalWeightsSha256 = canonicalWeightsSha256,
+            tensorCount = tensorCount,
+            vocabularySize = vocabularySize,
+            migrationEvidence = null
+        )
+    }
+
+    private fun buildPlan(
+        architectureId: String,
+        lineage: Ami2SourceLineage,
+        tokenizerSha256: String,
+        chatProtocolSha256: String,
+        logicalGraphSha256: String,
+        tensorIndexSha256: String,
+        canonicalWeightsSha256: String,
+        tensorCount: Int,
+        vocabularySize: Int,
+        migrationEvidence: Ami2MigrationEvidence?
+    ): Ami2CompilationPlan {
+        val semanticSha256 = computeSemanticSha256(
+            architectureId = architectureId,
+            lineage = lineage,
+            tokenizerSha256 = tokenizerSha256,
+            chatProtocolSha256 = chatProtocolSha256,
+            logicalGraphSha256 = logicalGraphSha256,
+            tensorIndexSha256 = tensorIndexSha256,
+            canonicalWeightsSha256 = canonicalWeightsSha256,
+            tensorCount = tensorCount,
+            vocabularySize = vocabularySize
+        )
+        return Ami2CompilationPlan(
+            foundation = Ami2FoundationIdentity(
+                foundationId = foundationIdForSemantic(semanticSha256),
+                architectureId = architectureId,
+                lineage = lineage,
+                tokenizerSha256 = tokenizerSha256,
+                chatProtocolSha256 = chatProtocolSha256,
+                logicalGraphSha256 = logicalGraphSha256,
+                tensorIndexSha256 = tensorIndexSha256,
+                canonicalWeightsSha256 = canonicalWeightsSha256,
+                semanticSha256 = semanticSha256,
+                tensorCount = tensorCount,
+                vocabularySize = vocabularySize
+            ),
+            artifacts = Ami2FoundationContract.mandatoryArtifacts,
+            migrationEvidence = migrationEvidence
         )
     }
 
