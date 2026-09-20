@@ -4,6 +4,7 @@ import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import java.io.File
 
 class AndroidMultimodalProjectorImportService(
     context: Context,
@@ -27,11 +28,20 @@ class AndroidMultimodalProjectorImportService(
 }
 
 class ContentUriProjectorArtifactResolver(
-    private val resolver: ContentResolver
+    private val resolver: ContentResolver,
+    private val nativeStagingRoot: File? = null
 ) : MultimodalProjectorArtifactResolver {
     override fun resolve(projector: InstalledMultimodalProjector): ModelArtifactSource? = runCatching {
         val uri = Uri.parse(projector.locator)
         require(uri.scheme == ContentResolver.SCHEME_CONTENT) { "projector is not a content URI" }
-        ContentUriModelArtifactSource(resolver, uri)
+        val source = ContentUriModelArtifactSource(resolver, uri)
+        nativeStagingRoot?.let { root ->
+            AppPrivateStagedModelArtifactSource(
+                source = source,
+                stagingRoot = root,
+                contentSha256 = projector.sha256,
+                expectedLengthBytes = projector.lengthBytes
+            )
+        } ?: source
     }.getOrNull()
 }
