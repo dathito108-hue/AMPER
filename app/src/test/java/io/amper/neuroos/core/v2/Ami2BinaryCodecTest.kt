@@ -144,6 +144,7 @@ class Ami2BinaryCodecTest {
         val tokenizerSha = sha256(payloads.tokenizer)
         val chatProtocolSha = sha256(payloads.chatProtocol)
         val graphSha = sha256(payloads.logicalGraph)
+        val tensorIndexSha = sha256(payloads.tensorIndex)
         val weightsSha = sha256(payloads.foundationWeights)
         val semanticSha = Ami2CompilationPlanner.computeSemanticSha256(
             architectureId = "llama",
@@ -151,6 +152,7 @@ class Ami2BinaryCodecTest {
             tokenizerSha256 = tokenizerSha,
             chatProtocolSha256 = chatProtocolSha,
             logicalGraphSha256 = graphSha,
+            tensorIndexSha256 = tensorIndexSha,
             canonicalWeightsSha256 = weightsSha,
             tensorCount = 128,
             vocabularySize = 32_000
@@ -164,6 +166,7 @@ class Ami2BinaryCodecTest {
                 tokenizerSha256 = tokenizerSha,
                 chatProtocolSha256 = chatProtocolSha,
                 logicalGraphSha256 = graphSha,
+                tensorIndexSha256 = tensorIndexSha,
                 canonicalWeightsSha256 = weightsSha,
                 semanticSha256 = semanticSha,
                 tensorCount = 128,
