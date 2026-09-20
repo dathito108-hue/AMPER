@@ -113,9 +113,7 @@ class AmperAgentPassiveTaskCoordinator(
             userGoal = request.objective
         ).getOrThrow()
 
-        require(plan.goal == request.objective) {
-            "persistent sovereign plan goal drifted from Agent Core task objective"
-        }
+        requireTaskPlanEnvelope(admission, plan)
 
         result(
             admission = admission,
@@ -149,6 +147,7 @@ class AmperAgentPassiveTaskCoordinator(
         val plan = requireNotNull(plans.load(checkpoint.planId)) {
             "durable sovereign plan checkpoint is unavailable"
         }
+        requireTaskPlanEnvelope(admission, plan)
 
         val advance = plans.advance(plan).getOrThrow()
         val (updatedPlan, state) = when (advance) {
@@ -190,6 +189,7 @@ class AmperAgentPassiveTaskCoordinator(
         val plan = requireNotNull(plans.load(checkpoint.planId)) {
             "approved task plan checkpoint is unavailable"
         }
+        requireTaskPlanEnvelope(admission, plan)
         val firstActive = plan.steps.firstOrNull {
             it.status == PlanStepStatus.PLANNED ||
                 it.status == PlanStepStatus.REQUIRES_CONFIRMATION
@@ -204,6 +204,20 @@ class AmperAgentPassiveTaskCoordinator(
             plan = plan,
             state = if (plan.complete) terminalState(plan) else AmperAgentTaskState.READY
         )
+    }
+
+    private fun requireTaskPlanEnvelope(
+        admission: AmperAgentTaskAdmission,
+        plan: SovereignPlan
+    ) {
+        require(plan.goal == admission.request.objective) {
+            "persistent sovereign plan goal drifted from Agent Core task objective"
+        }
+        require(
+            plan.steps.all { it.capability in admission.request.allowedCapabilities }
+        ) {
+            "persistent sovereign plan escaped Agent Core capability envelope"
+        }
     }
 
     private fun terminalState(plan: SovereignPlan): AmperAgentTaskState {
