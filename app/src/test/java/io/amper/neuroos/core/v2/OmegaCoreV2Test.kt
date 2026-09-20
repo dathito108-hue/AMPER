@@ -37,6 +37,12 @@ class OmegaCoreV2Test {
                 .exitCriteria
                 .contains("verified AMI2 to AMNE2 execution admission boundary")
         )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M3_AMNE2_RUNTIME }
+                .exitCriteria
+                .contains("bounded AMI2 mmap execution view")
+        )
     }
 
     @Test
