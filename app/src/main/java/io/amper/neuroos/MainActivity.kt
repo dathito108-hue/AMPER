@@ -1046,28 +1046,43 @@ class MainActivity : ComponentActivity() {
                         onSuccess = {
                             importStatus = "Inspecting GGUF and computing SHA-256..."
                             executionLanes.executeInteractive {
-                                val result = importer.install(uri, profile)
+                                val result = importer.install(uri, profile).mapCatching { model ->
+                                    amiCompilationService.compile(model).getOrThrow()
+                                    titan.unloadAll().getOrThrow()
+                                    coreFoundationController.activate(model.descriptor.id)
+                                    coreFoundationPreferences.edit()
+                                        .putString("active_source_model_id", model.descriptor.id.value)
+                                        .apply()
+                                    model
+                                }
                                 runOnUiThread {
                                     result.fold(
                                         onSuccess = { model ->
                                             val capabilities = model.descriptor.capabilities
                                                 .sortedBy { it.value }
                                                 .joinToString { it.value }
-                                            importStatus = "Installed ${model.displayName} (GGUF v${model.ggufVersion}) · $capabilities"
+                                            coreFoundationModelId = model.descriptor.id
+                                            importStatus =
+                                                "AMPER Core foundation updated from ${model.displayName} · " +
+                                                    "GGUF → AMI SOURCE_EXACT · $capabilities"
                                             modelSummary = catalog.list().joinToString { it.displayName }
                                             hasModel = true
-                                            if (profileModelId == null) {
-                                                profileModelId = model.descriptor.id
-                                                profileCodeGeneration = model.descriptor.capabilities.contains(TitanCapabilities.CODE_GENERATION)
-                                                profilePlanning = model.descriptor.capabilities.contains(TitanCapabilities.PLANNING)
-                                                profileVision = model.descriptor.capabilities.contains(TitanCapabilities.VISION)
-                                                profileAudioUnderstanding =
-                                                    model.descriptor.capabilities.contains(TitanCapabilities.AUDIO_UNDERSTANDING)
-                                                profileStatus = "Selected ${model.displayName}"
-                                            }
+                                            profileModelId = model.descriptor.id
+                                            profileCodeGeneration =
+                                                model.descriptor.capabilities.contains(TitanCapabilities.CODE_GENERATION)
+                                            profilePlanning =
+                                                model.descriptor.capabilities.contains(TitanCapabilities.PLANNING)
+                                            profileVision =
+                                                model.descriptor.capabilities.contains(TitanCapabilities.VISION)
+                                            profileAudioUnderstanding =
+                                                model.descriptor.capabilities.contains(TitanCapabilities.AUDIO_UNDERSTANDING)
+                                            profileStatus =
+                                                "Active AMPER foundation: ${model.displayName}"
                                         },
                                         onFailure = { error ->
-                                            importStatus = "Import rejected: ${error.message ?: error::class.java.simpleName}"
+                                            importStatus =
+                                                "AMPER foundation import rejected: " +
+                                                    (error.message ?: error::class.java.simpleName)
                                         }
                                     )
                                 }
@@ -1093,16 +1108,17 @@ class MainActivity : ComponentActivity() {
                         Text("Kernel: ${report.kernelState}")
                         Text("Identity: ${report.selfIdentity}")
                         Text("Memory records: ${report.memoryRecords}")
-                        Text("Model route: ${report.modelRoute}")
-                        Text("User models: $modelSummary")
+                        Text("Core route: ${report.modelRoute}")
+                        Text("Imported weight sources: $modelSummary")
                         Text(
-                            "Preferred GGUF: " +
-                                (preferredModelId?.let { catalog.get(it)?.displayName } ?: "Automatic routing")
+                            "AMPER Core foundation: " +
+                                (coreFoundationModelId
+                                    ?.let { catalog.get(it)?.displayName }
+                                    ?: "not initialized")
                         )
+                        Text("Inference architecture: AMI + AMNE · single AMPER core")
                         Text("Titan budget: ${budget.memoryMb} MiB · thermal ${budget.thermalClass}")
                         Text("Governed tools: ${assistantCapabilities.joinToString(" · ") { it.value }}")
-                        Text("Text backend pack: ${backendStatus.detail}")
-                        Text("Native MTMD: ${mtmdEngineStatus.detail}")
 
                         Text("AMNE mobile runtime", style = MaterialTheme.typography.titleMedium)
                         Text(amneQualificationStatus)
@@ -1688,73 +1704,45 @@ class MainActivity : ComponentActivity() {
                                     Text(projectorStatus)
 
                                     Button(
-                                        enabled = preferredModelId != selectedId,
+                                        enabled = coreFoundationModelId != selectedId,
                                         onClick = {
-                                            preferredPreparationCancellation?.cancel()
-                                            inferencePort.prefer(selectedId)
-                                            preferredModelId = selectedId
-                                            modelRoutingPreferences.edit()
-                                                .putString("preferred_model_id", selectedId.value)
-                                                .apply()
-
-                                            val preparationCancellation =
-                                                InferenceCancellationSignal()
-                                            preferredPreparationCancellation =
-                                                preparationCancellation
                                             profileStatus =
-                                                "Preferred ${selected.displayName}; warming the verified native route in background..."
+                                                "Compiling and activating ${selected.displayName} as the single AMPER foundation..."
                                             executionLanes.executeInteractive {
-                                                val result = inferencePort.prepare(
-                                                    InferenceRequest(
-                                                        prompt =
-                                                            "Prepare the selected model for the next assistant turn.",
-                                                        requiredCapabilities =
-                                                            setOf(TitanCapabilities.REASONING),
-                                                        maxOutputTokens = 256,
-                                                        temperature = 0.7,
-                                                        userPreferredModelId = selectedId
-                                                    ),
-                                                    preparationCancellation
-                                                )
+                                                val result = runCatching {
+                                                    amiCompilationService.compile(selected).getOrThrow()
+                                                    titan.unloadAll().getOrThrow()
+                                                    coreFoundationController.activate(selectedId)
+                                                    coreFoundationPreferences.edit()
+                                                        .putString("active_source_model_id", selectedId.value)
+                                                        .apply()
+                                                    selected
+                                                }
                                                 runOnUiThread {
-                                                    if (
-                                                        preferredPreparationCancellation ===
-                                                        preparationCancellation
-                                                    ) {
-                                                        preferredPreparationCancellation = null
-                                                        result.fold(
-                                                            onSuccess = { prepared ->
-                                                                profileStatus =
-                                                                    "Preferred ${selected.displayName} · " +
-                                                                        "native route prepared via " +
-                                                                        prepared.backendId +
-                                                                        if (prepared.sessionReused) {
-                                                                            " · resident session reused"
-                                                                        } else {
-                                                                            " · warm residency ready"
-                                                                        }
-                                                            },
-                                                            onFailure = { error ->
-                                                                profileStatus =
-                                                                    if (
-                                                                        error is
-                                                                            InferenceCancelledException
-                                                                    ) {
-                                                                        "Preferred ${selected.displayName}; background preparation cancelled"
-                                                                    } else {
-                                                                        "Preferred ${selected.displayName}; " +
-                                                                            "routing saved, background preparation unavailable: " +
-                                                                            (error.message
-                                                                                ?: error::class.java.simpleName)
-                                                                    }
-                                                            }
-                                                        )
-                                                    }
+                                                    result.fold(
+                                                        onSuccess = { activated ->
+                                                            coreFoundationModelId = activated.descriptor.id
+                                                            hasModel = true
+                                                            profileStatus =
+                                                                "AMPER Core foundation active · ${activated.displayName} · AMI/AMNE only"
+                                                        },
+                                                        onFailure = { error ->
+                                                            profileStatus =
+                                                                "Foundation activation failed: " +
+                                                                    (error.message ?: error::class.java.simpleName)
+                                                        }
+                                                    )
                                                 }
                                             }
                                         }
                                     ) {
-                                        Text(if (preferredModelId == selectedId) "Preferred for routing" else "Prefer this model")
+                                        Text(
+                                            if (coreFoundationModelId == selectedId) {
+                                                "Active AMPER foundation"
+                                            } else {
+                                                "Use as AMPER foundation"
+                                            }
+                                        )
                                     }
 
                                     if (detachArmedModelId != selectedId) {
@@ -1831,20 +1819,6 @@ class MainActivity : ComponentActivity() {
                                             Text("Keep model attached")
                                         }
                                     }
-                                }
-                            }
-                            if (preferredModelId != null) {
-                                Button(
-                                    onClick = {
-                                        preferredPreparationCancellation?.cancel()
-                                        preferredPreparationCancellation = null
-                                        inferencePort.prefer(null)
-                                        preferredModelId = null
-                                        modelRoutingPreferences.edit().remove("preferred_model_id").apply()
-                                        profileStatus = "Automatic model routing restored"
-                                    }
-                                ) {
-                                    Text("Use automatic model routing")
                                 }
                             }
                             Text(profileStatus)
@@ -2372,9 +2346,7 @@ class MainActivity : ComponentActivity() {
                                 val thread = conversationId
                                 val turnAttachments = pendingInferenceAttachments
                                 val cancellation = InferenceCancellationSignal()
-                                preferredPreparationCancellation?.cancel()
-                                preferredPreparationCancellation = null
-                                activeInferenceCancellation = cancellation
+                                                                activeInferenceCancellation = cancellation
                                 pendingApproval = null
                                 inferenceStatus = "QUEUED · waiting for interactive inference lane..."
                                 inferenceOutput = ""
@@ -2382,7 +2354,7 @@ class MainActivity : ComponentActivity() {
                                     runOnUiThread {
                                         if (activeInferenceCancellation === cancellation) {
                                             inferenceStatus =
-                                                "RUNNING · AMPER cognition → Titan route → local model..."
+                                                "RUNNING · AMPER cognition → single AMI/AMNE core..."
                                         }
                                     }
                                     val assistantStartedNs = System.nanoTime()
@@ -2405,7 +2377,7 @@ class MainActivity : ComponentActivity() {
                                                         AssistantTurnStage.NATIVE_SYSTEM2 ->
                                                             "RUNNING · stage NATIVE_SYSTEM2"
                                                         AssistantTurnStage.TITAN_INFERENCE ->
-                                                            "RUNNING · stage TITAN_INFERENCE · blocking backend capped at 32 tokens"
+                                                            "RUNNING · stage TITAN_INFERENCE · AMPER single-core execution"
                                                         AssistantTurnStage.ACTION_EVALUATION ->
                                                             "RUNNING · stage ACTION_EVALUATION"
                                                         AssistantTurnStage.FINALIZING ->
