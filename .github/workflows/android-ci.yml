@@ -17,6 +17,7 @@ on:
     branches: [ main ]
     paths:
       - '.github/qualification-apk-trigger'
+      - '.github/operational-apk-trigger'
 
 permissions:
   contents: read
@@ -30,6 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       native_changed: ${{ steps.changes.outputs.native_changed }}
+      operational_llama: ${{ steps.changes.outputs.operational_llama }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -42,6 +44,7 @@ jobs:
           MODE: ${{ inputs.mode }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
+          echo "operational_llama=false" >> "$GITHUB_OUTPUT"
           if [[ "$EVENT_NAME" == "workflow_dispatch" && "$MODE" == "full" ]]; then
             echo "native_changed=true" >> "$GITHUB_OUTPUT"
             exit 0
@@ -52,6 +55,10 @@ jobs:
           fi
           if [[ "$EVENT_NAME" == "push" ]]; then
             echo "native_changed=false" >> "$GITHUB_OUTPUT"
+            CHANGED="$(git diff --name-only HEAD^ "$GITHUB_SHA")"
+            if printf "%s\n" "$CHANGED" | grep -qx '.github/operational-apk-trigger'; then
+              echo "operational_llama=true" >> "$GITHUB_OUTPUT"
+            fi
             exit 0
           fi
           git fetch --no-tags origin "$BASE_SHA" --depth=1
@@ -97,6 +104,51 @@ jobs:
             app/build/outputs/apk/debug/app-debug.apk
             app/build/outputs/apk/debug/app-debug.apk.sha256
             app/build/outputs/apk/debug/app-debug.apk.provenance.txt
+          retention-days: 7
+
+  operational-llama-apk:
+    needs: verify
+    if: needs.verify.outputs.operational_llama == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Build operational text-runtime APK
+        run: gradle :app:assembleDebug -PwithLlamaAar=true --stacktrace
+      - name: Verify packaged arm64 text runtime
+        run: |
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          unzip -l "$APK" > /tmp/amper-operational-apk-files.txt
+          grep -q 'lib/arm64-v8a/libllama_jni.so' /tmp/amper-operational-apk-files.txt
+          grep -q 'lib/arm64-v8a/libllama.so' /tmp/amper-operational-apk-files.txt
+          grep -Eq 'lib/arm64-v8a/libggml(-base|-cpu)?\.so' /tmp/amper-operational-apk-files.txt
+      - name: Write operational APK provenance
+        shell: bash
+        run: |
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          OUT="app/build/outputs/apk/debug/AMPER-operational-text-runtime-$GITHUB_SHA.apk"
+          cp "$APK" "$OUT"
+          sha256sum "$OUT" | tee "$OUT.sha256"
+          {
+            echo "git_sha=$GITHUB_SHA"
+            echo "git_ref=$GITHUB_REF"
+            echo "workflow_run_id=$GITHUB_RUN_ID"
+            echo "workflow_run_number=$GITHUB_RUN_NUMBER"
+            echo "package_mode=llama-aar-operational"
+          } > "$OUT.provenance.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AMPER-operational-text-runtime-${{ github.sha }}
+          path: |
+            app/build/outputs/apk/debug/AMPER-operational-text-runtime-${{ github.sha }}.apk
+            app/build/outputs/apk/debug/AMPER-operational-text-runtime-${{ github.sha }}.apk.sha256
+            app/build/outputs/apk/debug/AMPER-operational-text-runtime-${{ github.sha }}.apk.provenance.txt
           retention-days: 7
 
   optional-llama-aar:
