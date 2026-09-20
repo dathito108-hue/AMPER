@@ -69,10 +69,7 @@ class Ami2CompilationPlannerTest {
         )
 
         assertEquals(first.foundation, second.foundation)
-        assertEquals(
-            Ami2CompilationPlanner.FALLBACK_CHAT_PROTOCOL,
-            Ami2CompilationPlanner.FALLBACK_CHAT_PROTOCOL
-        )
+        assertTrue(first.foundation.chatProtocolSha256.matches(Regex("[0-9a-f]{64}")))
     }
 
     @Test
