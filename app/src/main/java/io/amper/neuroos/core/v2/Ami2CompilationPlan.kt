@@ -77,6 +77,7 @@ object Ami2CompilationPlanner {
 
         val tokenizerSha256 = canonicalSectionDigest(AmiSectionType.TOKENIZER)
         val logicalGraphSha256 = canonicalSectionDigest(AmiSectionType.GRAPH_IR)
+        val tensorIndexSha256 = canonicalSectionDigest(AmiSectionType.TENSOR_INDEX)
         val canonicalWeightsSha256 = canonicalSectionDigest(AmiSectionType.FOUNDATION_WEIGHTS)
         val chatProtocolSha256 = sha256Bytes(
             canonicalChatProtocolBytes(preservedChatTemplate)
@@ -94,6 +95,7 @@ object Ami2CompilationPlanner {
             tokenizerSha256 = tokenizerSha256,
             chatProtocolSha256 = chatProtocolSha256,
             logicalGraphSha256 = logicalGraphSha256,
+            tensorIndexSha256 = tensorIndexSha256,
             canonicalWeightsSha256 = canonicalWeightsSha256,
             tensorCount = index.manifest.tensorCount,
             vocabularySize = index.manifest.vocabularySize
@@ -106,6 +108,7 @@ object Ami2CompilationPlanner {
             tokenizerSha256 = tokenizerSha256,
             chatProtocolSha256 = chatProtocolSha256,
             logicalGraphSha256 = logicalGraphSha256,
+            tensorIndexSha256 = tensorIndexSha256,
             canonicalWeightsSha256 = canonicalWeightsSha256,
             semanticSha256 = semanticSha256,
             tensorCount = index.manifest.tensorCount,
@@ -133,6 +136,7 @@ object Ami2CompilationPlanner {
         tokenizerSha256: String,
         chatProtocolSha256: String,
         logicalGraphSha256: String,
+        tensorIndexSha256: String,
         canonicalWeightsSha256: String,
         tensorCount: Int,
         vocabularySize: Int
@@ -143,6 +147,7 @@ object Ami2CompilationPlanner {
             tokenizerSha256 = tokenizerSha256,
             chatProtocolSha256 = chatProtocolSha256,
             logicalGraphSha256 = logicalGraphSha256,
+            tensorIndexSha256 = tensorIndexSha256,
             canonicalWeightsSha256 = canonicalWeightsSha256,
             tensorCount = tensorCount,
             vocabularySize = vocabularySize
@@ -168,6 +173,7 @@ object Ami2CompilationPlanner {
         append("tokenizer_sha256=").append(tokenizerSha256).append('\n')
         append("chat_protocol_sha256=").append(chatProtocolSha256).append('\n')
         append("logical_graph_sha256=").append(logicalGraphSha256).append('\n')
+        append("tensor_index_sha256=").append(tensorIndexSha256).append('\n')
         append("foundation_weights_sha256=").append(canonicalWeightsSha256).append('\n')
         append("tensor_count=").append(tensorCount).append('\n')
         append("vocabulary_size=").append(vocabularySize).append('\n')
