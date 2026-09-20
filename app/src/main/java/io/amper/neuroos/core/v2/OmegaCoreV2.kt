@@ -173,6 +173,7 @@ object OmegaArchitectureLock {
         "amcf-recurrent-state-is-structured-and-bounded",
         "amcf-cycle-state-commit-is-transactional",
         "amcf-production-port-reuses-single-core-endpoint",
+        "amcf-quality-reuses-integrated-cognitive-readiness",
         "gguf-is-import-source-only",
         "adaptive-compute-fast-to-deep",
         "verification-before-confidence",
@@ -234,6 +235,7 @@ object OmegaArchitectureLock {
                 "structured recurrent state carries confidence uncertainty and evidence without raw hidden reasoning",
                 "AMCF cycle orchestration is bounded cancellation-aware and commits recurrent state only after successful cycles",
                 "AMCF production cycles execute through the existing single-core AMI2/AMNE2 inference endpoint",
+                "AMCF quality and early-exit reuse grounded integrated cognitive readiness without a judge model",
                 "adaptive depth and recurrent reasoning",
                 "deep reasoning and verify/revise loop",
                 "early exit for fast requests"
