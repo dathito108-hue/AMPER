@@ -91,7 +91,7 @@ class AmiBinaryReader {
 
             repeat(sectionCount.toInt()) {
                 val typeOrdinal = readU32(raf)
-                require(typeOrdinal in 0L until AmiSectionType.entries.size.toLong()) {
+                require(typeOrdinal in 0L until AmiSectionType.values().size.toLong()) {
                     "invalid AMI section type id: $typeOrdinal"
                 }
                 val profileId = readU32(raf)
@@ -111,7 +111,7 @@ class AmiBinaryReader {
                 raf.readFully(digestBytes)
 
                 descriptors += AmiSectionDescriptor(
-                    type = AmiSectionType.entries[typeOrdinal.toInt()],
+                    type = AmiSectionType.values()[typeOrdinal.toInt()],
                     offset = offset.toLong(),
                     length = length.toLong(),
                     alignmentBytes = alignment.toInt(),
