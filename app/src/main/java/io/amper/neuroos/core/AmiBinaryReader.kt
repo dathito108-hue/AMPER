@@ -158,8 +158,8 @@ class AmiBinaryReader {
     private fun parseManifest(text: String): AmiManifest {
         val fields = linkedMapOf<String, String>()
         text.lineSequence()
-            .map(String::trim)
-            .filter(String::isNotEmpty)
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
             .forEach { line ->
                 val separator = line.indexOf('=')
                 require(separator > 0) { "malformed AMI manifest line" }
@@ -182,9 +182,15 @@ class AmiBinaryReader {
         val sourceLength = requireNotNull(fields["source_byte_length"]) {
             "AMI source length missing"
         }.toLong()
-        val precisionPreserved = requireNotNull(fields["source_precision_preserved"]) {
-            "AMI source precision flag missing"
-        }.toBooleanStrict()
+        val precisionPreserved = when (
+            requireNotNull(fields["source_precision_preserved"]) {
+                "AMI source precision flag missing"
+            }
+        ) {
+            "true" -> true
+            "false" -> false
+            else -> error("AMI source precision flag is invalid")
+        }
         val precision = AmiPrecisionPolicy.valueOf(
             requireNotNull(fields["canonical_precision"]) {
                 "AMI canonical precision missing"
