@@ -56,6 +56,7 @@ import io.amper.neuroos.core.AndroidLiveAudioAttachmentCapture
 import io.amper.neuroos.core.AndroidModelImportService
 import io.amper.neuroos.core.AndroidAppPrivateModelArtifactResolver
 import io.amper.neuroos.core.AndroidActivePerceptionPort
+import io.amper.neuroos.core.AndroidAgiMobileDeviceQualificationHarness
 import io.amper.neuroos.core.AndroidMultimodalProjectorImportService
 import io.amper.neuroos.core.AndroidPerceptionCapture
 import io.amper.neuroos.core.AndroidResourceGovernor
@@ -143,6 +144,38 @@ class MainActivity : ComponentActivity() {
                         deviceStatusSource = deviceStatusSource
                     )
                 }
+            }
+            val deviceQualificationHarness = remember {
+                AndroidAgiMobileDeviceQualificationHarness(
+                    context = applicationContext,
+                    runtime = runtime,
+                    deviceStatusSource = deviceStatusSource,
+                    governor = governor
+                )
+            }
+            remember {
+                runCatching { deviceQualificationHarness.onProcessStart() }
+                    .onFailure {
+                        android.util.Log.e(
+                            "AMPER-DeviceQualification",
+                            "restart evidence collection failed",
+                            it
+                        )
+                    }
+                intent.getStringExtra(
+                    AndroidAgiMobileDeviceQualificationHarness.EXTRA_COMMAND
+                )?.let { command ->
+                    runCatching {
+                        deviceQualificationHarness.handleCommand(command)
+                    }.onFailure {
+                        android.util.Log.e(
+                            "AMPER-DeviceQualification",
+                            "qualification command failed: $command",
+                            it
+                        )
+                    }
+                }
+                Unit
             }
             val reflexArtifactStore = remember {
                 FileReflexLinearArtifactStore(File(sovereignDir, "native-reflex"))
