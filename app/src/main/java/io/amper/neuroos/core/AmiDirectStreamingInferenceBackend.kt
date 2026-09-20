@@ -1,8 +1,10 @@
 package io.amper.neuroos.core
 
 import io.amper.neuroos.core.v2.Amne2ConversationHotIdentity
-import io.amper.neuroos.core.v2.Amne2ConversationHotReusePolicy
+import io.amper.neuroos.core.v2.Amne2ContextPressureAction
+import io.amper.neuroos.core.v2.Amne2ContextPressurePolicy
 import io.amper.neuroos.core.v2.Amne2ExecutionSession
+import io.amper.neuroos.core.v2.Amne2MemoryBudget
 import io.amper.neuroos.core.v2.Amne2ExecutionSessionFactory
 import io.amper.neuroos.core.v2.StoredAmi2Artifact
 import java.util.concurrent.ConcurrentHashMap
@@ -27,6 +29,7 @@ data class AmiDirectPreparedModel(
     val metadata: AmiGgufMetadataSnapshot,
     val tokenizer: AmiTokenizerLexicon,
     val stackPlan: AmiDecoderStackPlan,
+    val memoryBudget: Amne2MemoryBudget,
     val requiredMatrixPrimitives: Set<AmneKernelPrimitive>
 )
 
@@ -76,7 +79,7 @@ class AmiDirectStreamingInferenceBackend(
             readiness.ready &&
                 promptTokens > 0 &&
                 promptTokens.toLong() + request.maxOutputTokens.toLong() <=
-                    runtime.stackPlan.maxContextTokens.toLong()
+                    runtime.memoryBudget.safeContextTokens.toLong()
         }.getOrDefault(false)
     }
 
@@ -95,6 +98,22 @@ class AmiDirectStreamingInferenceBackend(
                 readiness.referenceOnlyMatrixPrimitives
                     .sortedBy { it.ordinal }
                     .joinToString(",") { it.name }
+        }
+
+        val requiredContext = runCatching {
+            Math.addExact(
+                prepareInstructionPrompt(runtime, request).tokenIds.size,
+                request.maxOutputTokens
+            )
+        }.getOrNull()
+        if (
+            requiredContext != null &&
+            requiredContext > runtime.memoryBudget.safeContextTokens
+        ) {
+            return Amne2ContextPressurePolicy.rejectionReason(
+                requiredContextTokens = requiredContext,
+                safeContextTokens = runtime.memoryBudget.safeContextTokens
+            )
         }
         return "amper-core-request-unsupported"
     }
@@ -137,7 +156,7 @@ class AmiDirectStreamingInferenceBackend(
             plan = runtime.stackPlan,
             promptTokens = promptTokens,
             requestedOutputTokens = request.maxOutputTokens,
-            maxWindowBytes = maxWindowBytes
+            maxWindowBytes = runtime.memoryBudget.mmapWindowBytes
         )
         return InferenceCost(
             estimatedMemoryMb = memory.estimatedMemoryMb,
@@ -145,7 +164,7 @@ class AmiDirectStreamingInferenceBackend(
                 ?.minus(1)
                 ?.coerceIn(1, 6)
                 ?: 1,
-            contextTokens = runtime.stackPlan.maxContextTokens
+            contextTokens = runtime.memoryBudget.safeContextTokens
         )
     }
 
@@ -336,15 +355,24 @@ class AmiDirectStreamingInferenceBackend(
         request: InferenceRequest,
         fullPromptTokenIds: IntArray
     ): AmiDirectSessionLease {
+        val requiredContextTokens = Math.addExact(
+            fullPromptTokenIds.size,
+            request.maxOutputTokens
+        )
+        val safeContextTokens = runtime.memoryBudget.safeContextTokens
+        require(requiredContextTokens <= safeContextTokens) {
+            Amne2ContextPressurePolicy.rejectionReason(
+                requiredContextTokens = requiredContextTokens,
+                safeContextTokens = safeContextTokens
+            )
+        }
+
         val lifecycleId = request.conversationSessionId
         if (lifecycleId == null) {
             val session = sessionFactory.open(
                 artifactFile = runtime.artifact.file,
                 hardware = hardware,
-                maxContextTokens = minOf(
-                    runtime.stackPlan.maxContextTokens,
-                    fullPromptTokenIds.size + request.maxOutputTokens
-                )
+                maxContextTokens = requiredContextTokens
             ).getOrThrow()
             return AmiDirectSessionLease(
                 session = session,
@@ -367,38 +395,56 @@ class AmiDirectStreamingInferenceBackend(
         synchronized(hotSessionLock) {
             val current = hotSession
             if (current != null) {
-                val suffix = runCatching {
-                    require(current.session.position == current.committedTokenIds.size) {
-                        "AMNE2 hot-session KV position differs from committed token history"
-                    }
-                    Amne2ConversationHotReusePolicy.reusablePromptSuffix(
-                        cachedIdentity = current.identity,
-                        requestedIdentity = requestedIdentity,
-                        committedTokenIds = current.committedTokenIds,
-                        fullPromptTokenIds = fullPromptTokenIds,
-                        requestedOutputTokens = request.maxOutputTokens,
-                        maxContextTokens = current.session.maxContextTokens
-                    )
-                }.getOrNull()
+                require(current.session.position == current.committedTokenIds.size) {
+                    "AMNE2 hot-session KV position differs from committed token history"
+                }
+            }
 
-                if (suffix != null) {
+            val pressure = Amne2ContextPressurePolicy.decide(
+                cachedIdentity = current?.identity,
+                requestedIdentity = requestedIdentity,
+                committedTokenIds = current?.committedTokenIds ?: intArrayOf(),
+                fullPromptTokenIds = fullPromptTokenIds,
+                requestedOutputTokens = request.maxOutputTokens,
+                currentSessionMaxContextTokens = current?.session?.maxContextTokens,
+                safeContextTokens = safeContextTokens
+            )
+
+            when (pressure.action) {
+                Amne2ContextPressureAction.REUSE_HOT_SESSION -> {
+                    val reusable = requireNotNull(current) {
+                        "AMNE2 context policy selected reuse without a hot session"
+                    }
                     return AmiDirectSessionLease(
-                        session = current.session,
-                        promptTokenIds = suffix,
-                        samplingHistoryPrefixTokenIds = current.committedTokenIds.copyOf(),
+                        session = reusable.session,
+                        promptTokenIds = pressure.promptSuffix,
+                        samplingHistoryPrefixTokenIds =
+                            reusable.committedTokenIds.copyOf(),
                         reused = true,
                         hotIdentity = requestedIdentity
                     )
                 }
 
-                runCatching { current.session.close().getOrThrow() }
-                hotSession = null
+                Amne2ContextPressureAction.REQUIRE_COMPACTION ->
+                    error(
+                        Amne2ContextPressurePolicy.rejectionReason(
+                            requiredContextTokens = pressure.requiredContextTokens,
+                            safeContextTokens = pressure.safeContextTokens
+                        )
+                    )
+
+                Amne2ContextPressureAction.REBUILD_FULL_PROMPT -> {
+                    if (current != null) {
+                        runCatching { current.session.close().getOrThrow() }
+                        hotSession = null
+                    }
+                }
             }
 
             val session = sessionFactory.open(
                 artifactFile = runtime.artifact.file,
                 hardware = hardware,
-                maxContextTokens = runtime.stackPlan.maxContextTokens
+                maxContextTokens = requiredContextTokens
             ).getOrThrow()
             hotSession = AmiDirectHotSessionSlot(
                 identity = requestedIdentity,
@@ -487,6 +533,7 @@ class AmiDirectStreamingInferenceBackend(
             .read(binding.decoderArtifactView)
             .getOrThrow()
         val stackPlan = session.stackPlan
+        val memoryBudget = session.memoryBudget
         val outputPlan = AmiOutputHeadPlanner
             .plan(graph, metadata, stackPlan)
             .getOrThrow()
@@ -508,6 +555,7 @@ class AmiDirectStreamingInferenceBackend(
             metadata = metadata,
             tokenizer = tokenizer,
             stackPlan = stackPlan,
+            memoryBudget = memoryBudget,
             requiredMatrixPrimitives = requiredMatrixPrimitives
         ).also { prepared[key] = it }
     }
