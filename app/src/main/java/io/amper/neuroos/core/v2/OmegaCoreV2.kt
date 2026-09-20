@@ -202,6 +202,7 @@ object OmegaArchitectureLock {
             listOf(
                 "verified AMI2 to AMNE2 execution admission boundary",
                 "bounded AMI2 mmap execution view",
+                "verified AMI2 decoder semantic binding reuses the qualified decoder stack",
                 "ARM64 kernel dispatch",
                 "NEON DOTPROD I8MM FP16 qualification",
                 "mmap paging and KV management",
