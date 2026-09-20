@@ -89,11 +89,11 @@ class TitanRouteObservatoryTest {
         val observation = planner.latestObservation()!!
         assertTrue(
             observation.rejected.contains(
-                "a-preferred/diagnostic-backend:memory-budget"
+                "a-preferred/diagnostic-backend:memory-budget:estimated=1024MiB,budget=512MiB"
             )
         )
         assertEquals(
-            "a-preferred/diagnostic-backend:memory-budget",
+            "a-preferred/diagnostic-backend:memory-budget:estimated=1024MiB,budget=512MiB",
             observation.preferredModelOutcome()
         )
     }

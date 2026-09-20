@@ -58,6 +58,22 @@ class BackendResourcePolicyTest {
     }
 
     @Test
+    fun memoryRejectionIncludesEstimatedAndAvailableBudget() {
+        val evaluation = TitanBackendPolicy.evaluate(
+            backend = backend,
+            model = model,
+            request = request,
+            budget = ResourceBudget(memoryMb = 700, thermalClass = 1)
+        )
+
+        assertFalse(evaluation.eligible)
+        assertTrue(
+            evaluation.rejectionReason ==
+                "memory-budget:estimated=1000MiB,budget=700MiB"
+        )
+    }
+
+    @Test
     fun allBackendsFailClosedAtCriticalThermalState() {
         assertFalse(
             TitanBackendPolicy.eligible(

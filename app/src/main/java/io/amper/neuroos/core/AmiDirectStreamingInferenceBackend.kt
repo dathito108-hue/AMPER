@@ -61,19 +61,19 @@ class AmiDirectStreamingInferenceBackend(
         model: InstalledModel,
         request: InferenceRequest
     ): String {
-        if (request.attachments.isNotEmpty()) return "ami-direct-text-only"
-        if (artifactLookup(model) == null) return "ami-artifact-not-compiled"
+        if (request.attachments.isNotEmpty()) return "amper-core-text-only"
+        if (artifactLookup(model) == null) return "amper-core-ami-not-compiled"
 
         val runtime = prepareModel(model).getOrNull()
-            ?: return "ami-direct-model-unsupported"
+            ?: return "amper-core-foundation-unsupported"
         val readiness = runCatching { directReadiness(runtime) }.getOrNull()
         if (readiness != null && !readiness.ready) {
-            return "ami-direct-native-matrix-not-admitted:" +
+            return "amper-core-native-matrix-not-admitted:" +
                 readiness.referenceOnlyMatrixPrimitives
                     .sortedBy { it.ordinal }
                     .joinToString(",") { it.name }
         }
-        return "ami-direct-request-unsupported"
+        return "amper-core-request-unsupported"
     }
 
     override fun health(): BackendHealth {
@@ -90,9 +90,9 @@ class AmiDirectStreamingInferenceBackend(
         return BackendHealth(
             state = if (acceleratedMatrices) BackendState.READY else BackendState.DEGRADED,
             detail = if (acceleratedMatrices) {
-                "direct AMI decoder · native matrix admission active"
+                "AMPER Core · native matrix admission active"
             } else {
-                "direct AMI locked · run AMNE device admission; llama fallback remains available"
+                "AMPER Core · native matrix admission pending; no foreign fallback runtime"
             },
             hardwareAcceleration = acceleratedMatrices
         )
@@ -104,28 +104,25 @@ class AmiDirectStreamingInferenceBackend(
     ): InferenceCost {
         val runtime = prepareModel(model).getOrThrow()
         val hardware = hardwareSnapshot()
-        val contextTokens = runtime.stackPlan.maxContextTokens
-        val kvBytes = runtime.stackPlan.layers.fold(0L) { total, layer ->
-            val perLayer = Math.multiplyExact(
-                Math.multiplyExact(
-                    layer.attention.kvWidth.toLong(),
-                    contextTokens.toLong()
-                ),
-                2L * Float.SIZE_BYTES.toLong()
-            )
-            Math.addExact(total, perLayer)
+        val promptTokens = AmiTokenizerEncoder.encode(
+            runtime.tokenizer,
+            request.prompt
+        ).size.also {
+            require(it > 0) { "AMI tokenizer produced an empty prompt" }
         }
-        val kvMb = ((kvBytes + MIB - 1L) / MIB)
-            .coerceAtMost(Int.MAX_VALUE.toLong())
-            .toInt()
-        val workingMb = 192
+        val memory = AmiRequestMemoryEstimator.estimate(
+            plan = runtime.stackPlan,
+            promptTokens = promptTokens,
+            requestedOutputTokens = request.maxOutputTokens,
+            maxWindowBytes = maxWindowBytes
+        )
         return InferenceCost(
-            estimatedMemoryMb = Math.addExact(workingMb, kvMb),
+            estimatedMemoryMb = memory.estimatedMemoryMb,
             preferredThreads = hardware?.logicalProcessors
                 ?.minus(1)
                 ?.coerceIn(1, 6)
                 ?: 1,
-            contextTokens = contextTokens
+            contextTokens = runtime.stackPlan.maxContextTokens
         )
     }
 
@@ -347,7 +344,6 @@ class AmiDirectStreamingInferenceBackend(
 
     companion object {
         const val BACKEND_ID: String = AmperCoreInferencePort.CORE_ID
-        private const val MIB: Long = 1024L * 1024L
     }
 }
 
