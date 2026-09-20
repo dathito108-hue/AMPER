@@ -164,6 +164,7 @@ object OmegaArchitectureLock {
         "one-amper-foundation-runtime",
         "ami2-is-canonical-model-format",
         "amne2-is-canonical-execution-engine",
+        "gguf-is-import-source-only",
         "adaptive-compute-fast-to-deep",
         "verification-before-confidence",
         "internet-is-governed-tool-not-model",
@@ -182,7 +183,8 @@ object OmegaArchitectureLock {
                 "OMEGA invariants locked in code and docs",
                 "single AMPER Core production boundary retained",
                 "connected internet gateway established",
-                "background execution modes defined for Android"
+                "background execution modes defined for Android",
+                "AMI/AMNE v1 migration path to AMI2/AMNE2 is explicit"
             )
         ),
         OmegaMilestone(
