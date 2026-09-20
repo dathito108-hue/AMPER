@@ -132,8 +132,17 @@ class MainActivity : ComponentActivity() {
             val canonicalFilesDir = remember {
                 AndroidAppPrivateStorage.canonicalFilesDir(applicationContext)
             }
+            val canonicalCacheDir = remember {
+                AndroidAppPrivateStorage.canonicalCacheDir(applicationContext)
+            }
             val sovereignDir = remember {
                 File(canonicalFilesDir, "amper-sovereign")
+            }
+            val nativeModelStagingDir = remember {
+                File(canonicalCacheDir, "amper-native-model-stage")
+            }
+            val nativeProjectorStagingDir = remember {
+                File(canonicalCacheDir, "amper-native-projector-stage")
             }
             val modelRegistry = remember { InMemoryModelRegistry() }
             val catalog = remember { FileInstalledModelCatalog(File(sovereignDir, "models.catalog")) }
@@ -210,7 +219,10 @@ class MainActivity : ComponentActivity() {
                 )
             }
             val contentProjectorArtifacts = remember {
-                ContentUriProjectorArtifactResolver(contentResolver)
+                ContentUriProjectorArtifactResolver(
+                    contentResolver,
+                    nativeProjectorStagingDir
+                )
             }
             val nativeModelArtifacts = remember {
                 AndroidAppPrivateModelArtifactResolver(
@@ -254,7 +266,10 @@ class MainActivity : ComponentActivity() {
             }
             val hasRuntimeBackend = backends.list().isNotEmpty()
             val contentModelArtifacts = remember {
-                ContentUriArtifactResolver(contentResolver)
+                ContentUriArtifactResolver(
+                    contentResolver,
+                    nativeModelStagingDir
+                )
             }
             val modelArtifacts = remember {
                 LocatorArtifactResolver(
