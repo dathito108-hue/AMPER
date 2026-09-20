@@ -3,7 +3,10 @@ package io.amper.neuroos.core.v2
 import io.amper.neuroos.core.AmiTestFixtures
 import io.amper.neuroos.core.ByteArrayModelArtifactSource
 import io.amper.neuroos.core.GgufToAmiCompiler
+import io.amper.neuroos.core.ModelArtifactSource
+import java.io.ByteArrayInputStream
 import java.io.File
+import java.io.InputStream
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -56,6 +59,29 @@ class GgufToAmi2StreamingCompilerTest {
         }
     }
 
+
+    @Test
+    fun directCompilerDeletesOutputIfSourceChangesAfterStreaming() {
+        val bytes = AmiTestFixtures.compilerReadyGguf(
+            tensorBytes = byteArrayOf(0x11, 0x22, 0x33, 0x44)
+        )
+        val source = MutatingOnOpenSource(
+            initial = bytes,
+            mutateOnOpen = 8
+        )
+        val output = File.createTempFile("amper-phase628-mutating-", ".ami")
+        try {
+            output.delete()
+            val result = GgufToAmi2StreamingCompiler().compile(source, output)
+
+            assertTrue(result.isFailure)
+            assertTrue(!output.exists())
+        } finally {
+            output.delete()
+            File(output.parentFile, output.name + ".partial").delete()
+        }
+    }
+
     @Test
     fun directCompilerPublishesAmi2WithoutAmi1Staging() {
         val output = File.createTempFile("amper-phase628-ami2-", ".ami")
@@ -76,6 +102,29 @@ class GgufToAmi2StreamingCompilerTest {
             output.setWritable(true)
             output.delete()
             File(output.parentFile, output.name + ".partial").delete()
+        }
+    }
+
+    private class MutatingOnOpenSource(
+        initial: ByteArray,
+        private val mutateOnOpen: Int
+    ) : ModelArtifactSource {
+        private var bytes: ByteArray = initial.copyOf()
+        private var opens: Int = 0
+
+        override val locator: String = "memory://phase628-mutating.gguf"
+        override val displayName: String = "phase628-mutating.gguf"
+        override val lengthBytes: Long
+            get() = bytes.size.toLong()
+
+        override fun openStream(): InputStream {
+            opens += 1
+            if (opens == mutateOnOpen) {
+                bytes = bytes.copyOf().also { current ->
+                    current[current.lastIndex] = (current.last() xor 0x01)
+                }
+            }
+            return ByteArrayInputStream(bytes)
         }
     }
 }
