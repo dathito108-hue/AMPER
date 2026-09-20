@@ -56,6 +56,23 @@ class Ami2CompilationPlannerTest {
     }
 
     @Test
+    fun tensorIndexIsPartOfCanonicalSemanticIdentity() {
+        val first = Ami2CompilationPlanner.fromLegacyAmi1(
+            index = legacyIndex(tensorIndexDigestNibble = "d"),
+            legacyContainerSha256 = "1".repeat(64),
+            preservedChatTemplate = null
+        )
+        val second = Ami2CompilationPlanner.fromLegacyAmi1(
+            index = legacyIndex(tensorIndexDigestNibble = "9"),
+            legacyContainerSha256 = "1".repeat(64),
+            preservedChatTemplate = null
+        )
+
+        assertTrue(first.foundation.tensorIndexSha256 != second.foundation.tensorIndexSha256)
+        assertTrue(first.foundation.semanticSha256 != second.foundation.semanticSha256)
+    }
+
+    @Test
     fun legacyExecutionProfilesCannotChangeAmi2FoundationIdentity() {
         val first = Ami2CompilationPlanner.fromLegacyAmi1(
             index = legacyIndex(executionProfileDigest = "1".repeat(64)),
@@ -87,13 +104,20 @@ class Ami2CompilationPlannerTest {
 
     private fun legacyIndex(
         sourceFormat: AmiSourceFormat = AmiSourceFormat.GGUF,
-        executionProfileDigest: String? = null
+        executionProfileDigest: String? = null,
+        tensorIndexDigestNibble: String = "d"
     ): AmiContainerIndex {
         val sections = mutableListOf(
             section(AmiSectionType.MANIFEST, 8_192L, 64L, 64, "a"),
             section(AmiSectionType.TOKENIZER, 8_256L, 64L, 64, "b"),
             section(AmiSectionType.GRAPH_IR, 8_320L, 64L, 64, "c"),
-            section(AmiSectionType.TENSOR_INDEX, 8_384L, 64L, 64, "d"),
+            section(
+                AmiSectionType.TENSOR_INDEX,
+                8_384L,
+                64L,
+                64,
+                tensorIndexDigestNibble
+            ),
             section(AmiSectionType.FOUNDATION_WEIGHTS, 12_288L, 4_096L, 4_096, "e"),
             section(AmiSectionType.INTEGRITY, 16_384L, 64L, 64, "f")
         )
