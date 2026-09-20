@@ -14,15 +14,22 @@ val withMtmdNative = providers.gradleProperty("withMtmdNative")
 val withMtmdVulkan = providers.gradleProperty("withMtmdVulkan")
     .map(String::toBoolean)
     .orElse(false)
+val withAmneNative = providers.gradleProperty("withAmneNative")
+    .map(String::toBoolean)
+    .orElse(false)
 val spirvHeadersDir = providers.gradleProperty("spirvHeadersDir").orNull
 val vulkanHeadersDir = providers.gradleProperty("vulkanHeadersDir").orNull
 val withMtmdNativeRuntime = withMtmdNative.get() || withMtmdVulkan.get()
+val withAmneNativeRuntime = withAmneNative.get()
 
 require(!(withMtmdNative.get() && withMtmdVulkan.get())) {
     "withMtmdNative and withMtmdVulkan are distinct CPU/Vulkan native runtime modes; enable only one"
 }
 require(!(withLlamaAar.get() && withMtmdNativeRuntime)) {
     "withLlamaAar and native MTMD runtimes package different llama.cpp runtimes; enable only one"
+}
+require(!(withAmneNativeRuntime && withMtmdNativeRuntime)) {
+    "AMNE and MTMD currently use independent CMake projects; package only one source-built runtime"
 }
 
 android {
@@ -37,10 +44,13 @@ android {
         versionName = "0.1.0-canonical"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "LLAMA_ANDROID_VERSION", "\"$llamaAndroidVersion\"")
-        if (withMtmdNativeRuntime) {
+        buildConfigField("boolean", "AMNE_NATIVE_ENABLED", withAmneNativeRuntime.toString())
+        if (withMtmdNativeRuntime || withAmneNativeRuntime) {
             ndk {
                 abiFilters += "arm64-v8a"
             }
+        }
+        if (withMtmdNativeRuntime) {
             externalNativeBuild {
                 cmake {
                     arguments += "-DAMPER_MTMD_VULKAN=" +
@@ -73,6 +83,18 @@ android {
         externalNativeBuild {
             cmake {
                 path = file("src/mtmdNative/cpp/CMakeLists.txt")
+                version = "3.22.1"
+            }
+        }
+    }
+
+    if (withAmneNativeRuntime) {
+        // Phase603+ AMPER Mobile Neural Engine. Can coexist with the prebuilt llama fallback.
+        sourceSets.getByName("main").java.srcDir("src/amneNative/java")
+        ndkVersion = "27.2.12479018"
+        externalNativeBuild {
+            cmake {
+                path = file("src/amneNative/cpp/CMakeLists.txt")
                 version = "3.22.1"
             }
         }
