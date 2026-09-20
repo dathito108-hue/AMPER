@@ -77,12 +77,10 @@ object Ami2CompilationPlanner {
 
         val tokenizerSha256 = canonicalSectionDigest(AmiSectionType.TOKENIZER)
         val logicalGraphSha256 = canonicalSectionDigest(AmiSectionType.GRAPH_IR)
+        val tensorIndexSha256 = canonicalSectionDigest(AmiSectionType.TENSOR_INDEX)
         val canonicalWeightsSha256 = canonicalSectionDigest(AmiSectionType.FOUNDATION_WEIGHTS)
-        val chatProtocolSha256 = sha256Text(
-            preservedChatTemplate
-                ?.takeIf(String::isNotBlank)
-                ?.let { "gguf-chat-template:utf8\n$it" }
-                ?: FALLBACK_CHAT_PROTOCOL
+        val chatProtocolSha256 = sha256Bytes(
+            canonicalChatProtocolBytes(preservedChatTemplate)
         )
 
         val lineage = Ami2SourceLineage(
@@ -91,26 +89,26 @@ object Ami2CompilationPlanner {
             sourceByteLength = index.manifest.source.sourceByteLength
         )
 
-        val semanticSha256 = sha256Text(
-            canonicalSemanticDescriptor(
-                architectureId = index.manifest.architecture.value,
-                lineage = lineage,
-                tokenizerSha256 = tokenizerSha256,
-                chatProtocolSha256 = chatProtocolSha256,
-                logicalGraphSha256 = logicalGraphSha256,
-                canonicalWeightsSha256 = canonicalWeightsSha256,
-                tensorCount = index.manifest.tensorCount,
-                vocabularySize = index.manifest.vocabularySize
-            )
-        )
-
-        val foundation = Ami2FoundationIdentity(
-            foundationId = "amper-" + semanticSha256.take(32),
+        val semanticSha256 = computeSemanticSha256(
             architectureId = index.manifest.architecture.value,
             lineage = lineage,
             tokenizerSha256 = tokenizerSha256,
             chatProtocolSha256 = chatProtocolSha256,
             logicalGraphSha256 = logicalGraphSha256,
+            tensorIndexSha256 = tensorIndexSha256,
+            canonicalWeightsSha256 = canonicalWeightsSha256,
+            tensorCount = index.manifest.tensorCount,
+            vocabularySize = index.manifest.vocabularySize
+        )
+
+        val foundation = Ami2FoundationIdentity(
+            foundationId = foundationIdForSemantic(semanticSha256),
+            architectureId = index.manifest.architecture.value,
+            lineage = lineage,
+            tokenizerSha256 = tokenizerSha256,
+            chatProtocolSha256 = chatProtocolSha256,
+            logicalGraphSha256 = logicalGraphSha256,
+            tensorIndexSha256 = tensorIndexSha256,
             canonicalWeightsSha256 = canonicalWeightsSha256,
             semanticSha256 = semanticSha256,
             tensorCount = index.manifest.tensorCount,
@@ -124,12 +122,52 @@ object Ami2CompilationPlanner {
         )
     }
 
+    fun foundationIdForSemantic(semanticSha256: String): String {
+        require(semanticSha256.matches(Regex("[0-9a-f]{64}"))) {
+            "AMI2 semantic digest must be lowercase SHA-256"
+        }
+        return "amper-" + semanticSha256.take(32)
+    }
+
+    fun canonicalChatProtocolBytes(preservedChatTemplate: String?): ByteArray =
+        (
+            preservedChatTemplate
+                ?.takeIf(String::isNotBlank)
+                ?.let { "gguf-chat-template:utf8\n$it" }
+                ?: FALLBACK_CHAT_PROTOCOL
+            ).toByteArray(Charsets.UTF_8)
+
+    fun computeSemanticSha256(
+        architectureId: String,
+        lineage: Ami2SourceLineage,
+        tokenizerSha256: String,
+        chatProtocolSha256: String,
+        logicalGraphSha256: String,
+        tensorIndexSha256: String,
+        canonicalWeightsSha256: String,
+        tensorCount: Int,
+        vocabularySize: Int
+    ): String = sha256Text(
+        canonicalSemanticDescriptor(
+            architectureId = architectureId,
+            lineage = lineage,
+            tokenizerSha256 = tokenizerSha256,
+            chatProtocolSha256 = chatProtocolSha256,
+            logicalGraphSha256 = logicalGraphSha256,
+            tensorIndexSha256 = tensorIndexSha256,
+            canonicalWeightsSha256 = canonicalWeightsSha256,
+            tensorCount = tensorCount,
+            vocabularySize = vocabularySize
+        )
+    )
+
     private fun canonicalSemanticDescriptor(
         architectureId: String,
         lineage: Ami2SourceLineage,
         tokenizerSha256: String,
         chatProtocolSha256: String,
         logicalGraphSha256: String,
+        tensorIndexSha256: String,
         canonicalWeightsSha256: String,
         tensorCount: Int,
         vocabularySize: Int
@@ -143,13 +181,17 @@ object Ami2CompilationPlanner {
         append("tokenizer_sha256=").append(tokenizerSha256).append('\n')
         append("chat_protocol_sha256=").append(chatProtocolSha256).append('\n')
         append("logical_graph_sha256=").append(logicalGraphSha256).append('\n')
+        append("tensor_index_sha256=").append(tensorIndexSha256).append('\n')
         append("foundation_weights_sha256=").append(canonicalWeightsSha256).append('\n')
         append("tensor_count=").append(tensorCount).append('\n')
         append("vocabulary_size=").append(vocabularySize).append('\n')
     }
 
     private fun sha256Text(value: String): String =
+        sha256Bytes(value.toByteArray(Charsets.UTF_8))
+
+    private fun sha256Bytes(value: ByteArray): String =
         MessageDigest.getInstance("SHA-256")
-            .digest(value.toByteArray(Charsets.UTF_8))
+            .digest(value)
             .joinToString("") { "%02x".format(it) }
 }
