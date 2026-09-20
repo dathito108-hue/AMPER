@@ -1997,7 +1997,7 @@ class MainActivity : ComponentActivity() {
                                                         AssistantTurnStage.NATIVE_SYSTEM2 ->
                                                             "RUNNING · stage NATIVE_SYSTEM2"
                                                         AssistantTurnStage.TITAN_INFERENCE ->
-                                                            "RUNNING · stage TITAN_INFERENCE"
+                                                            "RUNNING · stage TITAN_INFERENCE · blocking backends use bounded mobile output"
                                                         AssistantTurnStage.ACTION_EVALUATION ->
                                                             "RUNNING · stage ACTION_EVALUATION"
                                                         AssistantTurnStage.FINALIZING ->

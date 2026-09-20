@@ -1,3 +1,3 @@
-AMPER operational APK trigger v5
-purpose=bounded-assistant-preinference
-phase=594
+AMPER operational APK trigger v6
+purpose=blocking-backend-latency-budget
+phase=595
