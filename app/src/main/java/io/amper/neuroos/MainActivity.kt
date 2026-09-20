@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.amper.neuroos.core.AmperExecutionLanes
 import io.amper.neuroos.core.AmperRuntime
+import io.amper.neuroos.core.AmneNativeRuntimeProbe
 import io.amper.neuroos.core.AssistantStreamEvent
 import io.amper.neuroos.core.AssistantTurnStage
 import io.amper.neuroos.core.AutonomousGoalScheduler
@@ -501,6 +502,16 @@ class MainActivity : ComponentActivity() {
             var amiStatus by remember {
                 mutableStateOf(
                     "AMI mobile compiler ready · SOURCE_EXACT foundation preservation"
+                )
+            }
+            var amneQualificationBusy by remember { mutableStateOf(false) }
+            var amneQualificationStatus by remember {
+                mutableStateOf(
+                    if (AmneNativeRuntimeProbe.isPackaged()) {
+                        "AMNE native packaged · qualification not run"
+                    } else {
+                        "AMNE native not packaged in this APK"
+                    }
                 )
             }
             var importCodeGeneration by remember { mutableStateOf(false) }
@@ -1088,6 +1099,49 @@ class MainActivity : ComponentActivity() {
                         Text("Governed tools: ${assistantCapabilities.joinToString(" · ") { it.value }}")
                         Text("Text backend pack: ${backendStatus.detail}")
                         Text("Native MTMD: ${mtmdEngineStatus.detail}")
+
+                        Text("AMNE mobile runtime", style = MaterialTheme.typography.titleMedium)
+                        Text(amneQualificationStatus)
+                        Button(
+                            enabled = AmneNativeRuntimeProbe.isPackaged() && !amneQualificationBusy,
+                            onClick = {
+                                amneQualificationBusy = true
+                                amneQualificationStatus =
+                                    "AMNE native · qualifying F32 primitives against reference..."
+                                executionLanes.executeMaintenance {
+                                    val startedNs = System.nanoTime()
+                                    val result = AmneNativeRuntimeProbe.qualify()
+                                    val wallMs =
+                                        (System.nanoTime() - startedNs) / 1_000_000L
+                                    runOnUiThread {
+                                        amneQualificationBusy = false
+                                        result.fold(
+                                            onSuccess = { report ->
+                                                amneQualificationStatus =
+                                                    if (report.passed) {
+                                                        "AMNE PASS · ${report.backendId} · max error " +
+                                                            "%.7f".format(report.maxAbsoluteError) +
+                                                            " · ${report.primitiveErrors.size} primitives" +
+                                                            " · wall ${wallMs}ms"
+                                                    } else {
+                                                        "AMNE FAIL · ${report.backendId} · max error " +
+                                                            "%.7f".format(report.maxAbsoluteError) +
+                                                            " · native routing remains disabled"
+                                                    }
+                                            },
+                                            onFailure = { error ->
+                                                amneQualificationStatus =
+                                                    "AMNE qualification unavailable · " +
+                                                        (error.message
+                                                            ?: error::class.java.simpleName)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        ) {
+                            Text("Run AMNE native qualification")
+                        }
 
                         Text("GGUF capability profile", style = MaterialTheme.typography.titleMedium)
                         Text("Reasoning · always enabled")
