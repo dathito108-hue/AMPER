@@ -60,7 +60,10 @@ object AmiDecoderStackPlanner {
             encoding == AmneTensorEncoding.F32 ||
                 encoding == AmneTensorEncoding.F16 ||
                 encoding == AmneTensorEncoding.Q4_0 ||
-                encoding == AmneTensorEncoding.Q8_0
+                encoding == AmneTensorEncoding.Q8_0 ||
+                encoding == AmneTensorEncoding.Q4_K ||
+                encoding == AmneTensorEncoding.Q5_K ||
+                encoding == AmneTensorEncoding.Q6_K
         ) {
             "AMNE token embedding encoding is not admitted: $encoding"
         }
@@ -193,6 +196,18 @@ class AmiTokenEmbeddingReader(
                 buffer.get(bytes)
                 decodeQ8_0(bytes, plan.hiddenSize)
             }
+
+            AmneTensorEncoding.Q4_K,
+            AmneTensorEncoding.Q5_K,
+            AmneTensorEncoding.Q6_K -> {
+                val bytes = ByteArray(bytesPerRow)
+                buffer.get(bytes)
+                AmneKQuantCodec.decodeRow(
+                    encoding = plan.encoding,
+                    rowBytes = bytes,
+                    elements = plan.hiddenSize
+                )
+            }
         }
 
         require(values.all { it.isFinite() }) {
@@ -218,7 +233,10 @@ class AmiTokenEmbeddingReader(
             Math.multiplyExact(columns, encoding.blockBytes)
 
         AmneTensorEncoding.Q4_0,
-        AmneTensorEncoding.Q8_0 -> {
+        AmneTensorEncoding.Q8_0,
+        AmneTensorEncoding.Q4_K,
+        AmneTensorEncoding.Q5_K,
+        AmneTensorEncoding.Q6_K -> {
             require(columns % encoding.blockSize == 0) {
                 "quantized AMI embedding width is not block aligned"
             }

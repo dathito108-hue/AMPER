@@ -69,6 +69,9 @@ enum class AmneMatrixPath {
     F32,
     Q4_0,
     Q8_0,
+    Q4_K,
+    Q5_K,
+    Q6_K,
     UNSUPPORTED
 }
 
@@ -78,6 +81,9 @@ object AmneTensorKernelPlanner {
             AmneTensorEncoding.F32 -> AmneMatrixPath.F32
             AmneTensorEncoding.Q4_0 -> AmneMatrixPath.Q4_0
             AmneTensorEncoding.Q8_0 -> AmneMatrixPath.Q8_0
+            AmneTensorEncoding.Q4_K -> AmneMatrixPath.Q4_K
+            AmneTensorEncoding.Q5_K -> AmneMatrixPath.Q5_K
+            AmneTensorEncoding.Q6_K -> AmneMatrixPath.Q6_K
             else -> AmneMatrixPath.UNSUPPORTED
         }
 
@@ -86,6 +92,9 @@ object AmneTensorKernelPlanner {
             AmneMatrixPath.F32 -> AmneKernelPrimitive.MATVEC_F32
             AmneMatrixPath.Q4_0 -> AmneKernelPrimitive.MATVEC_Q4_0
             AmneMatrixPath.Q8_0 -> AmneKernelPrimitive.MATVEC_Q8_0
+            AmneMatrixPath.Q4_K -> AmneKernelPrimitive.MATVEC_Q4_K
+            AmneMatrixPath.Q5_K -> AmneKernelPrimitive.MATVEC_Q5_K
+            AmneMatrixPath.Q6_K -> AmneKernelPrimitive.MATVEC_Q6_K
             AmneMatrixPath.UNSUPPORTED -> null
         }
 }

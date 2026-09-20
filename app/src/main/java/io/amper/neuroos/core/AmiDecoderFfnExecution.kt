@@ -271,7 +271,10 @@ class AmiTensorWindowExecutor(
                     encoding.blockBytes
                 )
             }
-            AmneTensorEncoding.Q8_0 -> {
+            AmneTensorEncoding.Q8_0,
+            AmneTensorEncoding.Q4_K,
+            AmneTensorEncoding.Q5_K,
+            AmneTensorEncoding.Q6_K -> {
                 require(shape.columns % encoding.blockSize == 0)
                 Math.multiplyExact(
                     shape.columns / encoding.blockSize,
@@ -340,6 +343,36 @@ class AmiTensorWindowExecutor(
                     val bytes = ByteArray(byteLength)
                     buffer.get(bytes)
                     backend.matVecQ8_0(
+                        matrixBlocks = bytes,
+                        rows = rows,
+                        columns = shape.columns,
+                        vector = vector
+                    )
+                }
+                AmneTensorEncoding.Q4_K -> {
+                    val bytes = ByteArray(byteLength)
+                    buffer.get(bytes)
+                    backend.matVecQ4K(
+                        matrixBlocks = bytes,
+                        rows = rows,
+                        columns = shape.columns,
+                        vector = vector
+                    )
+                }
+                AmneTensorEncoding.Q5_K -> {
+                    val bytes = ByteArray(byteLength)
+                    buffer.get(bytes)
+                    backend.matVecQ5K(
+                        matrixBlocks = bytes,
+                        rows = rows,
+                        columns = shape.columns,
+                        vector = vector
+                    )
+                }
+                AmneTensorEncoding.Q6_K -> {
+                    val bytes = ByteArray(byteLength)
+                    buffer.get(bytes)
+                    backend.matVecQ6K(
                         matrixBlocks = bytes,
                         rows = rows,
                         columns = shape.columns,
