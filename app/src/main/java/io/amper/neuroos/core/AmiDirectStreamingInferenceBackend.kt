@@ -45,10 +45,8 @@ class AmiDirectStreamingInferenceBackend(
         if (request.attachments.isNotEmpty()) return false
         val runtime = prepareModel(model).getOrNull() ?: return false
         return runCatching {
-            val promptTokens = AmiTokenizerEncoder.encode(
-                runtime.tokenizer,
-                request.prompt
-            ).size
+            val preparedPrompt = prepareInstructionPrompt(runtime, request)
+            val promptTokens = preparedPrompt.tokenIds.size
             val readiness = directReadiness(runtime)
             readiness.ready &&
                 promptTokens > 0 &&
@@ -104,12 +102,12 @@ class AmiDirectStreamingInferenceBackend(
     ): InferenceCost {
         val runtime = prepareModel(model).getOrThrow()
         val hardware = hardwareSnapshot()
-        val promptTokens = AmiTokenizerEncoder.encode(
-            runtime.tokenizer,
-            request.prompt
-        ).size.also {
-            require(it > 0) { "AMI tokenizer produced an empty prompt" }
-        }
+        val promptTokens = prepareInstructionPrompt(runtime, request)
+            .tokenIds
+            .size
+            .also {
+                require(it > 0) { "AMPER Core instruction prompt produced no tokens" }
+            }
         val memory = AmiRequestMemoryEstimator.estimate(
             plan = runtime.stackPlan,
             promptTokens = promptTokens,
@@ -131,12 +129,12 @@ class AmiDirectStreamingInferenceBackend(
         request: InferenceRequest
     ): Int {
         val runtime = prepareModel(model).getOrThrow()
-        return AmiTokenizerEncoder.encode(
-            runtime.tokenizer,
-            request.prompt
-        ).size.also {
-            require(it > 0) { "AMI tokenizer produced an empty prompt" }
-        }
+        return prepareInstructionPrompt(runtime, request)
+            .tokenIds
+            .size
+            .also {
+                require(it > 0) { "AMPER Core instruction prompt produced no tokens" }
+            }
     }
 
     override fun infer(
@@ -180,15 +178,10 @@ class AmiDirectStreamingInferenceBackend(
 
         val runtime = prepareModel(model).getOrThrow()
         val promptStartedNs = System.nanoTime()
-        val promptIds = AmiTokenizerEncoder.encode(
-            runtime.tokenizer,
-            request.prompt
-        )
+        val preparedPrompt = prepareInstructionPrompt(runtime, request)
+        val promptIds = preparedPrompt.tokenIds
         val promptPrepMs = (System.nanoTime() - promptStartedNs) / 1_000_000L
-
-        val stopIds = buildSet {
-            runtime.tokenizer.special.eosTokenId?.let(::add)
-        }
+        val stopIds = preparedPrompt.stopTokenIds
         val state = AmiDecoderStackState(
             plan = runtime.stackPlan,
             maxContextTokens = minOf(
@@ -219,6 +212,7 @@ class AmiDirectStreamingInferenceBackend(
             cancellation = cancellation,
             onToken = { token ->
                 cancellation.throwIfCancelled()
+                if (token.tokenId in stopIds) return@generate
                 generatedIds += token.tokenId
                 val candidate = AmiDetokenizer.decode(
                     runtime.tokenizer,
@@ -236,9 +230,12 @@ class AmiDirectStreamingInferenceBackend(
         ).getOrThrow()
         cancellation.throwIfCancelled()
 
+        val finalGeneratedIds = result.generatedTokenIds
+            .takeWhile { it !in stopIds }
+            .toIntArray()
         val finalText = AmiDetokenizer.decode(
             runtime.tokenizer,
-            result.generatedTokenIds
+            finalGeneratedIds
         )
         textEmitter.finish(finalText)
             .takeIf { it.isNotEmpty() }
@@ -332,6 +329,16 @@ class AmiDirectStreamingInferenceBackend(
             requiredMatrixPrimitives = requiredMatrixPrimitives
         ).also { prepared[key] = it }
     }
+
+    private fun prepareInstructionPrompt(
+        runtime: AmiDirectPreparedModel,
+        request: InferenceRequest
+    ): AmiPreparedInstructionPrompt =
+        AmiInstructionPromptCompatibility.prepare(
+            metadata = runtime.metadata,
+            lexicon = runtime.tokenizer,
+            amperPrompt = request.prompt
+        )
 
     private fun directReadiness(
         runtime: AmiDirectPreparedModel
