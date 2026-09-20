@@ -232,13 +232,8 @@ class Ami2CanonicalBinaryWriter {
             "AMI2 binary writer only accepts the canonical foundation plan"
         }
 
-        payloads.all()
+        val streamingSources = payloads.all()
             .filterIsInstance<Ami2FileRangePayloadSource>()
-            .forEach { source ->
-                require(source.file.canonicalFile != destination.canonicalFile) {
-                    "AMI2 destination cannot overwrite an active streaming source"
-                }
-            }
 
         validateSemanticSources(plan.foundation, payloads)
 
@@ -268,6 +263,14 @@ class Ami2CanonicalBinaryWriter {
         val planned = planSections(payloadByRole)
         destination.parentFile?.mkdirs()
         val temporary = File(destination.parentFile ?: File("."), destination.name + ".partial")
+        streamingSources.forEach { source ->
+            require(source.file.canonicalFile != destination.canonicalFile) {
+                "AMI2 destination cannot overwrite an active streaming source"
+            }
+            require(source.file.canonicalFile != temporary.canonicalFile) {
+                "AMI2 staging file cannot overwrite an active streaming source"
+            }
+        }
         if (temporary.exists()) {
             require(temporary.delete()) { "unable to clear previous AMI2 staging file" }
         }
