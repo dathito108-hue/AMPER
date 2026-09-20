@@ -113,8 +113,8 @@ class Amne2ExecutionSession internal constructor(
         promptTokenIds: IntArray,
         config: AmiGenerationConfig,
         cancellation: InferenceCancellationSignal? = null,
-        samplingHistoryPrefixTokenIds: IntArray = intArrayOf(),
-        onToken: ((AmiGeneratedToken) -> Unit)? = null
+        onToken: ((AmiGeneratedToken) -> Unit)? = null,
+        samplingHistoryPrefixTokenIds: IntArray = intArrayOf()
     ): Result<AmiGenerationResult> =
         withExecutionLease {
             AmiAutoregressiveGenerator(maxWindowBytes)
