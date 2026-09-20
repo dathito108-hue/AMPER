@@ -56,6 +56,7 @@ import io.amper.neuroos.core.AndroidLiveAudioAttachmentCapture
 import io.amper.neuroos.core.AndroidModelImportService
 import io.amper.neuroos.core.AndroidAppPrivateModelArtifactResolver
 import io.amper.neuroos.core.AndroidActivePerceptionPort
+import io.amper.neuroos.core.AndroidAppPrivateStorage
 import io.amper.neuroos.core.AndroidMultimodalProjectorImportService
 import io.amper.neuroos.core.AndroidPerceptionCapture
 import io.amper.neuroos.core.AndroidResourceGovernor
@@ -128,7 +129,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            val sovereignDir = remember { File(filesDir, "amper-sovereign") }
+            val canonicalFilesDir = remember {
+                AndroidAppPrivateStorage.canonicalFilesDir(applicationContext)
+            }
+            val sovereignDir = remember {
+                File(canonicalFilesDir, "amper-sovereign")
+            }
             val modelRegistry = remember { InMemoryModelRegistry() }
             val catalog = remember { FileInstalledModelCatalog(File(sovereignDir, "models.catalog")) }
             remember { InstalledModelRegistryBootstrap(catalog, modelRegistry).restore() }
@@ -137,7 +143,7 @@ class MainActivity : ComponentActivity() {
             val runtime = remember {
                 ReflexMaintenanceExecutionGate.exclusive {
                     AmperRuntime.persistentEncrypted(
-                        filesDir,
+                        canonicalFilesDir,
                         modelRegistry,
                         governor,
                         deviceStatusSource = deviceStatusSource
