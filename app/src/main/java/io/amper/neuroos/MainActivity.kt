@@ -480,6 +480,18 @@ class MainActivity : ComponentActivity() {
             val restoredPlan = remember { planner.latest() }
             val initialProfileModel = remember { catalog.list().firstOrNull() }
             val executionLanes = remember { AmperExecutionLanes() }
+            val amneQualificationBusyState = remember {
+                mutableStateOf(amperCore.nativeRuntimePackaged())
+            }
+            val amneQualificationStatusState = remember {
+                mutableStateOf(
+                    if (amperCore.nativeRuntimePackaged()) {
+                        "AMPER Core native · automatic qualification + benchmark queued"
+                    } else {
+                        "AMPER Core native runtime not packaged in this APK"
+                    }
+                )
+            }
             DisposableEffect(Unit) {
                 AndroidReflexMaintenanceProcessRegistry.register(
                     reflexMaintenanceCoordinator
@@ -489,6 +501,45 @@ class MainActivity : ComponentActivity() {
                 )
                 executionLanes.executeMaintenance {
                     runCatching { reflexLifecycle.maintain() }
+                }
+                if (amperCore.nativeRuntimePackaged()) {
+                    executionLanes.executeMaintenance {
+                        val startedNs = System.nanoTime()
+                        val result = amperCore.bootstrapNativeAdmission()
+                        val wallMs =
+                            (System.nanoTime() - startedNs) / 1_000_000L
+                        runOnUiThread {
+                            amneQualificationBusyState.value = false
+                            result.fold(
+                                onSuccess = { report ->
+                                    val matrixSummary = report.matrixCoverage
+                                        .sortedBy { it.ordinal }
+                                        .joinToString(" · ") {
+                                            it.name.removePrefix("MATVEC_")
+                                        }
+                                    amneQualificationStatusState.value =
+                                        "AMPER Core auto-admission · numeric=" +
+                                            if (report.qualificationPassed) "PASS" else "FAIL" +
+                                            " · native " +
+                                            report.admittedPrimitives.size + "/" +
+                                            report.benchmarkedPrimitives.size +
+                                            " primitives" +
+                                            if (matrixSummary.isNotBlank()) {
+                                                " · matrix $matrixSummary"
+                                            } else {
+                                                " · no native matrix admitted"
+                                            } +
+                                            " · wall ${wallMs}ms"
+                                },
+                                onFailure = { error ->
+                                    amneQualificationStatusState.value =
+                                        "AMPER Core auto-admission failed · " +
+                                            (error.message
+                                                ?: error::class.java.simpleName)
+                                }
+                            )
+                        }
+                    }
                 }
                 reflexMaintenanceLoop.start()
                 onDispose {
@@ -510,16 +561,8 @@ class MainActivity : ComponentActivity() {
                     "AMI mobile compiler ready · SOURCE_EXACT foundation preservation"
                 )
             }
-            var amneQualificationBusy by remember { mutableStateOf(false) }
-            var amneQualificationStatus by remember {
-                mutableStateOf(
-                    if (AmneNativeRuntimeProbe.isPackaged()) {
-                        "AMNE native packaged · direct AMI locked until qualification + benchmark admission"
-                    } else {
-                        "AMNE native not packaged in this APK"
-                    }
-                )
-            }
+            var amneQualificationBusy by amneQualificationBusyState
+            var amneQualificationStatus by amneQualificationStatusState
             var importCodeGeneration by remember { mutableStateOf(false) }
             var importPlanning by remember { mutableStateOf(false) }
             var importVision by remember { mutableStateOf(false) }
