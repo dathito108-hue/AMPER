@@ -18,6 +18,7 @@ on:
     paths:
       - '.github/qualification-apk-trigger'
       - '.github/operational-apk-trigger'
+      - '.github/amne-apk-trigger'
 
 permissions:
   contents: read
@@ -30,7 +31,8 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     outputs:
-      native_changed: ${{ steps.changes.outputs.native_changed }}
+      mtmd_native_changed: ${{ steps.changes.outputs.mtmd_native_changed }}
+      amne_native_changed: ${{ steps.changes.outputs.amne_native_changed }}
       operational_llama: ${{ steps.changes.outputs.operational_llama }}
     steps:
       - uses: actions/checkout@v4
@@ -45,30 +47,36 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           echo "operational_llama=false" >> "$GITHUB_OUTPUT"
+          echo "mtmd_native_changed=false" >> "$GITHUB_OUTPUT"
+          echo "amne_native_changed=false" >> "$GITHUB_OUTPUT"
           if [[ "$EVENT_NAME" == "workflow_dispatch" && "$MODE" == "full" ]]; then
-            echo "native_changed=true" >> "$GITHUB_OUTPUT"
+            echo "mtmd_native_changed=true" >> "$GITHUB_OUTPUT"
+            echo "amne_native_changed=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            echo "native_changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           if [[ "$EVENT_NAME" == "push" ]]; then
-            echo "native_changed=false" >> "$GITHUB_OUTPUT"
             CHANGED="$(git diff --name-only HEAD^ "$GITHUB_SHA")"
             if printf "%s\n" "$CHANGED" | grep -qx '.github/operational-apk-trigger'; then
               echo "operational_llama=true" >> "$GITHUB_OUTPUT"
+            fi
+            if printf "%s\n" "$CHANGED" | grep -qx '.github/amne-apk-trigger'; then
+              echo "amne_native_changed=true" >> "$GITHUB_OUTPUT"
             fi
             exit 0
           fi
           git fetch --no-tags origin "$BASE_SHA" --depth=1
           CHANGED="$(git diff --name-only "$BASE_SHA" "$GITHUB_SHA")"
           printf "%s\n" "$CHANGED"
-          if printf "%s\n" "$CHANGED" | grep -Eq '^(app/src/main/cpp/|app/src/main/jni/|.*CMakeLists\.txt$|app/build\.gradle|build\.gradle|settings\.gradle|gradle/)'; then
-            echo "native_changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "native_changed=false" >> "$GITHUB_OUTPUT"
+          if printf "%s\n" "$CHANGED" | grep -Eq '^app/src/mtmdNative/'; then
+            echo "mtmd_native_changed=true" >> "$GITHUB_OUTPUT"
           fi
+          if printf "%s\n" "$CHANGED" | grep -Eq '^app/src/amneNative/'; then
+            echo "amne_native_changed=true" >> "$GITHUB_OUTPUT"
+          fi
+          # build.gradle changes are covered by canonical build and the native mode whose source tree changed.
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -151,9 +159,64 @@ jobs:
             app/build/outputs/apk/debug/AMPER-operational-text-runtime-${{ github.sha }}.apk.provenance.txt
           retention-days: 7
 
+  amne-native-arm64:
+    needs: verify
+    if: needs.verify.outputs.amne_native_changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Install Android NDK and CMake
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "ndk;27.2.12479018" \
+            "cmake;3.22.1"
+      - name: Build AMNE ARM64 + llama fallback APK
+        run: gradle :app:assembleDebug -PwithAmneNative=true -PwithLlamaAar=true --stacktrace
+      - name: Verify packaged AMNE and fallback runtimes
+        run: |
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          unzip -l "$APK" > /tmp/amper-amne-apk-files.txt
+          grep -q 'lib/arm64-v8a/libamper_amne.so' /tmp/amper-amne-apk-files.txt
+          grep -q 'lib/arm64-v8a/libllama_jni.so' /tmp/amper-amne-apk-files.txt
+          grep -q 'lib/arm64-v8a/libllama.so' /tmp/amper-amne-apk-files.txt
+      - name: Write AMNE APK provenance
+        if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+        shell: bash
+        run: |
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          OUT="app/build/outputs/apk/debug/AMPER-amne-neon-$GITHUB_SHA.apk"
+          cp "$APK" "$OUT"
+          sha256sum "$OUT" | tee "$OUT.sha256"
+          {
+            echo "git_sha=$GITHUB_SHA"
+            echo "git_ref=$GITHUB_REF"
+            echo "workflow_run_id=$GITHUB_RUN_ID"
+            echo "workflow_run_number=$GITHUB_RUN_NUMBER"
+            echo "package_mode=amne-arm64-neon-plus-llama-fallback"
+            echo "amne_native_abi=1"
+          } > "$OUT.provenance.txt"
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+        with:
+          name: AMPER-amne-neon-${{ github.sha }}
+          path: |
+            app/build/outputs/apk/debug/AMPER-amne-neon-${{ github.sha }}.apk
+            app/build/outputs/apk/debug/AMPER-amne-neon-${{ github.sha }}.apk.sha256
+            app/build/outputs/apk/debug/AMPER-amne-neon-${{ github.sha }}.apk.provenance.txt
+          retention-days: 7
+
   optional-llama-aar:
     needs: verify
-    if: needs.verify.outputs.native_changed == 'true'
+    if: needs.verify.outputs.mtmd_native_changed == 'true'
     continue-on-error: true
     runs-on: ubuntu-latest
     steps:
@@ -182,7 +245,7 @@ jobs:
 
   native-mtmd-arm64:
     needs: verify
-    if: needs.verify.outputs.native_changed == 'true'
+    if: needs.verify.outputs.mtmd_native_changed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -218,7 +281,7 @@ jobs:
 
   native-mtmd-vulkan-arm64:
     needs: verify
-    if: needs.verify.outputs.native_changed == 'true'
+    if: needs.verify.outputs.mtmd_native_changed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 55
     steps:
