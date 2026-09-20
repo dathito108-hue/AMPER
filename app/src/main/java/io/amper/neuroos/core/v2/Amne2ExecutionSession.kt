@@ -113,6 +113,7 @@ class Amne2ExecutionSession internal constructor(
         promptTokenIds: IntArray,
         config: AmiGenerationConfig,
         cancellation: InferenceCancellationSignal? = null,
+        samplingHistoryPrefixTokenIds: IntArray = intArrayOf(),
         onToken: ((AmiGeneratedToken) -> Unit)? = null
     ): Result<AmiGenerationResult> =
         withExecutionLease {
@@ -124,6 +125,7 @@ class Amne2ExecutionSession internal constructor(
                     stackPlan = stackPlan,
                     state = stackState,
                     promptTokenIds = promptTokenIds,
+                    samplingHistoryPrefixTokenIds = samplingHistoryPrefixTokenIds,
                     config = config,
                     hardware = hardware,
                     cancellation = cancellation,
