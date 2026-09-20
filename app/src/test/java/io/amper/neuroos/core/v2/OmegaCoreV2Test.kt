@@ -40,6 +40,10 @@ class OmegaCoreV2Test {
             "amcf-run-cognitive-snapshot-is-frozen" in
                 OmegaArchitectureLock.invariants
         )
+        assertTrue(
+            "m4-amcf-foundation-has-consolidated-qualification-gate" in
+                OmegaArchitectureLock.invariants
+        )
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
@@ -179,6 +183,14 @@ class OmegaCoreV2Test {
                 .exitCriteria
                 .contains(
                     "one immutable integrated cognitive snapshot is bound to the complete AMCF run"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M4_AMCF_FOUNDATION }
+                .exitCriteria
+                .contains(
+                    "FAST REASON DEEP VERIFY evidence passes one consolidated M4 qualification gate"
                 )
         )
     }
