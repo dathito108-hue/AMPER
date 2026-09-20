@@ -49,7 +49,7 @@ jobs:
           git fetch --no-tags origin "$BASE_SHA" --depth=1
           CHANGED="$(git diff --name-only "$BASE_SHA" "$GITHUB_SHA")"
           printf "%s\n" "$CHANGED"
-          if printf "%s\n" "$CHANGED" | grep -Eq '^(app/src/main/cpp/|app/src/main/jni/|.*CMakeLists\.txt$|app/build\.gradle|build\.gradle|settings\.gradle|gradle/|\.github/workflows/)'; then
+          if printf "%s\n" "$CHANGED" | grep -Eq '^(app/src/main/cpp/|app/src/main/jni/|.*CMakeLists\.txt$|app/build\.gradle|build\.gradle|settings\.gradle|gradle/)'; then
             echo "native_changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "native_changed=false" >> "$GITHUB_OUTPUT"
@@ -65,11 +65,28 @@ jobs:
         run: gradle :app:testDebugUnitTest --stacktrace
       - name: Build canonical debug APK
         run: gradle :app:assembleDebug --stacktrace
+      - name: Write canonical APK provenance
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          sha256sum "$APK" | tee "$APK.sha256"
+          {
+            echo "git_sha=$GITHUB_SHA"
+            echo "git_ref=$GITHUB_REF"
+            echo "workflow_run_id=$GITHUB_RUN_ID"
+            echo "workflow_run_number=$GITHUB_RUN_NUMBER"
+            echo "mode=${{ inputs.mode }}"
+          } > "$APK.provenance.txt"
       - uses: actions/upload-artifact@v4
-        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'full'
+        if: github.event_name == 'workflow_dispatch'
         with:
-          name: AMPER-canonical-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: AMPER-canonical-debug-${{ github.sha }}
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/debug/app-debug.apk.sha256
+            app/build/outputs/apk/debug/app-debug.apk.provenance.txt
+          retention-days: 7
 
   optional-llama-aar:
     needs: verify
