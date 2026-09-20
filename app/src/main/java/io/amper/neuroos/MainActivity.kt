@@ -28,12 +28,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import io.amper.neuroos.core.AmperCoreInferencePort
+import io.amper.neuroos.core.AmperCoreSovereignStatusSource
 import io.amper.neuroos.core.AmperExecutionLanes
 import io.amper.neuroos.core.AmperRuntime
 import io.amper.neuroos.core.AmperSingleCoreFoundationController
 import io.amper.neuroos.core.AmperSingleCoreModelRegistry
 import io.amper.neuroos.core.AmperSingleCoreSourceDetachService
-import io.amper.neuroos.core.AmneNativeRuntimeProbe
 import io.amper.neuroos.core.AssistantStreamEvent
 import io.amper.neuroos.core.AssistantTurnStage
 import io.amper.neuroos.core.AutonomousGoalScheduler
@@ -62,7 +63,6 @@ import io.amper.neuroos.core.AndroidLiveAudioAttachmentCapture
 import io.amper.neuroos.core.AndroidModelImportService
 import io.amper.neuroos.core.AndroidAppPrivateModelArtifactResolver
 import io.amper.neuroos.core.AndroidAmiCompilationService
-import io.amper.neuroos.core.AmiDirectStreamingInferenceBackend
 import io.amper.neuroos.core.AndroidAmiHardwareProfiler
 import io.amper.neuroos.core.AmiDecoderFfnExecutor
 import io.amper.neuroos.core.AmiDecoderFfnPlanner
@@ -94,7 +94,6 @@ import io.amper.neuroos.core.InMemoryToolAuditLog
 import io.amper.neuroos.core.InMemoryToolRegistry
 import io.amper.neuroos.core.InferenceAttachment
 import io.amper.neuroos.core.InferenceAttachmentKind
-import io.amper.neuroos.core.InferenceBackendRegistry
 import io.amper.neuroos.core.LiveContextFusion
 import io.amper.neuroos.core.LocatorArtifactResolver
 import io.amper.neuroos.core.LocatorMultimodalProjectorArtifactResolver
@@ -286,7 +285,6 @@ class MainActivity : ComponentActivity() {
             }
             val importer = remember { AndroidModelImportService(this, catalog, modelRegistry) }
             val capabilityManager = remember { InstalledModelCapabilityService(catalog, modelRegistry) }
-            val backends = remember { InferenceBackendRegistry() }
             val contentModelArtifacts = remember {
                 ContentUriArtifactResolver(
                     contentResolver,
@@ -310,21 +308,19 @@ class MainActivity : ComponentActivity() {
             val amiHardwareProfiler = remember {
                 AndroidAmiHardwareProfiler(this)
             }
-            remember {
-                backends.register(
-                    AmiDirectStreamingInferenceBackend(
-                        artifactLookup = amiCompilationService::existing,
-                        hardwareSnapshot = amiHardwareProfiler::snapshot
-                    )
+            val amperCore = remember {
+                AmperCoreInferencePort(
+                    artifactLookup = amiCompilationService::existing,
+                    hardwareSnapshot = amiHardwareProfiler::snapshot
                 )
             }
-            val hasRuntimeBackend = backends.list().isNotEmpty()
+            val hasRuntimeBackend = amperCore.inferenceEndpointCount == 1
             val titan = remember {
                 TitanCortexRuntime(
                     models = modelRegistry,
                     catalog = catalog,
                     artifacts = modelArtifacts,
-                    backends = backends,
+                    core = amperCore,
                     governor = governor
                 )
             }
@@ -360,7 +356,7 @@ class MainActivity : ComponentActivity() {
                     )
                     registry.register(
                         SovereignStatusToolProvider(
-                            RuntimeSovereignStatusSource(catalog, backends, governor)
+                            AmperCoreSovereignStatusSource(catalog, amperCore, governor)
                         )
                     )
                     registry.register(
@@ -484,6 +480,18 @@ class MainActivity : ComponentActivity() {
             val restoredPlan = remember { planner.latest() }
             val initialProfileModel = remember { catalog.list().firstOrNull() }
             val executionLanes = remember { AmperExecutionLanes() }
+            val amneQualificationBusyState = remember {
+                mutableStateOf(amperCore.nativeRuntimePackaged())
+            }
+            val amneQualificationStatusState = remember {
+                mutableStateOf(
+                    if (amperCore.nativeRuntimePackaged()) {
+                        "AMPER Core native · automatic qualification + benchmark queued"
+                    } else {
+                        "AMPER Core native runtime not packaged in this APK"
+                    }
+                )
+            }
             DisposableEffect(Unit) {
                 AndroidReflexMaintenanceProcessRegistry.register(
                     reflexMaintenanceCoordinator
@@ -493,6 +501,45 @@ class MainActivity : ComponentActivity() {
                 )
                 executionLanes.executeMaintenance {
                     runCatching { reflexLifecycle.maintain() }
+                }
+                if (amperCore.nativeRuntimePackaged()) {
+                    executionLanes.executeMaintenance {
+                        val startedNs = System.nanoTime()
+                        val result = amperCore.bootstrapNativeAdmission()
+                        val wallMs =
+                            (System.nanoTime() - startedNs) / 1_000_000L
+                        runOnUiThread {
+                            amneQualificationBusyState.value = false
+                            result.fold(
+                                onSuccess = { report ->
+                                    val matrixSummary = report.matrixCoverage
+                                        .sortedBy { it.ordinal }
+                                        .joinToString(" · ") {
+                                            it.name.removePrefix("MATVEC_")
+                                        }
+                                    amneQualificationStatusState.value =
+                                        "AMPER Core auto-admission · numeric=" +
+                                            if (report.qualificationPassed) "PASS" else "FAIL" +
+                                            " · native " +
+                                            report.admittedPrimitives.size + "/" +
+                                            report.benchmarkedPrimitives.size +
+                                            " primitives" +
+                                            if (matrixSummary.isNotBlank()) {
+                                                " · matrix $matrixSummary"
+                                            } else {
+                                                " · no native matrix admitted"
+                                            } +
+                                            " · wall ${wallMs}ms"
+                                },
+                                onFailure = { error ->
+                                    amneQualificationStatusState.value =
+                                        "AMPER Core auto-admission failed · " +
+                                            (error.message
+                                                ?: error::class.java.simpleName)
+                                }
+                            )
+                        }
+                    }
                 }
                 reflexMaintenanceLoop.start()
                 onDispose {
@@ -514,16 +561,8 @@ class MainActivity : ComponentActivity() {
                     "AMI mobile compiler ready · SOURCE_EXACT foundation preservation"
                 )
             }
-            var amneQualificationBusy by remember { mutableStateOf(false) }
-            var amneQualificationStatus by remember {
-                mutableStateOf(
-                    if (AmneNativeRuntimeProbe.isPackaged()) {
-                        "AMNE native packaged · direct AMI locked until qualification + benchmark admission"
-                    } else {
-                        "AMNE native not packaged in this APK"
-                    }
-                )
-            }
+            var amneQualificationBusy by amneQualificationBusyState
+            var amneQualificationStatus by amneQualificationStatusState
             var importCodeGeneration by remember { mutableStateOf(false) }
             var importPlanning by remember { mutableStateOf(false) }
             var importVision by remember { mutableStateOf(false) }
@@ -587,7 +626,7 @@ class MainActivity : ComponentActivity() {
                     restoredApproval?.let {
                         "Restored pending action: ${it.proposal.capability.value} · not executed"
                     } ?: if (hasRuntimeBackend) {
-                        "AMPER Single-Core ready · " + backends.list().joinToString { it.id }
+                        "AMPER Single-Core ready · " + amperCore.id
                     } else {
                         "AMPER Core runtime unavailable"
                     }
@@ -1129,47 +1168,36 @@ class MainActivity : ComponentActivity() {
                         Text("AMNE mobile runtime", style = MaterialTheme.typography.titleMedium)
                         Text(amneQualificationStatus)
                         Button(
-                            enabled = AmneNativeRuntimeProbe.isPackaged() && !amneQualificationBusy,
+                            enabled = amperCore.nativeRuntimePackaged() && !amneQualificationBusy,
                             onClick = {
                                 amneQualificationBusy = true
                                 amneQualificationStatus =
-                                    "AMNE · qualifying + benchmarking native primitives before direct AMI admission..."
+                                    "AMPER Core · qualifying + benchmarking native primitives..."
                                 executionLanes.executeMaintenance {
                                     val startedNs = System.nanoTime()
-                                    val result = AmneNativeRuntimeProbe.benchmarkAndAdmit()
+                                    val result = amperCore.bootstrapNativeAdmission()
                                     val wallMs =
                                         (System.nanoTime() - startedNs) / 1_000_000L
                                     runOnUiThread {
                                         amneQualificationBusy = false
                                         result.fold(
                                             onSuccess = { report ->
-                                                val admission = report.admission
-                                                val admitted = admission.admittedPrimitives.size
-                                                val total = admission.benchmarkResults.size
-                                                val matrixSummary = listOf(
-                                                    io.amper.neuroos.core.AmneKernelPrimitive.MATVEC_F32,
-                                                    io.amper.neuroos.core.AmneKernelPrimitive.MATVEC_Q4_0,
-                                                    io.amper.neuroos.core.AmneKernelPrimitive.MATVEC_Q8_0,
-                                                    io.amper.neuroos.core.AmneKernelPrimitive.MATVEC_Q4_K,
-                                                    io.amper.neuroos.core.AmneKernelPrimitive.MATVEC_Q5_K,
-                                                    io.amper.neuroos.core.AmneKernelPrimitive.MATVEC_Q6_K
-                                                ).mapNotNull { primitive ->
-                                                    admission.benchmarkResults[primitive]
-                                                        ?.let { benchmark ->
-                                                            primitive.name.removePrefix("MATVEC_") +
-                                                                "=" +
-                                                                "%.2fx".format(benchmark.speedup) +
-                                                                if (benchmark.admitted) "*" else ""
-                                                        }
-                                                }.joinToString(" · ")
+                                                val matrixSummary = report.matrixCoverage
+                                                    .sortedBy { it.ordinal }
+                                                    .joinToString(" · ") {
+                                                        it.name.removePrefix("MATVEC_")
+                                                    }
                                                 amneQualificationStatus =
-                                                    "AMNE Core admission · numeric=" +
-                                                        if (report.qualification.passed) "PASS" else "FAIL" +
-                                                        " · native $admitted/$total primitives" +
+                                                    "AMPER Core admission · numeric=" +
+                                                        if (report.qualificationPassed) "PASS" else "FAIL" +
+                                                        " · native " +
+                                                        report.admittedPrimitives.size + "/" +
+                                                        report.benchmarkedPrimitives.size +
+                                                        " primitives" +
                                                         if (matrixSummary.isNotBlank()) {
-                                                            " · $matrixSummary"
+                                                            " · matrix $matrixSummary"
                                                         } else {
-                                                            ""
+                                                            " · no native matrix admitted"
                                                         } +
                                                         " · wall ${wallMs}ms"
                                             },
@@ -1184,7 +1212,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         ) {
-                            Text("Qualify + benchmark AMPER Core")
+                            Text("Re-qualify AMPER Core")
                         }
 
                         Text("GGUF capability profile", style = MaterialTheme.typography.titleMedium)

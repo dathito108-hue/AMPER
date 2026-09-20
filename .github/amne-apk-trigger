@@ -1,3 +1,3 @@
-AMPER Core APK trigger v7
-purpose=canonical-single-core-only
-phase=617
+AMPER Core APK trigger v8
+purpose=single-core-inference-port-auto-admission
+phase=618

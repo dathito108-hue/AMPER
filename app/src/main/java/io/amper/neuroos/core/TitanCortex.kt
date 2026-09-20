@@ -162,12 +162,24 @@ internal class TitanBoundedAdmissionReplanner(
     }
 }
 
-class InferenceBackendRegistry {
+class InferenceBackendRegistry private constructor(
+    private val sealedSingleCoreBackendId: String? = null
+) {
+    constructor() : this(null)
+
     private val backends = linkedMapOf<String, InferenceBackend>()
 
     @Synchronized
     fun register(backend: InferenceBackend) {
         require(backend.id.isNotBlank())
+        if (sealedSingleCoreBackendId != null) {
+            require(backend.id == sealedSingleCoreBackendId) {
+                "AMPER single-core registry rejects foreign backend: ${backend.id}"
+            }
+            require(backends.isEmpty()) {
+                "AMPER single-core registry is sealed after core registration"
+            }
+        }
         if (backend is ConcurrencyLimitedInferenceBackend) {
             require(backend.maxConcurrentExecutions > 0) {
                 "backend execution concurrency must be positive: ${backend.id}"
@@ -270,6 +282,18 @@ class InferenceBackendRegistry {
     @Synchronized
     fun list(): List<InferenceBackend> = backends.values.toList()
 
+    fun isSealedSingleCore(): Boolean = sealedSingleCoreBackendId != null
+
+    companion object {
+        fun singleCore(core: InferenceBackend): InferenceBackendRegistry =
+            InferenceBackendRegistry(core.id).also { registry ->
+                registry.register(core)
+                require(registry.list().size == 1) {
+                    "AMPER single-core registry must contain exactly one inference endpoint"
+                }
+            }
+    }
+
     private inline fun <T> isolatedAdmission(block: () -> T): T? = try {
         block()
     } catch (fatal: VirtualMachineError) {
@@ -289,6 +313,20 @@ class TitanCortexRuntime(
     private val governor: ResourceGovernor? = null,
     routePlanner: TitanInferenceRoutePlanner? = null
 ) {
+    constructor(
+        models: ModelRegistry,
+        catalog: InstalledModelCatalog,
+        artifacts: ModelArtifactResolver,
+        core: AmperCoreInferencePort,
+        governor: ResourceGovernor? = null
+    ) : this(
+        models = models,
+        catalog = catalog,
+        artifacts = artifacts,
+        backends = core.titanRegistry(),
+        governor = governor
+    )
+
     private val routePlanner = routePlanner ?: TitanInferenceRoutePlanner(
         models = models,
         catalog = catalog,
