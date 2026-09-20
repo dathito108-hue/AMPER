@@ -88,20 +88,15 @@ object GgufTensorLayoutProfiles {
         unknownTensorTypePolicy = GgufUnknownTensorTypePolicy.ALLOW_STRUCTURAL_ONLY
     )
 
-    /** ABI profile for dev.ffmpegkit-maintained:llama-android:0.1.1 native model loads. */
-    val LLAMA_ANDROID_0_1_1 = GgufTensorLayoutProfile(
-        id = "llama-android:0.1.1",
+    /**
+     * Strict source-layout profile admitted by the AMPER AMI v1 compiler.
+     *
+     * GGUF is import data only; every tensor encoding that reaches AMPER Core execution must have
+     * explicit storage geometry. Unknown source encodings fail before conversion/runtime admission.
+     */
+    val AMPER_AMI_V1 = GgufTensorLayoutProfile(
+        id = "amper-ami-v1",
         layouts = classicLayouts,
         unknownTensorTypePolicy = GgufUnknownTensorTypePolicy.REJECT
     )
-
-    fun forLlamaAndroidVersion(version: String): GgufTensorLayoutProfile? = when (version) {
-        "0.1.1" -> LLAMA_ANDROID_0_1_1
-        else -> null
-    }
-
-    fun requireLlamaAndroidVersion(version: String): GgufTensorLayoutProfile =
-        requireNotNull(forLlamaAndroidVersion(version)) {
-            "no GGUF tensor-layout ABI profile is registered for llama-android:$version"
-        }
 }
