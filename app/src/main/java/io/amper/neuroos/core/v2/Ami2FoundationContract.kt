@@ -79,6 +79,7 @@ data class Ami2FoundationIdentity(
     val tokenizerSha256: String,
     val chatProtocolSha256: String,
     val logicalGraphSha256: String,
+    val tensorIndexSha256: String,
     val canonicalWeightsSha256: String,
     val semanticSha256: String,
     val tensorCount: Int,
@@ -90,6 +91,7 @@ data class Ami2FoundationIdentity(
         requireSha256(tokenizerSha256, "AMI2 tokenizer")
         requireSha256(chatProtocolSha256, "AMI2 chat protocol")
         requireSha256(logicalGraphSha256, "AMI2 logical graph")
+        requireSha256(tensorIndexSha256, "AMI2 tensor index")
         requireSha256(canonicalWeightsSha256, "AMI2 canonical weights")
         requireSha256(semanticSha256, "AMI2 foundation semantics")
         require(tensorCount > 0) { "AMI2 tensor count must be positive" }
