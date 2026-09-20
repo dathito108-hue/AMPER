@@ -1,5 +1,42 @@
 package io.amper.neuroos.core
 
+/**
+ * One-slot live registry for the AMPER inference core.
+ *
+ * Any registration replaces the previous live descriptor. Durable imported sources may be many,
+ * but routing can observe at most one foundation identity.
+ */
+class AmperSingleCoreModelRegistry : MutableModelRegistry {
+    @Volatile
+    private var active: ModelDescriptor? = null
+
+    @Synchronized
+    override fun register(model: ModelDescriptor) {
+        active = model
+    }
+
+    @Synchronized
+    override fun unregister(id: ModelId): Boolean {
+        if (active?.id != id) return false
+        active = null
+        return true
+    }
+
+    @Synchronized
+    override fun candidates(required: Set<CapabilityId>): List<ModelDescriptor> =
+        active
+            ?.takeIf { it.capabilities.containsAll(required) }
+            ?.let(::listOf)
+            .orEmpty()
+
+    @Synchronized
+    override fun route(required: Set<CapabilityId>): ModelDescriptor? =
+        active?.takeIf { it.capabilities.containsAll(required) }
+
+    @Synchronized
+    fun activeModelId(): ModelId? = active?.id
+}
+
 data class AmperCoreFoundationState(
     val activeModelId: ModelId?,
     val retainedSourceCount: Int
