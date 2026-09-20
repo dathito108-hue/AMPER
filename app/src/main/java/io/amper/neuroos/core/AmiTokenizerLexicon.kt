@@ -595,7 +595,7 @@ object AmiDetokenizer {
             }
         }
         flushBytes()
-        return text.toString()
+        return text.toString().removePrefix(" ")
     }
 
     private fun decodeGpt2Bytes(

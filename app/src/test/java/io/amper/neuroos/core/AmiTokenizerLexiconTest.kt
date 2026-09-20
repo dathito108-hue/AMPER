@@ -41,7 +41,7 @@ class AmiTokenizerLexiconTest {
             intArrayOf(0, 1, 2, 3, 4)
         )
 
-        assertEquals(" Hello world!", decoded)
+        assertEquals("Hello world!", decoded)
     }
 
     @Test
