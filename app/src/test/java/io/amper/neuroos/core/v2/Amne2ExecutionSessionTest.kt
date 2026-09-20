@@ -39,6 +39,12 @@ class Amne2ExecutionSessionTest {
             assertEquals(Amne2ExecutionSessionState.OPEN, session.state)
             assertEquals(0, session.position)
             assertEquals(2, session.maxContextTokens)
+            assertTrue(session.memoryBudget.safeContextTokens >= session.maxContextTokens)
+            assertTrue(session.memoryBudget.mmapWindowBytes <= 1024)
+            assertTrue(
+                session.memoryBudget.estimateAtSafeContext.estimatedMemoryMb <=
+                    session.memoryBudget.sessionBudgetMb
+            )
 
             val decoded = session.executeToken(tokenId = 1).getOrThrow()
             assertEquals(0, decoded.position)
