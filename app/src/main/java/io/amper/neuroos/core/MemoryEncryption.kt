@@ -27,9 +27,17 @@ class AesGcmMemoryLineCipher(
 
     override fun encrypt(plaintext: String): String {
         require(plaintext.isNotEmpty())
-        val nonce = ByteArray(NONCE_BYTES).also(random::nextBytes)
         val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(TAG_BITS, nonce))
+        // Android Keystore keys default to randomized-encryption-required. In that mode
+        // callers must not supply an encryption IV. Let the selected JCE provider create
+        // the fresh GCM nonce, then persist the provider-issued IV in the E1 envelope.
+        cipher.init(Cipher.ENCRYPT_MODE, key, random)
+        val nonce = requireNotNull(cipher.iv) {
+            "AES-GCM provider did not generate an encryption nonce"
+        }
+        require(nonce.size == NONCE_BYTES) {
+            "invalid AES-GCM provider nonce length: ${nonce.size}"
+        }
         cipher.updateAAD(aad())
         val ciphertext = cipher.doFinal(plaintext.toByteArray(StandardCharsets.UTF_8))
         return listOf(VERSION, keyId, enc(nonce), enc(ciphertext)).joinToString("|")
