@@ -1,9 +1,11 @@
 package io.amper.neuroos.core
 
+import io.amper.neuroos.core.v2.Amne2ExecutionSessionFactory
+import io.amper.neuroos.core.v2.StoredAmi2Artifact
 import java.util.concurrent.ConcurrentHashMap
 
 data class AmiDirectPreparedModel(
-    val artifact: StoredAmiArtifact,
+    val artifact: StoredAmi2Artifact,
     val graph: AmiTensorGraph,
     val metadata: AmiGgufMetadataSnapshot,
     val tokenizer: AmiTokenizerLexicon,
@@ -12,14 +14,15 @@ data class AmiDirectPreparedModel(
 )
 
 /**
- * Direct AMI text backend.
+ * Production AMPER Core text backend over canonical AMI2 + AMNE2.
  *
- * The installed model remains the user's GGUF identity for Titan capability/routing purposes.
- * Execution is performed only when a verified app-private AMI artifact with matching source lineage
- * already exists. The user-owned GGUF source passed by Titan is never rewritten by this backend.
+ * The installed model remains the user's GGUF import identity for Titan capability/routing
+ * purposes. Execution is admitted only from a verified app-private AMI2 artifact with matching
+ * source lineage, then runs through one AMNE2 execution session. The GGUF source passed by Titan is
+ * import provenance only and is never a runtime backend.
  */
 class AmiDirectStreamingInferenceBackend(
-    private val artifactLookup: (InstalledModel) -> StoredAmiArtifact?,
+    private val artifactLookup: (InstalledModel) -> StoredAmi2Artifact?,
     private val hardwareSnapshot: () -> AmiHardwareSnapshot? = { null },
     private val maxWindowBytes: Int = 8 * 1024 * 1024
 ) : ManagedInferenceBackend,
@@ -32,6 +35,9 @@ class AmiDirectStreamingInferenceBackend(
     override val maxConcurrentExecutions: Int = 1
 
     private val prepared = ConcurrentHashMap<String, AmiDirectPreparedModel>()
+    private val sessionFactory = Amne2ExecutionSessionFactory(
+        maxWindowBytes = maxWindowBytes
+    )
 
     override fun supports(model: InstalledModel): Boolean {
         if (!model.descriptor.format.equals("gguf", ignoreCase = true)) return false
@@ -60,7 +66,7 @@ class AmiDirectStreamingInferenceBackend(
         request: InferenceRequest
     ): String {
         if (request.attachments.isNotEmpty()) return "amper-core-text-only"
-        if (artifactLookup(model) == null) return "amper-core-ami-not-compiled"
+        if (artifactLookup(model) == null) return "amper-core-ami2-not-compiled"
 
         val runtime = prepareModel(model).getOrNull()
             ?: return "amper-core-foundation-unsupported"
@@ -177,57 +183,62 @@ class AmiDirectStreamingInferenceBackend(
         }
 
         val runtime = prepareModel(model).getOrThrow()
+        val hardware = requireNotNull(hardwareSnapshot()) {
+            "AMNE2 production execution requires an Android hardware snapshot"
+        }
         val promptStartedNs = System.nanoTime()
         val preparedPrompt = prepareInstructionPrompt(runtime, request)
         val promptIds = preparedPrompt.tokenIds
         val promptPrepMs = (System.nanoTime() - promptStartedNs) / 1_000_000L
         val stopIds = preparedPrompt.stopTokenIds
-        val state = AmiDecoderStackState(
-            plan = runtime.stackPlan,
-            maxContextTokens = minOf(
-                runtime.stackPlan.maxContextTokens,
-                promptIds.size + request.maxOutputTokens
-            )
-        )
         val generatedIds = ArrayList<Int>(request.maxOutputTokens)
         val textEmitter = AmiStableStreamingTextEmitter()
         var chunkIndex = 0
         val generationStartedNs = System.nanoTime()
-
-        val result = AmiAutoregressiveGenerator(maxWindowBytes).generate(
-            loaded = runtime.artifact.loaded,
-            graph = runtime.graph,
-            metadata = runtime.metadata,
-            stackPlan = runtime.stackPlan,
-            state = state,
-            promptTokenIds = promptIds,
-            config = AmiGenerationConfig(
-                maxNewTokens = request.maxOutputTokens,
-                sampling = AmiSamplingConfig(
-                    temperature = request.temperature.toFloat()
-                ),
-                stopTokenIds = stopIds
-            ),
-            hardware = hardwareSnapshot(),
-            cancellation = cancellation,
-            onToken = { token ->
-                cancellation.throwIfCancelled()
-                if (token.tokenId in stopIds) return@generate
-                generatedIds += token.tokenId
-                val candidate = AmiDetokenizer.decode(
-                    runtime.tokenizer,
-                    generatedIds.toIntArray()
-                )
-                textEmitter.observe(candidate)?.takeIf { it.isNotEmpty() }?.let { stable ->
-                    onChunk(
-                        InferenceChunk(
-                            text = stable,
-                            index = chunkIndex++
-                        )
-                    )
-                }
-            }
+        val session = sessionFactory.open(
+            artifactFile = runtime.artifact.file,
+            hardware = hardware,
+            maxContextTokens = minOf(
+                runtime.stackPlan.maxContextTokens,
+                promptIds.size + request.maxOutputTokens
+            )
         ).getOrThrow()
+
+        val result = try {
+            session.generate(
+                promptTokenIds = promptIds,
+                config = AmiGenerationConfig(
+                    maxNewTokens = request.maxOutputTokens,
+                    sampling = AmiSamplingConfig(
+                        temperature = request.temperature.toFloat()
+                    ),
+                    stopTokenIds = stopIds
+                ),
+                cancellation = cancellation,
+                onToken = { token ->
+                    cancellation.throwIfCancelled()
+                    if (token.tokenId !in stopIds) {
+                        generatedIds += token.tokenId
+                        val candidate = AmiDetokenizer.decode(
+                            runtime.tokenizer,
+                            generatedIds.toIntArray()
+                        )
+                        textEmitter.observe(candidate)
+                            ?.takeIf { it.isNotEmpty() }
+                            ?.let { stable ->
+                                onChunk(
+                                    InferenceChunk(
+                                        text = stable,
+                                        index = chunkIndex++
+                                    )
+                                )
+                            }
+                    }
+                }
+            ).getOrThrow()
+        } finally {
+            session.close()
+        }
         cancellation.throwIfCancelled()
 
         val finalGeneratedIds = result.generatedTokenIds
@@ -288,27 +299,32 @@ class AmiDirectStreamingInferenceBackend(
         prepared[key]?.let { return@runCatching it }
 
         val artifact = requireNotNull(artifactLookup(model)) {
-            "verified AMI artifact has not been compiled for this GGUF"
+            "verified AMI2 artifact has not been compiled for this GGUF"
         }
-        require(artifact.loaded.index.manifest.source.sourceSha256 == model.sha256) {
-            "AMI source lineage does not match installed GGUF"
+        require(
+            artifact.loaded.bundle.foundation.lineage.sourceSha256 == model.sha256
+        ) {
+            "AMI2 source lineage does not match installed GGUF"
         }
 
-        val graph = AmiTensorGraphReader()
-            .read(artifact.loaded)
-            .getOrThrow()
-        val metadata = AmiPreservedGgufMetadataReader()
-            .read(artifact.loaded)
-            .getOrThrow()
+        val hardware = requireNotNull(hardwareSnapshot()) {
+            "AMNE2 production preparation requires an Android hardware snapshot"
+        }
+        val session = sessionFactory.open(
+            artifactFile = artifact.file,
+            hardware = hardware
+        ).getOrThrow()
+        val binding = session.binding
+        val graph = binding.tensorGraph
+        val metadata = binding.preservedMetadata
         val tokenizer = AmiTokenizerLexiconReader()
-            .read(artifact.loaded)
+            .read(binding.decoderArtifactView)
             .getOrThrow()
-        val stackPlan = AmiDecoderStackPlanner
-            .plan(graph, metadata)
-            .getOrThrow()
+        val stackPlan = session.stackPlan
         val outputPlan = AmiOutputHeadPlanner
             .plan(graph, metadata, stackPlan)
             .getOrThrow()
+        session.close().getOrThrow()
 
         require(tokenizer.vocabularySize == stackPlan.vocabularySize) {
             "AMI tokenizer vocabulary differs from decoder vocabulary"
