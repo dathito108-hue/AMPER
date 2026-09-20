@@ -36,6 +36,10 @@ class OmegaCoreV2Test {
             "amcf-quality-reuses-integrated-cognitive-readiness" in
                 OmegaArchitectureLock.invariants
         )
+        assertTrue(
+            "amcf-run-cognitive-snapshot-is-frozen" in
+                OmegaArchitectureLock.invariants
+        )
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
@@ -167,6 +171,14 @@ class OmegaCoreV2Test {
                 .exitCriteria
                 .contains(
                     "AMCF quality and early-exit reuse grounded integrated cognitive readiness without a judge model"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M4_AMCF_FOUNDATION }
+                .exitCriteria
+                .contains(
+                    "one immutable integrated cognitive snapshot is bound to the complete AMCF run"
                 )
         )
     }
