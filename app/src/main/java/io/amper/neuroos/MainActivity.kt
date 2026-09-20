@@ -62,6 +62,9 @@ import io.amper.neuroos.core.AndroidAmiCompilationService
 import io.amper.neuroos.core.AndroidAmiHardwareProfiler
 import io.amper.neuroos.core.AmiDecoderFfnExecutor
 import io.amper.neuroos.core.AmiDecoderFfnPlanner
+import io.amper.neuroos.core.AmiDecoderLayerExecutor
+import io.amper.neuroos.core.AmiDecoderLayerPlanner
+import io.amper.neuroos.core.AmiLayerKvCache
 import io.amper.neuroos.core.AmiPreservedGgufMetadataReader
 import io.amper.neuroos.core.AmiTensorGraphReader
 import io.amper.neuroos.core.AndroidActivePerceptionPort
@@ -1490,6 +1493,134 @@ class MainActivity : ComponentActivity() {
                                                 "AMI work in progress..."
                                             } else {
                                                 "Run AMI layer-0 FFN probe"
+                                            }
+                                        )
+                                    }
+                                    Button(
+                                        enabled = !amiCompileBusy,
+                                        onClick = {
+                                            amiCompileBusy = true
+                                            amiStatus =
+                                                "AMI decoder · loading layer 0 attention + KV + FFN · 2-token causal probe..."
+                                            executionLanes.executeMaintenance {
+                                                val result = runCatching {
+                                                    val stored = requireNotNull(
+                                                        amiCompilationService.existing(selected)
+                                                    ) {
+                                                        "no verified AMI exists for selected GGUF; compile it first"
+                                                    }
+                                                    val graph = AmiTensorGraphReader()
+                                                        .read(stored.loaded)
+                                                        .getOrThrow()
+                                                    val metadata =
+                                                        AmiPreservedGgufMetadataReader()
+                                                            .read(stored.loaded)
+                                                            .getOrThrow()
+                                                    val plan = AmiDecoderLayerPlanner.plan(
+                                                        graph = graph,
+                                                        metadata = metadata,
+                                                        layerIndex = 0
+                                                    ).getOrThrow()
+                                                    val hardware =
+                                                        AndroidAmiHardwareProfiler(
+                                                            this@MainActivity
+                                                        ).snapshot()
+                                                    val cache = AmiLayerKvCache(
+                                                        layerIndex = 0,
+                                                        kvWidth = plan.attention.kvWidth,
+                                                        maxTokens = 2
+                                                    )
+                                                    val executor = AmiDecoderLayerExecutor()
+                                                    val firstInput =
+                                                        FloatArray(plan.attention.hiddenSize) { index ->
+                                                            ((index % 31) - 15).toFloat() * 0.01f
+                                                        }
+                                                    executor.execute(
+                                                        loaded = stored.loaded,
+                                                        graph = graph,
+                                                        plan = plan,
+                                                        input = firstInput,
+                                                        position = 0,
+                                                        kvCache = cache,
+                                                        hardware = hardware
+                                                    ).getOrThrow()
+                                                    val secondInput =
+                                                        FloatArray(plan.attention.hiddenSize) { index ->
+                                                            ((index % 37) - 18).toFloat() * 0.008f
+                                                        }
+                                                    executor.execute(
+                                                        loaded = stored.loaded,
+                                                        graph = graph,
+                                                        plan = plan,
+                                                        input = secondInput,
+                                                        position = 1,
+                                                        kvCache = cache,
+                                                        hardware = hardware
+                                                    ).getOrThrow()
+                                                }
+                                                runOnUiThread {
+                                                    amiCompileBusy = false
+                                                    result.fold(
+                                                        onSuccess = { execution ->
+                                                            val attention = execution.attentionTrace
+                                                            val ffn = execution.ffnTrace
+                                                            val mappedMiB =
+                                                                (
+                                                                    attention.mappedBytes +
+                                                                        ffn.mappedBytes
+                                                                    ).toDouble() /
+                                                                    (1024.0 * 1024.0)
+                                                            val backends = listOf(
+                                                                attention.normBackendId,
+                                                                attention.queryBackendId,
+                                                                attention.keyBackendId,
+                                                                attention.valueBackendId,
+                                                                attention.ropeBackendId,
+                                                                attention.dotBackendId,
+                                                                attention.softmaxBackendId,
+                                                                attention.outputBackendId,
+                                                                ffn.normBackendId,
+                                                                ffn.gateBackendId,
+                                                                ffn.upBackendId,
+                                                                ffn.activationBackendId,
+                                                                ffn.downBackendId
+                                                            ).distinct().joinToString(",")
+                                                            val l1 = execution.output.fold(0.0) {
+                                                                    acc,
+                                                                    value ->
+                                                                acc + kotlin.math.abs(
+                                                                    value.toDouble()
+                                                                )
+                                                            }
+                                                            amiStatus =
+                                                                "AMI DECODER PASS · layer=0 · " +
+                                                                    "heads=${attention.headCount}/kv${attention.kvHeadCount} · " +
+                                                                    "head_dim=${attention.headDimension} · " +
+                                                                    "context=${attention.contextTokens} · " +
+                                                                    "mapped=%.2f MiB".format(mappedMiB) +
+                                                                    " · windows=${attention.matrixWindows + ffn.matrixWindows} · " +
+                                                                    "backend=$backends · " +
+                                                                    "L1=%.4f".format(l1) +
+                                                                    " · attn=${attention.wallTimeMs}ms" +
+                                                                    " · ffn=${ffn.wallTimeMs}ms"
+                                                        },
+                                                        onFailure = { error ->
+                                                            amiStatus =
+                                                                "AMI DECODER rejected · " +
+                                                                    (error.message
+                                                                        ?: error::class.java.simpleName) +
+                                                                    " · llama fallback remains active"
+                                                        }
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    ) {
+                                        Text(
+                                            if (amiCompileBusy) {
+                                                "AMI work in progress..."
+                                            } else {
+                                                "Run AMI layer-0 full decoder probe"
                                             }
                                         )
                                     }
