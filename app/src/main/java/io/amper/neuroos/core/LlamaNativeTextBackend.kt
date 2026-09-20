@@ -239,9 +239,9 @@ class LlamaNativeTextInferenceBackend(
         require(request.attachments.isEmpty()) {
             "native text preparation does not accept multimodal attachments"
         }
-        require(source is DescriptorBoundNativeModelPathSource) {
-            "native text preparation requires a descriptor-bound model path"
-        }
+        val nativeSource = source.requireTrustedNativePathSource(
+            "native text preparation"
+        )
         val warmEngine = requireNotNull(
             engine as? PreparableWarmSessionLlamaNativeTextEngine
         ) {
@@ -250,8 +250,8 @@ class LlamaNativeTextInferenceBackend(
         val cost = estimate(model, request)
         val identity = warmIdentity(model, cost)
 
-        source.withNativePath { modelPath ->
-            verifier.verifyNativePath(model, source, modelPath).getOrThrow()
+        nativeSource.withNativePath { modelPath ->
+            verifier.verifyNativePath(model, nativeSource, modelPath).getOrThrow()
             cancellation.throwIfCancelled()
             synchronized(warmLock) {
                 cancellation.throwIfCancelled()
@@ -377,15 +377,15 @@ class LlamaNativeTextInferenceBackend(
         require(request.attachments.isEmpty()) {
             "native text backend does not accept multimodal attachments"
         }
-        require(source is DescriptorBoundNativeModelPathSource) {
-            "native text backend requires a descriptor-bound model path"
-        }
+        val nativeSource = source.requireTrustedNativePathSource(
+            "native text backend"
+        )
 
         val cost = estimate(model, request)
         var chunkIndex = 0
         var sessionReused = false
-        val generation = source.withNativePath { modelPath ->
-            verifier.verifyNativePath(model, source, modelPath).getOrThrow()
+        val generation = nativeSource.withNativePath { modelPath ->
+            verifier.verifyNativePath(model, nativeSource, modelPath).getOrThrow()
             cancellation.throwIfCancelled()
 
             val tokenSink: (String) -> Unit = { tokenText ->
