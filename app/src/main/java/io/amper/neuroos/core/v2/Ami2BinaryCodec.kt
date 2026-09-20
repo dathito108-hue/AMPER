@@ -13,6 +13,7 @@ object Ami2BinaryLayout {
     const val MAX_BINARY_SECTIONS: Int = 64
     const val DEFAULT_ALIGNMENT_BYTES: Int = 64
     const val FOUNDATION_ALIGNMENT_BYTES: Int = 4_096
+    const val STREAM_COPY_BUFFER_BYTES: Int = 64 * 1024
 
     val canonicalRoleOrder: List<Ami2ArtifactRole> =
         Ami2FoundationContract.mandatoryArtifacts.toList()
@@ -93,10 +94,135 @@ data class Ami2LoadedBinaryArtifact(
  * This writer is format infrastructure, not an inference backend. It accepts already-normalized
  * canonical payloads and refuses to publish them if their semantic digests differ from the plan.
  */
+sealed interface Ami2PayloadSource {
+    val length: Long
+    val expectedSha256: String
+
+    /**
+     * Copies exactly [length] bytes to [destinationOffset] and returns the digest observed while
+     * copying. The caller must compare the returned digest with [expectedSha256].
+     */
+    fun copyTo(
+        output: RandomAccessFile,
+        destinationOffset: Long,
+        buffer: ByteArray
+    ): String
+}
+
+class Ami2ByteArrayPayloadSource(
+    private val bytes: ByteArray
+) : Ami2PayloadSource {
+    override val length: Long = bytes.size.toLong()
+    override val expectedSha256: String = sha256(bytes)
+
+    init {
+        require(bytes.isNotEmpty()) { "AMI2 byte-array payload source is empty" }
+    }
+
+    override fun copyTo(
+        output: RandomAccessFile,
+        destinationOffset: Long,
+        buffer: ByteArray
+    ): String {
+        output.seek(destinationOffset)
+        output.write(bytes)
+        return sha256(bytes)
+    }
+}
+
+class Ami2FileRangePayloadSource(
+    val file: File,
+    val sourceOffset: Long,
+    override val length: Long,
+    override val expectedSha256: String
+) : Ami2PayloadSource {
+    init {
+        require(file.exists() && file.isFile) { "AMI2 file-range source does not exist" }
+        require(sourceOffset >= 0L) { "AMI2 file-range source offset must be non-negative" }
+        require(length > 0L) { "AMI2 file-range source must be non-empty" }
+        require(expectedSha256.matches(Regex("[0-9a-f]{64}"))) {
+            "AMI2 file-range source digest must be lowercase SHA-256"
+        }
+        require(Math.addExact(sourceOffset, length) <= file.length()) {
+            "AMI2 file-range source exceeds file length"
+        }
+    }
+
+    override fun copyTo(
+        output: RandomAccessFile,
+        destinationOffset: Long,
+        buffer: ByteArray
+    ): String {
+        require(buffer.isNotEmpty()) { "AMI2 streaming copy buffer must be non-empty" }
+        val digest = MessageDigest.getInstance("SHA-256")
+        RandomAccessFile(file, "r").use { input ->
+            input.seek(sourceOffset)
+            output.seek(destinationOffset)
+
+            var remaining = length
+            while (remaining > 0L) {
+                val wanted = minOf(remaining, buffer.size.toLong()).toInt()
+                val read = input.read(buffer, 0, wanted)
+                if (read < 0) {
+                    throw EOFException("AMI2 file-range source changed or was truncated")
+                }
+                if (read == 0) continue
+                digest.update(buffer, 0, read)
+                output.write(buffer, 0, read)
+                remaining -= read.toLong()
+            }
+        }
+        return digest.digest().toHex()
+    }
+}
+
+data class Ami2CanonicalPayloadSources(
+    val tokenizer: Ami2PayloadSource,
+    val chatProtocol: Ami2PayloadSource,
+    val logicalGraph: Ami2PayloadSource,
+    val tensorIndex: Ami2PayloadSource,
+    val foundationWeights: Ami2PayloadSource
+) {
+    init {
+        require(tokenizer.length > 0L)
+        require(chatProtocol.length > 0L)
+        require(logicalGraph.length > 0L)
+        require(tensorIndex.length > 0L)
+        require(foundationWeights.length > 0L)
+    }
+
+    internal fun all(): List<Ami2PayloadSource> =
+        listOf(tokenizer, chatProtocol, logicalGraph, tensorIndex, foundationWeights)
+}
+
+/**
+ * Materializes the canonical AMI2 foundation container fixed by [Ami2CompilationPlan].
+ *
+ * Byte-array payloads remain supported for small/test artifacts. Real migration paths use
+ * [Ami2FileRangePayloadSource], so multi-gigabyte tokenizer/index/weight sections can be copied
+ * with a bounded buffer and without materializing them in the Java heap.
+ */
 class Ami2CanonicalBinaryWriter {
     fun write(
         plan: Ami2CompilationPlan,
         payloads: Ami2CanonicalPayloads,
+        destination: File
+    ): Result<Ami2WrittenBinaryArtifact> =
+        writeFromSources(
+            plan = plan,
+            payloads = Ami2CanonicalPayloadSources(
+                tokenizer = Ami2ByteArrayPayloadSource(payloads.tokenizer),
+                chatProtocol = Ami2ByteArrayPayloadSource(payloads.chatProtocol),
+                logicalGraph = Ami2ByteArrayPayloadSource(payloads.logicalGraph),
+                tensorIndex = Ami2ByteArrayPayloadSource(payloads.tensorIndex),
+                foundationWeights = Ami2ByteArrayPayloadSource(payloads.foundationWeights)
+            ),
+            destination = destination
+        )
+
+    fun writeFromSources(
+        plan: Ami2CompilationPlan,
+        payloads: Ami2CanonicalPayloadSources,
         destination: File
     ): Result<Ami2WrittenBinaryArtifact> = runCatching {
         require(destination.extension.equals("ami", ignoreCase = true)) {
@@ -106,20 +232,34 @@ class Ami2CanonicalBinaryWriter {
             "AMI2 binary writer only accepts the canonical foundation plan"
         }
 
-        validateSemanticPayloads(plan.foundation, payloads)
+        payloads.all()
+            .filterIsInstance<Ami2FileRangePayloadSource>()
+            .forEach { source ->
+                require(source.file.canonicalFile != destination.canonicalFile) {
+                    "AMI2 destination cannot overwrite an active streaming source"
+                }
+            }
 
-        val payloadByRole = linkedMapOf<Ami2ArtifactRole, ByteArray>()
-        payloadByRole[Ami2ArtifactRole.MANIFEST] = encodeManifest(plan)
-        payloadByRole[Ami2ArtifactRole.SOURCE_LINEAGE] = encodeSourceLineage(plan.foundation.lineage)
+        validateSemanticSources(plan.foundation, payloads)
+
+        val payloadByRole = linkedMapOf<Ami2ArtifactRole, Ami2PayloadSource>()
+        payloadByRole[Ami2ArtifactRole.MANIFEST] =
+            Ami2ByteArrayPayloadSource(encodeManifest(plan))
+        payloadByRole[Ami2ArtifactRole.SOURCE_LINEAGE] =
+            Ami2ByteArrayPayloadSource(encodeSourceLineage(plan.foundation.lineage))
         payloadByRole[Ami2ArtifactRole.TOKENIZER] = payloads.tokenizer
         payloadByRole[Ami2ArtifactRole.CHAT_PROTOCOL] = payloads.chatProtocol
         payloadByRole[Ami2ArtifactRole.LOGICAL_GRAPH] = payloads.logicalGraph
         payloadByRole[Ami2ArtifactRole.TENSOR_INDEX] = payloads.tensorIndex
         payloadByRole[Ami2ArtifactRole.FOUNDATION_WEIGHTS] = payloads.foundationWeights
 
-        val nonIntegrityDigests = payloadByRole.mapValues { (_, bytes) -> sha256(bytes) }
+        val nonIntegrityDigests = payloadByRole.mapValues { (_, source) ->
+            source.expectedSha256
+        }
         payloadByRole[Ami2ArtifactRole.INTEGRITY] =
-            encodeIntegrity(plan.foundation.semanticSha256, nonIntegrityDigests)
+            Ami2ByteArrayPayloadSource(
+                encodeIntegrity(plan.foundation.semanticSha256, nonIntegrityDigests)
+            )
 
         require(payloadByRole.keys.toSet() == Ami2FoundationContract.mandatoryArtifacts) {
             "AMI2 writer payload set does not match canonical mandatory artifacts"
@@ -132,46 +272,52 @@ class Ami2CanonicalBinaryWriter {
             require(temporary.delete()) { "unable to clear previous AMI2 staging file" }
         }
 
-        writePayloads(temporary, planned, payloadByRole)
-        val descriptors = planned.map { plannedSection ->
-            val bytes = requireNotNull(payloadByRole[plannedSection.role])
-            Ami2BinarySectionDescriptor(
-                role = plannedSection.role,
-                offset = plannedSection.offset,
-                length = bytes.size.toLong(),
-                alignmentBytes = plannedSection.alignmentBytes,
-                sha256 = sha256(bytes)
+        try {
+            writePayloadSources(temporary, planned, payloadByRole)
+            val descriptors = planned.map { plannedSection ->
+                val source = requireNotNull(payloadByRole[plannedSection.role])
+                Ami2BinarySectionDescriptor(
+                    role = plannedSection.role,
+                    offset = plannedSection.offset,
+                    length = source.length,
+                    alignmentBytes = plannedSection.alignmentBytes,
+                    sha256 = source.expectedSha256
+                )
+            }
+            writeHeader(
+                output = temporary,
+                semanticSha256 = plan.foundation.semanticSha256,
+                descriptors = descriptors
             )
-        }
-        writeHeader(
-            output = temporary,
-            semanticSha256 = plan.foundation.semanticSha256,
-            descriptors = descriptors
-        )
 
-        val verified = Ami2CanonicalBinaryReader()
-            .read(temporary, verifySectionDigests = true)
-            .getOrThrow()
-        require(verified.bundle.foundation == plan.foundation) {
-            "AMI2 round-trip foundation identity changed before publish"
-        }
-        require(verified.migrationEvidence == plan.migrationEvidence) {
-            "AMI2 round-trip migration evidence changed before publish"
-        }
+            val verified = Ami2CanonicalBinaryReader()
+                .read(temporary, verifySectionDigests = true)
+                .getOrThrow()
+            require(verified.bundle.foundation == plan.foundation) {
+                "AMI2 round-trip foundation identity changed before publish"
+            }
+            require(verified.migrationEvidence == plan.migrationEvidence) {
+                "AMI2 round-trip migration evidence changed before publish"
+            }
 
-        if (destination.exists()) {
-            require(destination.delete()) { "unable to replace existing AMI2 destination" }
-        }
-        require(temporary.renameTo(destination)) {
-            "unable to atomically publish AMI2 container"
-        }
+            if (destination.exists()) {
+                require(destination.delete()) { "unable to replace existing AMI2 destination" }
+            }
+            require(temporary.renameTo(destination)) {
+                "unable to atomically publish AMI2 container"
+            }
 
-        Ami2WrittenBinaryArtifact(
-            file = destination,
-            foundation = plan.foundation,
-            sections = descriptors,
-            fileSha256 = sha256File(destination)
-        )
+            Ami2WrittenBinaryArtifact(
+                file = destination,
+                foundation = plan.foundation,
+                sections = descriptors,
+                fileSha256 = sha256File(destination)
+            )
+        } finally {
+            if (temporary.exists()) {
+                temporary.delete()
+            }
+        }
     }
 
     private data class PlannedSection(
@@ -180,24 +326,24 @@ class Ami2CanonicalBinaryWriter {
         val alignmentBytes: Int
     )
 
-    private fun validateSemanticPayloads(
+    private fun validateSemanticSources(
         foundation: Ami2FoundationIdentity,
-        payloads: Ami2CanonicalPayloads
+        payloads: Ami2CanonicalPayloadSources
     ) {
-        require(sha256(payloads.tokenizer) == foundation.tokenizerSha256) {
-            "AMI2 tokenizer payload does not match foundation identity"
+        require(payloads.tokenizer.expectedSha256 == foundation.tokenizerSha256) {
+            "AMI2 tokenizer source does not match foundation identity"
         }
-        require(sha256(payloads.chatProtocol) == foundation.chatProtocolSha256) {
-            "AMI2 chat-protocol payload does not match foundation identity"
+        require(payloads.chatProtocol.expectedSha256 == foundation.chatProtocolSha256) {
+            "AMI2 chat-protocol source does not match foundation identity"
         }
-        require(sha256(payloads.logicalGraph) == foundation.logicalGraphSha256) {
-            "AMI2 logical-graph payload does not match foundation identity"
+        require(payloads.logicalGraph.expectedSha256 == foundation.logicalGraphSha256) {
+            "AMI2 logical-graph source does not match foundation identity"
         }
-        require(sha256(payloads.tensorIndex) == foundation.tensorIndexSha256) {
-            "AMI2 tensor-index payload does not match foundation identity"
+        require(payloads.tensorIndex.expectedSha256 == foundation.tensorIndexSha256) {
+            "AMI2 tensor-index source does not match foundation identity"
         }
-        require(sha256(payloads.foundationWeights) == foundation.canonicalWeightsSha256) {
-            "AMI2 foundation-weight payload does not match foundation identity"
+        require(payloads.foundationWeights.expectedSha256 == foundation.canonicalWeightsSha256) {
+            "AMI2 foundation-weight source does not match foundation identity"
         }
 
         val recomputed = Ami2CompilationPlanner.computeSemanticSha256(
@@ -223,7 +369,7 @@ class Ami2CanonicalBinaryWriter {
     }
 
     private fun planSections(
-        payloadByRole: Map<Ami2ArtifactRole, ByteArray>
+        payloadByRole: Map<Ami2ArtifactRole, Ami2PayloadSource>
     ): List<PlannedSection> {
         var cursor = Ami2BinaryLayout.HEADER_REGION_BYTES.toLong()
         return Ami2BinaryLayout.canonicalRoleOrder.map { role ->
@@ -234,27 +380,36 @@ class Ami2CanonicalBinaryWriter {
             }
             cursor = alignUp(cursor, alignment.toLong())
             val planned = PlannedSection(role, cursor, alignment)
-            cursor = Math.addExact(cursor, requireNotNull(payloadByRole[role]).size.toLong())
+            cursor = Math.addExact(cursor, requireNotNull(payloadByRole[role]).length)
             planned
         }
     }
 
-    private fun writePayloads(
+    private fun writePayloadSources(
         output: File,
         planned: List<PlannedSection>,
-        payloadByRole: Map<Ami2ArtifactRole, ByteArray>
+        payloadByRole: Map<Ami2ArtifactRole, Ami2PayloadSource>
     ) {
         RandomAccessFile(output, "rw").use { raf ->
             val finalLength = planned.maxOf { section ->
                 Math.addExact(
                     section.offset,
-                    requireNotNull(payloadByRole[section.role]).size.toLong()
+                    requireNotNull(payloadByRole[section.role]).length
                 )
             }
             raf.setLength(finalLength)
+            val buffer = ByteArray(Ami2BinaryLayout.STREAM_COPY_BUFFER_BYTES)
+
             planned.forEach { section ->
-                raf.seek(section.offset)
-                raf.write(requireNotNull(payloadByRole[section.role]))
+                val source = requireNotNull(payloadByRole[section.role])
+                val observedSha256 = source.copyTo(
+                    output = raf,
+                    destinationOffset = section.offset,
+                    buffer = buffer
+                )
+                require(observedSha256 == source.expectedSha256) {
+                    "AMI2 payload source changed during copy: ${section.role}"
+                }
             }
         }
     }
