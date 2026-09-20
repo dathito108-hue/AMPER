@@ -23,6 +23,7 @@ data class InferenceRequest(
      * and does not bypass context, memory, health, feedback or execution admission.
      */
     val sessionRoutingPreference: TitanSessionRoutingPreference = TitanSessionRoutingPreference.STANDARD,
+    val attachments: List<InferenceAttachment> = emptyList(),
     /**
      * Optional opaque lifecycle key for reuse inside the single AMPER Core.
      *
@@ -30,8 +31,7 @@ data class InferenceRequest(
      * to reuse state already bound to the same verified foundation/artifact when prompt-token
      * continuity is proven. Auxiliary reflection/synthesis passes should leave it null.
      */
-    val conversationSessionId: String? = null,
-    val attachments: List<InferenceAttachment> = emptyList()
+    val conversationSessionId: String? = null
 ) {
     init {
         require(prompt.isNotBlank())
