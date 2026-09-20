@@ -1,32 +1,19 @@
 package io.amper.neuroos.core
 
-import io.amper.neuroos.BuildConfig
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GgufTensorLayoutProfileTest {
     @Test
-    fun packagedLlamaAndroidVersionHasExactRegisteredAbiProfile() {
-        val profile = GgufTensorLayoutProfiles.requireLlamaAndroidVersion(
-            BuildConfig.LLAMA_ANDROID_VERSION
-        )
+    fun amperAmiProfileHasExactSupportedSourceGeometry() {
+        val profile = GgufTensorLayoutProfiles.AMPER_AMI_V1
 
-        assertEquals("llama-android:${BuildConfig.LLAMA_ANDROID_VERSION}", profile.id)
+        assertEquals("amper-ami-v1", profile.id)
         assertEquals(32UL, profile.layoutFor(2L)?.blockSize) // Q4_0
         assertEquals(18L, profile.layoutFor(2L)?.typeSizeBytes)
         assertEquals(256UL, profile.layoutFor(12L)?.blockSize) // Q4_K
         assertEquals(144L, profile.layoutFor(12L)?.typeSizeBytes)
-    }
-
-    @Test
-    fun unregisteredLlamaAndroidVersionFailsClosed() {
-        val failure = runCatching {
-            GgufTensorLayoutProfiles.requireLlamaAndroidVersion("9.9.9")
-        }.exceptionOrNull()
-
-        assertTrue(failure is IllegalArgumentException)
-        assertTrue(failure?.message?.contains("no GGUF tensor-layout ABI profile") == true)
     }
 
     @Test
