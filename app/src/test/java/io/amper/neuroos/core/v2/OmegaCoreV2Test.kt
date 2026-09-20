@@ -52,6 +52,10 @@ class OmegaCoreV2Test {
             "agent-core-never-owns-tool-authority" in
                 OmegaArchitectureLock.invariants
         )
+        assertTrue(
+            "passive-agent-tasks-reuse-persistent-sovereign-plans" in
+                OmegaArchitectureLock.invariants
+        )
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
@@ -206,6 +210,14 @@ class OmegaCoreV2Test {
                 .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
                 .exitCriteria
                 .contains("canonical user-request and proactive-trigger task contract")
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "passive user-request tasks reuse persistent sovereign plans and governed approvals"
+                )
         )
     }
 
