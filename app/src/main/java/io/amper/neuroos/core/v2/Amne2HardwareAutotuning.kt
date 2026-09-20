@@ -165,14 +165,10 @@ class Amne2HardwareAutotuner internal constructor(
                 cpuFeatures = cpuFeatures
             )
         } else {
-            val report = nativeProbe
-                .benchmarkAndAdmit(minimumSpeedup)
-                .getOrElse {
-                    resetToReference()
-                    return@getOrElse null
-                }
-
+            val reportResult = nativeProbe.benchmarkAndAdmit(minimumSpeedup)
+            val report = reportResult.getOrNull()
             if (report == null) {
+                resetToReference()
                 referenceDecision(
                     fingerprint = fingerprint,
                     packaged = true,
