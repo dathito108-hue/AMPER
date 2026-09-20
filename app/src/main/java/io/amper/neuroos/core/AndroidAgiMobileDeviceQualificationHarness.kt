@@ -223,6 +223,25 @@ class AndroidAgiMobileDeviceQualificationHarness(
         return sample
     }
 
+    fun recordResourceBatch(sampleCount: Int = 4): List<AgiMobileDeviceQualificationSample> {
+        require(sampleCount in 1..8)
+        return List(sampleCount) { recordNextResourceStressSample() }
+    }
+
+    fun statusSummaryOrIdle(): String =
+        if (prefs.getBoolean(KEY_ACTIVE, false)) {
+            runCatching { statusSummary() }
+                .getOrElse { "qualification status unavailable: " + (it.message ?: "unknown") }
+        } else {
+            "Qualification idle · start a new APK-bound session"
+        }
+
+    fun prepareAndTerminateForProcessRestart(): Nothing {
+        prepareRestartCheckpoint()
+        Process.killProcess(Process.myPid())
+        kotlin.system.exitProcess(0)
+    }
+
     fun prepareRestartCheckpoint(): String {
         requireActiveSession()
         require(
@@ -232,7 +251,7 @@ class AndroidAgiMobileDeviceQualificationHarness(
             subject = subject,
             probes = emptyList()
         )
-        prefs.edit()
+        val persisted = prefs.edit()
             .putString(KEY_PENDING_EXPECTED_DIGEST, checkpoint.canonicalDigest)
             .putString(KEY_PENDING_SUBJECT_DIGEST, subject.canonicalDigest)
             .putString(KEY_PENDING_DEVICE_DIGEST, deviceDigest)
@@ -243,7 +262,8 @@ class AndroidAgiMobileDeviceQualificationHarness(
             .putInt(KEY_PENDING_PID, Process.myPid())
             .putInt(KEY_PENDING_BOOT_COUNT, bootCount())
             .putLong(KEY_PENDING_ELAPSED_MS, SystemClock.elapsedRealtime())
-            .apply()
+            .commit()
+        require(persisted) { "failed to persist restart qualification checkpoint" }
         return checkpoint.canonicalDigest
     }
 
