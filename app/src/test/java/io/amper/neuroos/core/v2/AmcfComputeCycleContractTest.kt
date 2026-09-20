@@ -60,8 +60,8 @@ class AmcfComputeCycleContractTest {
             plan.cycles.map { it.kind }
         )
         assertFalse(plan.cycles[0].earlyExitEligibleAfter)
-        assertFalse(plan.cycles[1].earlyExitEligibleAfter)
-        assertTrue(plan.cycles[2].earlyExitEligibleAfter)
+        assertTrue(plan.cycles[1].earlyExitEligibleAfter)
+        assertFalse(plan.cycles[2].earlyExitEligibleAfter)
         assertTrue(plan.cycles.drop(3).all { it.mandatory })
         assertTrue(plan.cycles.all { it.foundation.semanticSha256 == foundation.semanticSha256 })
     }
