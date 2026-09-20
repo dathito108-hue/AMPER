@@ -158,6 +158,27 @@ object AmneDeviceMicrobenchmark {
         )
         fillQ8Blocks(q8Blocks)
 
+        val q4kBlocks = ByteArray(
+            rows *
+                (columns / AmneTensorEncoding.Q4_K.blockSize) *
+                AmneTensorEncoding.Q4_K.blockBytes
+        )
+        fillKQuantBlocks(q4kBlocks, AmneTensorEncoding.Q4_K)
+
+        val q5kBlocks = ByteArray(
+            rows *
+                (columns / AmneTensorEncoding.Q5_K.blockSize) *
+                AmneTensorEncoding.Q5_K.blockBytes
+        )
+        fillKQuantBlocks(q5kBlocks, AmneTensorEncoding.Q5_K)
+
+        val q6kBlocks = ByteArray(
+            rows *
+                (columns / AmneTensorEncoding.Q6_K.blockSize) *
+                AmneTensorEncoding.Q6_K.blockBytes
+        )
+        fillKQuantBlocks(q6kBlocks, AmneTensorEncoding.Q6_K)
+
         val hidden = FloatArray(4096) { index ->
             ((index % 41) - 20).toFloat() * 0.05f
         }
@@ -191,6 +212,15 @@ object AmneDeviceMicrobenchmark {
             },
             AmneKernelPrimitive.MATVEC_Q8_0 to Workload(2) { backend ->
                 consume(backend.matVecQ8_0(q8Blocks, rows, columns, vector))
+            },
+            AmneKernelPrimitive.MATVEC_Q4_K to Workload(1) { backend ->
+                consume(backend.matVecQ4K(q4kBlocks, rows, columns, vector))
+            },
+            AmneKernelPrimitive.MATVEC_Q5_K to Workload(1) { backend ->
+                consume(backend.matVecQ5K(q5kBlocks, rows, columns, vector))
+            },
+            AmneKernelPrimitive.MATVEC_Q6_K to Workload(1) { backend ->
+                consume(backend.matVecQ6K(q6kBlocks, rows, columns, vector))
             },
             AmneKernelPrimitive.RMS_NORM_F32 to Workload(8) { backend ->
                 consume(backend.rmsNormF32(hidden, normWeight, 1e-5f))
@@ -286,6 +316,76 @@ object AmneDeviceMicrobenchmark {
                 bytes[offset + 2 + index] = ((high shl 4) or low).toByte()
             }
             offset += AmneTensorEncoding.Q4_0.blockBytes
+            block += 1
+        }
+    }
+
+    private fun fillKQuantBlocks(
+        bytes: ByteArray,
+        encoding: AmneTensorEncoding
+    ) {
+        require(
+            encoding == AmneTensorEncoding.Q4_K ||
+                encoding == AmneTensorEncoding.Q5_K ||
+                encoding == AmneTensorEncoding.Q6_K
+        )
+        require(bytes.size % encoding.blockBytes == 0)
+
+        var offset = 0
+        var block = 0
+        while (offset < bytes.size) {
+            when (encoding) {
+                AmneTensorEncoding.Q4_K -> {
+                    bytes[offset] = 0x00
+                    bytes[offset + 1] = 0x2c
+                    bytes[offset + 2] = 0x00
+                    bytes[offset + 3] = 0x28
+                    for (i in 0 until 12) {
+                        bytes[offset + 4 + i] =
+                            ((block * 3 + i * 7 + 11) and 0xff).toByte()
+                    }
+                    for (i in 0 until 128) {
+                        bytes[offset + 16 + i] =
+                            ((block * 5 + i * 13 + 5) and 0xff).toByte()
+                    }
+                }
+                AmneTensorEncoding.Q5_K -> {
+                    bytes[offset] = 0x00
+                    bytes[offset + 1] = 0x2c
+                    bytes[offset + 2] = 0x00
+                    bytes[offset + 3] = 0x28
+                    for (i in 0 until 12) {
+                        bytes[offset + 4 + i] =
+                            ((block * 7 + i * 5 + 9) and 0xff).toByte()
+                    }
+                    for (i in 0 until 32) {
+                        bytes[offset + 16 + i] =
+                            ((block * 11 + i * 3 + 1) and 0xff).toByte()
+                    }
+                    for (i in 0 until 128) {
+                        bytes[offset + 48 + i] =
+                            ((block * 13 + i * 11 + 7) and 0xff).toByte()
+                    }
+                }
+                AmneTensorEncoding.Q6_K -> {
+                    for (i in 0 until 128) {
+                        bytes[offset + i] =
+                            ((block * 3 + i * 9 + 3) and 0xff).toByte()
+                    }
+                    for (i in 0 until 64) {
+                        bytes[offset + 128 + i] =
+                            ((block * 5 + i * 5 + 1) and 0xff).toByte()
+                    }
+                    for (i in 0 until 16) {
+                        bytes[offset + 192 + i] =
+                            (((block + i) % 15) - 7).toByte()
+                    }
+                    bytes[offset + 208] = 0x00
+                    bytes[offset + 209] = 0x2c
+                }
+                else -> error("not K-quant")
+            }
+            offset += encoding.blockBytes
             block += 1
         }
     }
