@@ -87,7 +87,7 @@ object AmiRequestMemoryEstimator {
             Math.addExact(total, layerBytes)
         }
 
-        val maxKvWidth = layerKvWidths.max()
+        val maxKvWidth = layerKvWidths.maxOrNull()!!
 
         // Bounded live FloatArray scratch used by attention/FFN plus a conservative multiplier for
         // JNI/output overlap. This is transient working memory, not foundation weight residency.
@@ -97,7 +97,7 @@ object AmiRequestMemoryEstimator {
             Math.multiplyExact(maxKvWidth.toLong(), 4L),
             Math.multiplyExact(maxFfnWidth.toLong(), 4L),
             Math.multiplyExact(activeContextTokens.toLong(), 2L)
-        ).fold(0L, Math::addExact)
+        ).fold(0L) { total, value -> Math.addExact(total, value) }
 
         val scratchBytes = Math.multiplyExact(
             scratchFloats,
