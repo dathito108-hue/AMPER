@@ -304,6 +304,7 @@ class AmiAutoregressiveGenerator(
         stackPlan: AmiDecoderStackPlan,
         state: AmiDecoderStackState,
         promptTokenIds: IntArray,
+        samplingHistoryPrefixTokenIds: IntArray = intArrayOf(),
         config: AmiGenerationConfig,
         hardware: AmiHardwareSnapshot?,
         cancellation: InferenceCancellationSignal? = null,
@@ -314,6 +315,9 @@ class AmiAutoregressiveGenerator(
         }
         require(promptTokenIds.all { it in 0 until stackPlan.vocabularySize }) {
             "AMI prompt token id is outside vocabulary"
+        }
+        require(samplingHistoryPrefixTokenIds.all { it in 0 until stackPlan.vocabularySize }) {
+            "AMI sampling-history prefix token id is outside vocabulary"
         }
         require(config.stopTokenIds.all { it in 0 until stackPlan.vocabularySize }) {
             "AMI stop token id is outside vocabulary"
@@ -348,8 +352,11 @@ class AmiAutoregressiveGenerator(
             val generated = ArrayList<Int>(config.maxNewTokens)
             val traces = ArrayList<AmiGeneratedToken>(config.maxNewTokens)
             val history = ArrayList<Int>(
-                promptTokenIds.size + config.maxNewTokens
+                samplingHistoryPrefixTokenIds.size +
+                    promptTokenIds.size +
+                    config.maxNewTokens
             )
+            samplingHistoryPrefixTokenIds.forEach(history::add)
             promptTokenIds.forEach(history::add)
 
             var stopped = false
