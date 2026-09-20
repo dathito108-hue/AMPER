@@ -42,9 +42,10 @@ class AssistantNativeSystem2AdmissionPolicyTest {
 
     @Test
     fun multimodalTurnRetainsNativeSystem2() {
-        val attachment = InferenceAttachment(
+        val attachment = InferenceAttachment.fromBytes(
             kind = InferenceAttachmentKind.IMAGE,
-            mimeType = "image/jpeg",
+            mediaType = "image/jpeg",
+            displayName = "test.jpg",
             bytes = byteArrayOf(1, 2, 3)
         )
         assertTrue(
