@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.amper.neuroos.core.AmperExecutionLanes
 import io.amper.neuroos.core.AmperRuntime
+import io.amper.neuroos.core.AmperSingleCoreFoundationController
 import io.amper.neuroos.core.AmneNativeRuntimeProbe
 import io.amper.neuroos.core.AssistantStreamEvent
 import io.amper.neuroos.core.AssistantTurnStage
@@ -158,7 +159,35 @@ class MainActivity : ComponentActivity() {
             }
             val modelRegistry = remember { InMemoryModelRegistry() }
             val catalog = remember { FileInstalledModelCatalog(File(sovereignDir, "models.catalog")) }
-            remember { InstalledModelRegistryBootstrap(catalog, modelRegistry).restore() }
+            val coreFoundationPreferences = remember {
+                getSharedPreferences("amper-core-foundation", Context.MODE_PRIVATE)
+            }
+            val legacyRoutingPreferences = remember {
+                getSharedPreferences("amper-model-routing", Context.MODE_PRIVATE)
+            }
+            val coreFoundationController = remember {
+                AmperSingleCoreFoundationController(catalog, modelRegistry)
+            }
+            val initialCoreFoundationState = remember {
+                val persisted = coreFoundationPreferences
+                    .getString("active_source_model_id", null)
+                    ?.let(::ModelId)
+                    ?.takeIf { catalog.get(it) != null }
+                val migrated = persisted ?: legacyRoutingPreferences
+                    .getString("preferred_model_id", null)
+                    ?.let(::ModelId)
+                    ?.takeIf { catalog.get(it) != null }
+                coreFoundationController.restore(migrated).also { state ->
+                    state.activeModelId?.let { active ->
+                        coreFoundationPreferences.edit()
+                            .putString("active_source_model_id", active.value)
+                            .apply()
+                    }
+                    legacyRoutingPreferences.edit()
+                        .remove("preferred_model_id")
+                        .apply()
+                }
+            }
             val governor = remember { AndroidResourceGovernor(applicationContext) }
             val deviceStatusSource = remember { AndroidDeviceStatusSource(applicationContext) }
             val runtime = remember {
@@ -252,30 +281,6 @@ class MainActivity : ComponentActivity() {
             val importer = remember { AndroidModelImportService(this, catalog, modelRegistry) }
             val capabilityManager = remember { InstalledModelCapabilityService(catalog, modelRegistry) }
             val backends = remember { InferenceBackendRegistry() }
-            val packManager = remember { TitanBackendPackManager(backends) }
-            val backendStatus = remember {
-                OptionalBackendPackLoader.attach(
-                    "io.amper.neuroos.backend.LlamaAarBackendPack",
-                    packManager
-                )
-            }
-            val mtmdEngineStatus = remember { OptionalMtmdNativeEngineLoader.load() }
-            remember {
-                mtmdEngineStatus.engine?.let { engine ->
-                    (engine as? LlamaNativeTextEngine)?.let { textEngine ->
-                        backends.register(
-                            LlamaNativeTextInferenceBackend(textEngine)
-                        )
-                    }
-                    backends.register(
-                        MtmdNativeInferenceBackend(
-                            engine = engine,
-                            projectors = projectorCatalog,
-                            projectorArtifacts = projectorResolver
-                        )
-                    )
-                }
-            }
             val contentModelArtifacts = remember {
                 ContentUriArtifactResolver(
                     contentResolver,
@@ -337,19 +342,6 @@ class MainActivity : ComponentActivity() {
                     registry = modelRegistry,
                     projectors = projectorCatalog
                 )
-            }
-            val modelRoutingPreferences = remember {
-                getSharedPreferences("amper-model-routing", Context.MODE_PRIVATE)
-            }
-            val initialPreferredModelId = remember {
-                modelRoutingPreferences.getString("preferred_model_id", null)
-                    ?.let(::ModelId)
-                    ?.takeIf { catalog.get(it) != null }
-                    .also { valid ->
-                        if (valid == null) {
-                            modelRoutingPreferences.edit().remove("preferred_model_id").apply()
-                        }
-                    }
             }
             val assistantCapabilities = remember { SovereignAssistantToolExposure.capabilities }
             val androidActionLauncher = remember {
@@ -425,15 +417,7 @@ class MainActivity : ComponentActivity() {
             }
             val actionLoop = remember { runtime.actionLoop(toolRegistry, toolFabric) }
             val inferencePort = remember {
-                PreferredModelInferencePort(
-                    delegate = NativeModelPreferenceInferencePort(
-                        delegate = TitanInferencePort(titan),
-                        preferredNativeModel = {
-                            NativeInstalledModelSelector.preferredModelId(catalog)
-                        }
-                    ),
-                    initialPreferredModelId = initialPreferredModelId
-                )
+                TitanInferencePort(titan)
             }
             val assistant = remember {
                 SovereignAssistantTurnCoordinator(
