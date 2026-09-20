@@ -305,7 +305,9 @@ class AmiAutoregressiveGenerator(
         state: AmiDecoderStackState,
         promptTokenIds: IntArray,
         config: AmiGenerationConfig,
-        hardware: AmiHardwareSnapshot?
+        hardware: AmiHardwareSnapshot?,
+        cancellation: InferenceCancellationSignal? = null,
+        onToken: ((AmiGeneratedToken) -> Unit)? = null
     ): Result<AmiGenerationResult> {
         require(promptTokenIds.isNotEmpty()) {
             "AMI generation requires at least one prompt token"
@@ -321,6 +323,7 @@ class AmiAutoregressiveGenerator(
             .getOrElse { return Result.failure(it) }
 
         return runCatching {
+            cancellation?.throwIfCancelled()
             val startedNs = System.nanoTime()
             val outputPlan = AmiOutputHeadPlanner
                 .plan(graph, metadata, stackPlan)
@@ -330,6 +333,7 @@ class AmiAutoregressiveGenerator(
 
             var lastHidden: FloatArray? = null
             for (tokenId in promptTokenIds) {
+                cancellation?.throwIfCancelled()
                 val decoded = stackExecutor.executeToken(
                     loaded = loaded,
                     graph = graph,
@@ -353,6 +357,7 @@ class AmiAutoregressiveGenerator(
             val random = Random(config.sampling.seed)
 
             for (generationIndex in 0 until config.maxNewTokens) {
+                cancellation?.throwIfCancelled()
                 val outputHead = outputExecutor.execute(
                     loaded = loaded,
                     graph = graph,
@@ -373,13 +378,16 @@ class AmiAutoregressiveGenerator(
 
                 val tokenPosition = state.position
                 if (tokenId in config.stopTokenIds) {
-                    traces += AmiGeneratedToken(
+                    val trace = AmiGeneratedToken(
                         tokenId = tokenId,
                         probability = sample.probability,
                         position = tokenPosition,
                         decodeWallTimeMs = 0L,
                         outputHeadWallTimeMs = outputHead.wallTimeMs
                     )
+                    traces += trace
+                    cancellation?.throwIfCancelled()
+                    onToken?.invoke(trace)
                     stopped = true
                     break
                 }
@@ -393,13 +401,16 @@ class AmiAutoregressiveGenerator(
                     hardware = hardware
                 ).getOrThrow()
                 currentHidden = decoded.output
-                traces += AmiGeneratedToken(
+                val trace = AmiGeneratedToken(
                     tokenId = tokenId,
                     probability = sample.probability,
                     position = tokenPosition,
                     decodeWallTimeMs = decoded.wallTimeMs,
                     outputHeadWallTimeMs = outputHead.wallTimeMs
                 )
+                traces += trace
+                cancellation?.throwIfCancelled()
+                onToken?.invoke(trace)
             }
 
             AmiGenerationResult(

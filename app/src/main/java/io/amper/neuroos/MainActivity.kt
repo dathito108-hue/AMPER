@@ -59,6 +59,7 @@ import io.amper.neuroos.core.AndroidLiveAudioAttachmentCapture
 import io.amper.neuroos.core.AndroidModelImportService
 import io.amper.neuroos.core.AndroidAppPrivateModelArtifactResolver
 import io.amper.neuroos.core.AndroidAmiCompilationService
+import io.amper.neuroos.core.AmiDirectStreamingInferenceBackend
 import io.amper.neuroos.core.AndroidAmiHardwareProfiler
 import io.amper.neuroos.core.AmiDecoderFfnExecutor
 import io.amper.neuroos.core.AmiDecoderFfnPlanner
@@ -275,7 +276,6 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
-            val hasRuntimeBackend = backends.list().isNotEmpty()
             val contentModelArtifacts = remember {
                 ContentUriArtifactResolver(
                     contentResolver,
@@ -296,6 +296,18 @@ class MainActivity : ComponentActivity() {
                     modelArtifacts = modelArtifacts
                 )
             }
+            val amiHardwareProfiler = remember {
+                AndroidAmiHardwareProfiler(this)
+            }
+            remember {
+                backends.register(
+                    AmiDirectStreamingInferenceBackend(
+                        artifactLookup = amiCompilationService::existing,
+                        hardwareSnapshot = amiHardwareProfiler::snapshot
+                    )
+                )
+            }
+            val hasRuntimeBackend = backends.list().isNotEmpty()
             val titan = remember {
                 TitanCortexRuntime(
                     models = modelRegistry,
