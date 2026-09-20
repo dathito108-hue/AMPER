@@ -311,7 +311,8 @@ class TitanCortexRuntime(
     artifacts: ModelArtifactResolver,
     private val backends: InferenceBackendRegistry,
     private val governor: ResourceGovernor? = null,
-    routePlanner: TitanInferenceRoutePlanner? = null
+    routePlanner: TitanInferenceRoutePlanner? = null,
+    private val requestNormalizer: (InferenceRequest) -> InferenceRequest = { it }
 ) {
     constructor(
         models: ModelRegistry,
@@ -324,7 +325,8 @@ class TitanCortexRuntime(
         catalog = catalog,
         artifacts = artifacts,
         backends = core.titanRegistry(),
-        governor = governor
+        governor = governor,
+        requestNormalizer = core::normalizeRequest
     )
 
     private val routePlanner = routePlanner ?: TitanInferenceRoutePlanner(
@@ -333,6 +335,34 @@ class TitanCortexRuntime(
         artifacts = artifacts,
         backends = backends
     )
+    private fun normalizeProductionRequest(
+        request: InferenceRequest
+    ): InferenceRequest {
+        val normalized = requestNormalizer(request)
+        require(normalized.prompt == request.prompt) {
+            "request normalizer must not change prompt text"
+        }
+        require(normalized.requiredCapabilities == request.requiredCapabilities) {
+            "request normalizer must not change mandatory capabilities"
+        }
+        require(normalized.preferredCapabilityProfiles == request.preferredCapabilityProfiles) {
+            "request normalizer must not change capability profiles"
+        }
+        require(normalized.maxOutputTokens == request.maxOutputTokens) {
+            "request normalizer must not change output budget"
+        }
+        require(normalized.temperature == request.temperature) {
+            "request normalizer must not change temperature"
+        }
+        require(normalized.sessionRoutingPreference == request.sessionRoutingPreference) {
+            "request normalizer must not change session policy"
+        }
+        require(normalized.attachments == request.attachments) {
+            "request normalizer must not change attachments"
+        }
+        return normalized
+    }
+
     private val executionAdmission = TitanExecutionAdmissionGate()
     private val boundedAdmissionReplanner = TitanBoundedAdmissionReplanner(executionAdmission)
     private val preparedHandoffLock = Any()
@@ -346,6 +376,7 @@ class TitanCortexRuntime(
         cancellation: InferenceCancellationSignal
     ): Result<InferencePreparation> = runCatching {
         cancellation.throwIfCancelled()
+        val routedRequest = normalizeProductionRequest(request)
         clearPreparedHandoff()
         val baseBudget = governor?.currentBudget()
         baseBudget?.let(::reconcileResources)
@@ -353,14 +384,14 @@ class TitanCortexRuntime(
         val admitted = baseBudget?.let {
             planGovernedRoute(
                 baseBudget = it,
-                request = request,
+                request = routedRequest,
                 purpose = TitanRoutePurpose.PREPARATION,
                 cancellation = cancellation
             )
         }
         val route = admitted?.value ?: routePlanner
             .plan(
-                request = request,
+                request = routedRequest,
                 purpose = TitanRoutePurpose.PREPARATION,
                 cancellation = cancellation
             )
@@ -370,7 +401,7 @@ class TitanCortexRuntime(
             cancellation.throwIfCancelled()
             val backend = route.backend as? PreparableInferenceBackend
                 ?: error("selected preparation route is not preparable")
-            val executionRequest = route.executionRequest(request)
+            val executionRequest = route.executionRequest(routedRequest)
             val preparation = when (backend) {
                 is CancellablePreparableInferenceBackend -> backend
                     .prepare(
@@ -389,7 +420,7 @@ class TitanCortexRuntime(
                 }
             }
             cancellation.throwIfCancelled()
-            val hint = TitanPreparedRouteHint.from(route, request)
+            val hint = TitanPreparedRouteHint.from(route, routedRequest)
             synchronized(preparedHandoffLock) {
                 cancellation.throwIfCancelled()
                 preparedHandoff = hint
@@ -413,14 +444,15 @@ class TitanCortexRuntime(
         cancellation: InferenceCancellationSignal
     ): Result<InferenceResponse> = runCatching {
         cancellation.throwIfCancelled()
+        val routedRequest = normalizeProductionRequest(request)
         val baseBudget = governor?.currentBudget()
         baseBudget?.let(::reconcileResources)
         cancellation.throwIfCancelled()
-        val preparedHint = claimCompatiblePreparedHandoff(request)
+        val preparedHint = claimCompatiblePreparedHandoff(routedRequest)
         val admitted = baseBudget?.let {
             planGovernedRoute(
                 baseBudget = it,
-                request = request,
+                request = routedRequest,
                 purpose = TitanRoutePurpose.INFERENCE,
                 preparedHint = preparedHint,
                 cancellation = cancellation
@@ -428,7 +460,7 @@ class TitanCortexRuntime(
         }
         val route = admitted?.value ?: routePlanner
             .plan(
-                request = request,
+                request = routedRequest,
                 purpose = TitanRoutePurpose.INFERENCE,
                 preparedHint = preparedHint,
                 cancellation = cancellation
@@ -438,7 +470,7 @@ class TitanCortexRuntime(
         try {
             try {
                 cancellation.throwIfCancelled()
-                val executionRequest = route.executionRequest(request)
+                val executionRequest = route.executionRequest(routedRequest)
                 val response = route.backend
                     .infer(route.installed, route.source, executionRequest)
                     .getOrThrow()
@@ -487,13 +519,14 @@ class TitanCortexRuntime(
         onChunk: (InferenceChunk) -> Unit
     ): Result<InferenceResponse> = runCatching {
         cancellation.throwIfCancelled()
+        val routedRequest = normalizeProductionRequest(request)
         val baseBudget = governor?.currentBudget()
         baseBudget?.let(::reconcileResources)
-        val preparedHint = claimCompatiblePreparedHandoff(request)
+        val preparedHint = claimCompatiblePreparedHandoff(routedRequest)
         val admitted = baseBudget?.let {
             planGovernedRoute(
                 baseBudget = it,
-                request = request,
+                request = routedRequest,
                 purpose = TitanRoutePurpose.INFERENCE,
                 preparedHint = preparedHint,
                 cancellation = cancellation
@@ -501,7 +534,7 @@ class TitanCortexRuntime(
         }
         val route = admitted?.value ?: routePlanner
             .plan(
-                request = request,
+                request = routedRequest,
                 purpose = TitanRoutePurpose.INFERENCE,
                 preparedHint = preparedHint,
                 cancellation = cancellation
@@ -509,7 +542,7 @@ class TitanCortexRuntime(
             .getOrThrow()
         val executionRequest = TitanBlockingStreamFallbackPolicy.bound(
             backend = route.backend,
-            request = route.executionRequest(request)
+            request = route.executionRequest(routedRequest)
         )
         val streamedText = StringBuilder()
         var nextChunkIndex = 0
