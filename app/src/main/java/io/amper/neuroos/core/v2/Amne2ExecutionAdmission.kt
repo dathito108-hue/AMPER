@@ -2,7 +2,6 @@ package io.amper.neuroos.core.v2
 
 import io.amper.neuroos.core.AmiHardwareFeature
 import io.amper.neuroos.core.AmiHardwareSnapshot
-import io.amper.neuroos.core.AmneBackendAdmission
 import io.amper.neuroos.core.AmneKernelPrimitive
 import io.amper.neuroos.core.AmneKernelRegistry
 import io.amper.neuroos.core.AmneProcessKernelRuntime
@@ -71,9 +70,6 @@ class Amne2ExecutionAdmission(
     private val reader: Ami2CanonicalBinaryReader = Ami2CanonicalBinaryReader(),
     private val registryProvider: () -> AmneKernelRegistry = {
         AmneProcessKernelRuntime.registry()
-    },
-    private val optimizedAdmissionProvider: () -> AmneBackendAdmission? = {
-        AmneProcessKernelRuntime.admission()
     }
 ) {
     fun admit(
@@ -110,11 +106,11 @@ class Amne2ExecutionAdmission(
             "AMNE2 admission requires the deterministic AMNE reference backend"
         }
 
-        val optimized = optimizedAdmissionProvider()
-        val accelerated = optimized
-            ?.takeIf { it.numericalQualificationPassed }
-            ?.admittedPrimitives
-            .orEmpty()
+        val accelerated = descriptors.asSequence()
+            .mapNotNull { descriptor -> registry.admissionFor(descriptor.backendId) }
+            .filter { it.numericalQualificationPassed }
+            .flatMap { it.admittedPrimitives.asSequence() }
+            .toCollection(linkedSetOf())
 
         val tier = if (accelerated.isEmpty()) {
             Amne2ExecutionTier.REFERENCE_VALIDATION
