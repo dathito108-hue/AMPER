@@ -56,7 +56,6 @@ class TitanGovernedStreamingTest {
         assertEquals(listOf("hello", " ", "world"), chunks.filterNot { it.finished }.map { it.text })
         assertTrue(chunks.last().finished)
         assertEquals(1, backend.executions)
-        assertEquals(TitanBlockingStreamFallbackPolicy.MAX_OUTPUT_TOKENS, backend.lastMaxOutputTokens)
     }
 
     @Test
@@ -187,6 +186,10 @@ class TitanGovernedStreamingTest {
         assertEquals(listOf("completed-only"), chunks.filterNot { it.finished }.map { it.text })
         assertTrue(chunks.last().finished)
         assertEquals(1, backend.executions)
+        assertEquals(
+            TitanBlockingStreamFallbackPolicy.MAX_OUTPUT_TOKENS,
+            backend.lastMaxOutputTokens
+        )
     }
 
     private class StaticSource(override val locator: String) : ModelArtifactSource {
