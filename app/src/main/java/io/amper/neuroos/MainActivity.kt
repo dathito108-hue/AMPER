@@ -59,6 +59,11 @@ import io.amper.neuroos.core.AndroidLiveAudioAttachmentCapture
 import io.amper.neuroos.core.AndroidModelImportService
 import io.amper.neuroos.core.AndroidAppPrivateModelArtifactResolver
 import io.amper.neuroos.core.AndroidAmiCompilationService
+import io.amper.neuroos.core.AndroidAmiHardwareProfiler
+import io.amper.neuroos.core.AmiDecoderFfnExecutor
+import io.amper.neuroos.core.AmiDecoderFfnPlanner
+import io.amper.neuroos.core.AmiPreservedGgufMetadataReader
+import io.amper.neuroos.core.AmiTensorGraphReader
 import io.amper.neuroos.core.AndroidActivePerceptionPort
 import io.amper.neuroos.core.AndroidAppPrivateStorage
 import io.amper.neuroos.core.AndroidMultimodalProjectorImportService
@@ -1393,6 +1398,98 @@ class MainActivity : ComponentActivity() {
                                                 "Compiling GGUF → AMI..."
                                             } else {
                                                 "Compile selected GGUF → AMI"
+                                            }
+                                        )
+                                    }
+                                    Button(
+                                        enabled = !amiCompileBusy,
+                                        onClick = {
+                                            amiCompileBusy = true
+                                            amiStatus =
+                                                "AMI FFN · loading verified .ami · binding layer 0 · bounded mmap execution..."
+                                            executionLanes.executeMaintenance {
+                                                val result = runCatching {
+                                                    val stored = requireNotNull(
+                                                        amiCompilationService.existing(selected)
+                                                    ) {
+                                                        "no verified AMI exists for selected GGUF; compile it first"
+                                                    }
+                                                    val graph = AmiTensorGraphReader()
+                                                        .read(stored.loaded)
+                                                        .getOrThrow()
+                                                    val metadata =
+                                                        AmiPreservedGgufMetadataReader()
+                                                            .read(stored.loaded)
+                                                            .getOrThrow()
+                                                    val plan = AmiDecoderFfnPlanner.plan(
+                                                        graph = graph,
+                                                        metadata = metadata,
+                                                        layerIndex = 0
+                                                    ).getOrThrow()
+                                                    val input = FloatArray(plan.hiddenSize) { index ->
+                                                        ((index % 29) - 14).toFloat() * 0.01f
+                                                    }
+                                                    val hardware =
+                                                        AndroidAmiHardwareProfiler(
+                                                            this@MainActivity
+                                                        ).snapshot()
+                                                    AmiDecoderFfnExecutor().execute(
+                                                        loaded = stored.loaded,
+                                                        graph = graph,
+                                                        plan = plan,
+                                                        input = input,
+                                                        hardware = hardware
+                                                    ).getOrThrow()
+                                                }
+                                                runOnUiThread {
+                                                    amiCompileBusy = false
+                                                    result.fold(
+                                                        onSuccess = { execution ->
+                                                            val trace = execution.trace
+                                                            val mappedMiB =
+                                                                trace.mappedBytes.toDouble() /
+                                                                    (1024.0 * 1024.0)
+                                                            val backends = listOf(
+                                                                trace.normBackendId,
+                                                                trace.gateBackendId,
+                                                                trace.upBackendId,
+                                                                trace.activationBackendId,
+                                                                trace.downBackendId
+                                                            ).distinct().joinToString(",")
+                                                            val l1 = execution.output.fold(0.0) {
+                                                                    acc,
+                                                                    value ->
+                                                                acc + kotlin.math.abs(
+                                                                    value.toDouble()
+                                                                )
+                                                            }
+                                                            amiStatus =
+                                                                "AMI FFN PASS · layer=${trace.layerIndex} · " +
+                                                                    "hidden=${trace.hiddenSize} · " +
+                                                                    "ffn=${trace.feedForwardSize} · " +
+                                                                    "mapped=%.2f MiB".format(mappedMiB) +
+                                                                    " · windows=${trace.matrixWindows} · " +
+                                                                    "backend=$backends · " +
+                                                                    "L1=%.4f".format(l1) +
+                                                                    " · wall=${trace.wallTimeMs}ms"
+                                                        },
+                                                        onFailure = { error ->
+                                                            amiStatus =
+                                                                "AMI FFN rejected · " +
+                                                                    (error.message
+                                                                        ?: error::class.java.simpleName) +
+                                                                    " · no tensor was guessed or rewritten"
+                                                        }
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    ) {
+                                        Text(
+                                            if (amiCompileBusy) {
+                                                "AMI work in progress..."
+                                            } else {
+                                                "Run AMI layer-0 FFN probe"
                                             }
                                         )
                                     }
