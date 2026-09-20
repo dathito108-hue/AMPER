@@ -528,7 +528,7 @@ class MainActivity : ComponentActivity() {
             var amneQualificationStatus by remember {
                 mutableStateOf(
                     if (AmneNativeRuntimeProbe.isPackaged()) {
-                        "AMNE native packaged · qualification not run"
+                        "AMNE native packaged · direct AMI locked until qualification + benchmark admission"
                     } else {
                         "AMNE native not packaged in this APK"
                     }
@@ -1127,27 +1127,25 @@ class MainActivity : ComponentActivity() {
                             onClick = {
                                 amneQualificationBusy = true
                                 amneQualificationStatus =
-                                    "AMNE native · qualifying F32 + Q4_0 + Q8_0 primitives against reference..."
+                                    "AMNE · qualifying + benchmarking native primitives before direct AMI admission..."
                                 executionLanes.executeMaintenance {
                                     val startedNs = System.nanoTime()
-                                    val result = AmneNativeRuntimeProbe.qualify()
+                                    val result = AmneNativeRuntimeProbe.benchmarkAndAdmit()
                                     val wallMs =
                                         (System.nanoTime() - startedNs) / 1_000_000L
                                     runOnUiThread {
                                         amneQualificationBusy = false
                                         result.fold(
                                             onSuccess = { report ->
+                                                val admission = report.admission
+                                                val admitted = admission.admittedPrimitives.size
+                                                val total = admission.benchmarkResults.size
                                                 amneQualificationStatus =
-                                                    if (report.passed) {
-                                                        "AMNE PASS · ${report.backendId} · max error " +
-                                                            "%.7f".format(report.maxAbsoluteError) +
-                                                            " · ${report.primitiveErrors.size} primitives" +
-                                                            " · wall ${wallMs}ms"
-                                                    } else {
-                                                        "AMNE FAIL · ${report.backendId} · max error " +
-                                                            "%.7f".format(report.maxAbsoluteError) +
-                                                            " · native routing remains disabled"
-                                                    }
+                                                    "AMNE admission · numeric=" +
+                                                        if (report.qualification.passed) "PASS" else "FAIL" +
+                                                        " · native $admitted/$total primitives" +
+                                                        " · direct AMI uses only admitted matrix paths" +
+                                                        " · wall ${wallMs}ms"
                                             },
                                             onFailure = { error ->
                                                 amneQualificationStatus =
@@ -1160,7 +1158,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         ) {
-                            Text("Run AMNE native qualification")
+                            Text("Qualify + admit AMNE native")
                         }
                         Button(
                             enabled = AmneNativeRuntimeProbe.isPackaged() && !amneQualificationBusy,
