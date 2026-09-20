@@ -283,22 +283,6 @@ class AmiTensorWindowExecutor(
                     encoding.blockBytes
                 )
             }
-            AmneTensorEncoding.F16 -> {
-                val matrix = FloatArray(
-                    Math.multiplyExact(rows, shape.columns)
-                )
-                for (index in matrix.indices) {
-                    matrix[index] = AmneReferenceCpuKernels.halfToFloat(
-                        buffer.short.toInt() and 0xffff
-                    )
-                }
-                backend.matVecF32(
-                    matrixRowMajor = matrix,
-                    rows = rows,
-                    columns = shape.columns,
-                    vector = vector
-                )
-            }
         }
 
         val expectedBytes = Math.multiplyExact(
@@ -395,8 +379,22 @@ class AmiTensorWindowExecutor(
                         vector = vector
                     )
                 }
-                AmneTensorEncoding.F16 ->
-                    error("F16 matrix execution is not admitted in AMNE v2")
+                AmneTensorEncoding.F16 -> {
+                    val matrix = FloatArray(
+                        Math.multiplyExact(rows, shape.columns)
+                    )
+                    for (index in matrix.indices) {
+                        matrix[index] = AmneReferenceCpuKernels.halfToFloat(
+                            buffer.short.toInt() and 0xffff
+                        )
+                    }
+                    backend.matVecF32(
+                        matrixRowMajor = matrix,
+                        rows = rows,
+                        columns = shape.columns,
+                        vector = vector
+                    )
+                }
             }
 
             require(tileOutput.size == rows)
