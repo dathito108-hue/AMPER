@@ -1,0 +1,98 @@
+package io.amper.neuroos.core.v2
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class OmegaCoreV2Test {
+    @Test
+    fun architectureLockKeepsSingleCoreAndEightMilestones() {
+        assertEquals("AMPER-MOBILE-OMEGA", OmegaArchitectureLock.architectureId)
+        assertEquals(2, OmegaArchitectureLock.architectureVersion)
+        assertEquals(8, OmegaArchitectureLock.milestones.size)
+        assertTrue("one-amper-foundation-runtime" in OmegaArchitectureLock.invariants)
+        assertTrue("ami2-is-canonical-model-format" in OmegaArchitectureLock.invariants)
+        assertTrue("amne2-is-canonical-execution-engine" in OmegaArchitectureLock.invariants)
+        assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
+        assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
+    }
+
+    @Test
+    fun simpleRequestsChooseFastCompute() {
+        val budget = OmegaAdaptiveComputePolicy.plan(
+            OmegaReasoningRequest(
+                userComplexity = 10,
+                uncertainty = 0.1,
+                highConsequence = false,
+                toolUseful = false,
+                internetUseful = false
+            )
+        )
+
+        assertEquals(OmegaComputeMode.FAST, budget.mode)
+        assertEquals(0, budget.recurrentCycles)
+        assertEquals(0, budget.verifyPasses)
+        assertEquals(1_500L, budget.targetFirstTokenMs)
+        assertFalse(budget.allowInternetVerification)
+    }
+
+    @Test
+    fun highConsequenceRequestsChooseVerifiedDeepCompute() {
+        val budget = OmegaAdaptiveComputePolicy.plan(
+            OmegaReasoningRequest(
+                userComplexity = 75,
+                uncertainty = 0.8,
+                highConsequence = true,
+                toolUseful = true,
+                internetUseful = true
+            )
+        )
+
+        assertEquals(OmegaComputeMode.VERIFY, budget.mode)
+        assertTrue(budget.recurrentCycles >= 6)
+        assertTrue(budget.verifyPasses >= 2)
+        assertTrue(budget.allowInternetVerification)
+        assertTrue(budget.allowToolUse)
+    }
+
+    @Test
+    fun backgroundPolicySeparatesUiExitFromProcessDeath() {
+        assertEquals(
+            OmegaBackgroundMode.FOREGROUND_CONTINUATION,
+            OmegaBackgroundExecutionPolicy.choose(
+                OmegaBackgroundWork(
+                    expectedRuntimeMs = 60_000L,
+                    userInitiated = true,
+                    mustSurviveUiExit = true,
+                    canBeDeferred = false,
+                    hasFutureTrigger = false
+                )
+            )
+        )
+        assertEquals(
+            OmegaBackgroundMode.PERSISTED_JOB,
+            OmegaBackgroundExecutionPolicy.choose(
+                OmegaBackgroundWork(
+                    expectedRuntimeMs = 30_000L,
+                    userInitiated = false,
+                    mustSurviveUiExit = true,
+                    canBeDeferred = true,
+                    hasFutureTrigger = false
+                )
+            )
+        )
+        assertEquals(
+            OmegaBackgroundMode.EVENT_WAKE,
+            OmegaBackgroundExecutionPolicy.choose(
+                OmegaBackgroundWork(
+                    expectedRuntimeMs = 1_000L,
+                    userInitiated = false,
+                    mustSurviveUiExit = true,
+                    canBeDeferred = true,
+                    hasFutureTrigger = true
+                )
+            )
+        )
+    }
+}
