@@ -28,6 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import io.amper.neuroos.core.AmperCoreInferencePort
 import io.amper.neuroos.core.AmperExecutionLanes
 import io.amper.neuroos.core.AmperRuntime
 import io.amper.neuroos.core.AmperSingleCoreFoundationController
@@ -62,7 +63,6 @@ import io.amper.neuroos.core.AndroidLiveAudioAttachmentCapture
 import io.amper.neuroos.core.AndroidModelImportService
 import io.amper.neuroos.core.AndroidAppPrivateModelArtifactResolver
 import io.amper.neuroos.core.AndroidAmiCompilationService
-import io.amper.neuroos.core.AmiDirectStreamingInferenceBackend
 import io.amper.neuroos.core.AndroidAmiHardwareProfiler
 import io.amper.neuroos.core.AmiDecoderFfnExecutor
 import io.amper.neuroos.core.AmiDecoderFfnPlanner
@@ -94,7 +94,6 @@ import io.amper.neuroos.core.InMemoryToolAuditLog
 import io.amper.neuroos.core.InMemoryToolRegistry
 import io.amper.neuroos.core.InferenceAttachment
 import io.amper.neuroos.core.InferenceAttachmentKind
-import io.amper.neuroos.core.InferenceBackendRegistry
 import io.amper.neuroos.core.LiveContextFusion
 import io.amper.neuroos.core.LocatorArtifactResolver
 import io.amper.neuroos.core.LocatorMultimodalProjectorArtifactResolver
@@ -286,7 +285,6 @@ class MainActivity : ComponentActivity() {
             }
             val importer = remember { AndroidModelImportService(this, catalog, modelRegistry) }
             val capabilityManager = remember { InstalledModelCapabilityService(catalog, modelRegistry) }
-            val backends = remember { InferenceBackendRegistry() }
             val contentModelArtifacts = remember {
                 ContentUriArtifactResolver(
                     contentResolver,
@@ -310,21 +308,19 @@ class MainActivity : ComponentActivity() {
             val amiHardwareProfiler = remember {
                 AndroidAmiHardwareProfiler(this)
             }
-            remember {
-                backends.register(
-                    AmiDirectStreamingInferenceBackend(
-                        artifactLookup = amiCompilationService::existing,
-                        hardwareSnapshot = amiHardwareProfiler::snapshot
-                    )
+            val amperCore = remember {
+                AmperCoreInferencePort(
+                    artifactLookup = amiCompilationService::existing,
+                    hardwareSnapshot = amiHardwareProfiler::snapshot
                 )
             }
-            val hasRuntimeBackend = backends.list().isNotEmpty()
+            val hasRuntimeBackend = amperCore.inferenceEndpointCount == 1
             val titan = remember {
                 TitanCortexRuntime(
                     models = modelRegistry,
                     catalog = catalog,
                     artifacts = modelArtifacts,
-                    backends = backends,
+                    core = amperCore,
                     governor = governor
                 )
             }
