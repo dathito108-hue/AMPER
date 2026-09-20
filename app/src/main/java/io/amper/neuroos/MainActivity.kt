@@ -92,6 +92,8 @@ import io.amper.neuroos.core.FileReflexLinearArtifactStore
 import io.amper.neuroos.core.InMemoryModelRegistry
 import io.amper.neuroos.core.InMemoryToolAuditLog
 import io.amper.neuroos.core.InMemoryToolRegistry
+import io.amper.neuroos.core.OmegaInternetGateway
+import io.amper.neuroos.core.OmegaInternetReadToolProvider
 import io.amper.neuroos.core.InferenceAttachment
 import io.amper.neuroos.core.InferenceAttachmentKind
 import io.amper.neuroos.core.LiveContextFusion
@@ -385,6 +387,9 @@ class MainActivity : ComponentActivity() {
                     )
                     registry.register(
                         AndroidWebSearchToolProvider(androidActionLauncher)
+                    )
+                    registry.register(
+                        OmegaInternetReadToolProvider(OmegaInternetGateway())
                     )
                     registry.register(
                         AndroidClipboardWriteToolProvider(androidActionLauncher)

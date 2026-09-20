@@ -19,6 +19,7 @@ class SovereignAssistantToolExposureTest {
                 AndroidShareTextToolContract.capability,
                 AndroidAppLaunchToolContract.capability,
                 AndroidWebSearchToolContract.capability,
+                OmegaInternetReadToolContract.capability,
                 AndroidClipboardWriteToolContract.capability,
                 AndroidFilesBrowseToolContract.capability,
                 AndroidContactComposeToolContract.capability,
