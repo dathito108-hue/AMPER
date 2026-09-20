@@ -204,6 +204,7 @@ object OmegaArchitectureLock {
                 "bounded AMI2 mmap execution view",
                 "verified AMI2 decoder semantic binding reuses the qualified decoder stack",
                 "single AMNE2 execution session owns decoder plan KV state and cancellation",
+                "production AMPER Core inference consumes canonical AMI2 through AMNE2 sessions",
                 "ARM64 kernel dispatch",
                 "NEON DOTPROD I8MM FP16 qualification",
                 "mmap paging and KV management",

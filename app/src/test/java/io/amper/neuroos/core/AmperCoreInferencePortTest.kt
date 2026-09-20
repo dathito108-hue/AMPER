@@ -1,5 +1,7 @@
 package io.amper.neuroos.core
 
+import io.amper.neuroos.core.v2.StoredAmi2Artifact
+
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
@@ -72,6 +74,18 @@ class AmperCoreInferencePortTest {
         assertEquals(null, normalized.preferredModelId)
         assertEquals(null, normalized.userPreferredModelId)
         assertEquals(null, normalized.effectivePreferredModelId())
+    }
+
+    @Test
+    fun productionPortArtifactContractIsCanonicalAmi2() {
+        val lookup: (InstalledModel) -> StoredAmi2Artifact? = { null }
+        val port = AmperCoreInferencePort(
+            artifactLookup = lookup,
+            hardwareSnapshot = { null }
+        )
+
+        assertEquals(1, port.inferenceEndpointCount)
+        assertEquals(AmperCoreInferencePort.CORE_ID, port.id)
     }
 
     @Test
