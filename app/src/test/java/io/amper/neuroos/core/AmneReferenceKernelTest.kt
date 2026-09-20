@@ -55,7 +55,7 @@ class AmneReferenceKernelTest {
         block[0] = 0x00
         block[1] = 0x3c
         for (index in 0 until 32) {
-            block[2 + index] = if (index % 2 == 0) 2 else (-1).toByte()
+            block[2 + index] = if (index % 2 == 0) 2.toByte() else (-1).toByte()
         }
 
         val output = AmneReferenceCpuKernels.matVecQ8_0(
@@ -76,14 +76,14 @@ class AmneReferenceKernelTest {
             epsilon = 1e-5f
         )
         assertEquals(4, norm.size)
-        assertTrue(norm.all(Float::isFinite))
+        assertTrue(norm.all { it.isFinite() })
 
         val gated = AmneReferenceCpuKernels.swiGluF32(
             gate = floatArrayOf(-1f, 0f, 1f),
             up = floatArrayOf(2f, 3f, 4f)
         )
         assertEquals(3, gated.size)
-        assertTrue(gated.all(Float::isFinite))
+        assertTrue(gated.all { it.isFinite() })
         assertEquals(0f, gated[1], 1e-6f)
     }
 
@@ -93,7 +93,7 @@ class AmneReferenceKernelTest {
             floatArrayOf(10_000f, 10_001f, 9_999f)
         )
 
-        assertTrue(output.all(Float::isFinite))
+        assertTrue(output.all { it.isFinite() })
         assertEquals(1f, output.sum(), 1e-6f)
         assertTrue(output[1] > output[0])
         assertTrue(output[0] > output[2])
