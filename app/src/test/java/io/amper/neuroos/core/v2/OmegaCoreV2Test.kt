@@ -14,8 +14,15 @@ class OmegaCoreV2Test {
         assertTrue("one-amper-foundation-runtime" in OmegaArchitectureLock.invariants)
         assertTrue("ami2-is-canonical-model-format" in OmegaArchitectureLock.invariants)
         assertTrue("amne2-is-canonical-execution-engine" in OmegaArchitectureLock.invariants)
+        assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M1_ARCHITECTURE_CONSOLIDATION }
+                .exitCriteria
+                .contains("AMI/AMNE v1 migration path to AMI2/AMNE2 is explicit")
+        )
     }
 
     @Test
