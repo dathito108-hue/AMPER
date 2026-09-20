@@ -61,19 +61,19 @@ class AmiDirectStreamingInferenceBackend(
         model: InstalledModel,
         request: InferenceRequest
     ): String {
-        if (request.attachments.isNotEmpty()) return "ami-direct-text-only"
-        if (artifactLookup(model) == null) return "ami-artifact-not-compiled"
+        if (request.attachments.isNotEmpty()) return "amper-core-text-only"
+        if (artifactLookup(model) == null) return "amper-core-ami-not-compiled"
 
         val runtime = prepareModel(model).getOrNull()
-            ?: return "ami-direct-model-unsupported"
+            ?: return "amper-core-foundation-unsupported"
         val readiness = runCatching { directReadiness(runtime) }.getOrNull()
         if (readiness != null && !readiness.ready) {
-            return "ami-direct-native-matrix-not-admitted:" +
+            return "amper-core-native-matrix-not-admitted:" +
                 readiness.referenceOnlyMatrixPrimitives
                     .sortedBy { it.ordinal }
                     .joinToString(",") { it.name }
         }
-        return "ami-direct-request-unsupported"
+        return "amper-core-request-unsupported"
     }
 
     override fun health(): BackendHealth {
@@ -90,9 +90,9 @@ class AmiDirectStreamingInferenceBackend(
         return BackendHealth(
             state = if (acceleratedMatrices) BackendState.READY else BackendState.DEGRADED,
             detail = if (acceleratedMatrices) {
-                "direct AMI decoder · native matrix admission active"
+                "AMPER Core · native matrix admission active"
             } else {
-                "direct AMI locked · run AMNE device admission; llama fallback remains available"
+                "AMPER Core · native matrix admission pending; no foreign fallback runtime"
             },
             hardwareAcceleration = acceleratedMatrices
         )
