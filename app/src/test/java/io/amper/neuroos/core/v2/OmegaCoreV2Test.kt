@@ -16,6 +16,7 @@ class OmegaCoreV2Test {
         assertTrue("amne2-is-canonical-execution-engine" in OmegaArchitectureLock.invariants)
         assertTrue("conversation-hot-state-is-identity-bound" in OmegaArchitectureLock.invariants)
         assertTrue("hardware-autotuning-is-measured-and-fail-closed" in OmegaArchitectureLock.invariants)
+        assertTrue("memory-and-context-are-hardware-budgeted" in OmegaArchitectureLock.invariants)
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
@@ -83,6 +84,14 @@ class OmegaCoreV2Test {
                 .exitCriteria
                 .contains(
                     "hardware autotuning is process-local, measured and fail-closed to reference kernels"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M3_AMNE2_RUNTIME }
+                .exitCriteria
+                .contains(
+                    "mmap windows and session context are bounded by portable device memory budget"
                 )
         )
     }

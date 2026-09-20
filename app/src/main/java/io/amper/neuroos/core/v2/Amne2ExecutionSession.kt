@@ -36,6 +36,7 @@ class Amne2ExecutionSession internal constructor(
     val view: Amne2ExecutionView,
     val binding: Amne2DecoderSemanticBinding,
     val stackPlan: AmiDecoderStackPlan,
+    val memoryBudget: Amne2MemoryBudget,
     private val stackState: AmiDecoderStackState,
     private val hardware: AmiHardwareSnapshot,
     private val maxWindowBytes: Int
@@ -50,6 +51,9 @@ class Amne2ExecutionSession internal constructor(
         require(view.identity.artifactSha256 == binding.identity.artifactSha256)
         require(stackPlan.architecture == binding.tensorGraph.architecture)
         require(stackPlan.vocabularySize == view.loaded.bundle.foundation.vocabularySize)
+        require(memoryBudget.modelMaxContextTokens == stackPlan.maxContextTokens)
+        require(maxWindowBytes == memoryBudget.mmapWindowBytes)
+        require(stackState.maxContextTokens <= memoryBudget.safeContextTokens)
     }
 
     val identity: Amne2ExecutionSessionIdentity = Amne2ExecutionSessionIdentity(
@@ -200,27 +204,44 @@ class Amne2ExecutionSessionFactory(
         maxContextTokens: Int? = null
     ): Result<Amne2ExecutionSession> = runCatching {
         hardwareAutotuner.tune(hardware).getOrThrow()
-        val view = viewFactory.open(artifactFile, hardware).getOrThrow()
+
+        val hardwareWindowBytes = Amne2MemoryBudgetPolicy.maxWindowBytes(
+            hardware = hardware,
+            configuredMaxWindowBytes = maxWindowBytes
+        )
+        val view = viewFactory.open(
+            artifactFile = artifactFile,
+            hardware = hardware,
+            requestedMaxWindowBytes = hardwareWindowBytes
+        ).getOrThrow()
         val binding = bindingFactory.bind(view).getOrThrow()
         val plan = AmiDecoderStackPlanner
             .plan(binding.tensorGraph, binding.preservedMetadata)
             .getOrThrow()
+        val memoryBudget = Amne2MemoryBudgetPolicy
+            .derive(
+                plan = plan,
+                hardware = hardware,
+                configuredMaxWindowBytes = maxWindowBytes
+            )
+            .getOrThrow()
 
         val contextLimit = maxContextTokens
             ?.also { require(it > 0) }
-            ?.let { minOf(it, plan.maxContextTokens) }
-            ?: plan.maxContextTokens
+            ?.let { minOf(it, memoryBudget.safeContextTokens) }
+            ?: memoryBudget.safeContextTokens
 
         Amne2ExecutionSession(
             view = view,
             binding = binding,
             stackPlan = plan,
+            memoryBudget = memoryBudget,
             stackState = AmiDecoderStackState(
                 plan = plan,
                 maxContextTokens = contextLimit
             ),
             hardware = hardware,
-            maxWindowBytes = maxWindowBytes
+            maxWindowBytes = memoryBudget.mmapWindowBytes
         )
     }
 }
