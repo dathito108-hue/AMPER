@@ -237,7 +237,7 @@ object AmneNativeRuntimeProbe {
             AmneKernelPrimitive.ROPE_F32
         )
         require(declared.containsAll(expectedPrimitives)) {
-            "AMNE native backend does not declare all Phase604 primitives"
+            "AMNE native backend does not declare all Phase616 primitives"
         }
 
         val max = errors.values.maxOrNull() ?: Float.POSITIVE_INFINITY
@@ -250,6 +250,8 @@ object AmneNativeRuntimeProbe {
             maxAbsoluteError = max,
             primitiveErrors = errors
         )
+    }
+
     private fun deterministicKQuantBlock(
         encoding: AmneTensorEncoding
     ): ByteArray {
@@ -290,5 +292,4 @@ object AmneNativeRuntimeProbe {
         return bytes
     }
 
-    }
 }
