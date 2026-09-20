@@ -87,17 +87,18 @@ jobs:
             echo "llama_changed=true" >> "$GITHUB_OUTPUT"
           fi
 
-          if printf "%s\n" "$CHANGED" | grep -qx 'app/build.gradle.kts'; then
-            BUILD_DIFF="$(git diff "$BASE_SHA" "$GITHUB_SHA" -- app/build.gradle.kts)"
-            if printf "%s\n" "$BUILD_DIFF" | grep -Eqi 'mtmd|spirv|vulkan'; then
+          if printf "%s\n" "$CHANGED" | grep -qx 'app/build.gradle.kts' &&
+             ! printf "%s\n" "$CHANGED" | grep -Eq '^app/src/(mtmdNative|amneNative|llamaAar)/'; then
+            BUILD_PATCH="$(git diff --unified=0 "$BASE_SHA" "$GITHUB_SHA" -- app/build.gradle.kts | grep -E '^[+-][^+-]' || true)"
+            if printf "%s\n" "$BUILD_PATCH" | grep -Eqi 'mtmd|spirv|vulkan'; then
               echo "mtmd_changed=true" >> "$GITHUB_OUTPUT"
               echo "native_changed=true" >> "$GITHUB_OUTPUT"
             fi
-            if printf "%s\n" "$BUILD_DIFF" | grep -Eqi 'amne'; then
+            if printf "%s\n" "$BUILD_PATCH" | grep -Eqi 'amne'; then
               echo "amne_changed=true" >> "$GITHUB_OUTPUT"
               echo "native_changed=true" >> "$GITHUB_OUTPUT"
             fi
-            if printf "%s\n" "$BUILD_DIFF" | grep -Eqi 'llama'; then
+            if printf "%s\n" "$BUILD_PATCH" | grep -Eqi 'llama'; then
               echo "llama_changed=true" >> "$GITHUB_OUTPUT"
             fi
           fi
@@ -166,12 +167,19 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Build operational text-runtime APK
-        run: gradle :app:assembleDebug -PwithLlamaAar=true --stacktrace
-      - name: Verify packaged arm64 text runtime
+      - name: Install AMNE Android NDK and CMake
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "ndk;27.2.12479018" \
+            "cmake;3.22.1"
+      - name: Build operational AMNE + llama fallback APK
+        run: gradle :app:assembleDebug -PwithAmneNative=true -PwithLlamaAar=true --stacktrace
+      - name: Verify packaged arm64 AMNE + text runtime
         run: |
           APK="app/build/outputs/apk/debug/app-debug.apk"
           unzip -l "$APK" > /tmp/amper-operational-apk-files.txt
+          grep -q 'lib/arm64-v8a/libamne.so' /tmp/amper-operational-apk-files.txt
           grep -q 'lib/arm64-v8a/libllama_jni.so' /tmp/amper-operational-apk-files.txt
           grep -q 'lib/arm64-v8a/libllama.so' /tmp/amper-operational-apk-files.txt
           grep -Eq 'lib/arm64-v8a/libggml(-base|-cpu)?\.so' /tmp/amper-operational-apk-files.txt
@@ -187,7 +195,7 @@ jobs:
             echo "git_ref=$GITHUB_REF"
             echo "workflow_run_id=$GITHUB_RUN_ID"
             echo "workflow_run_number=$GITHUB_RUN_NUMBER"
-            echo "package_mode=llama-aar-operational"
+            echo "package_mode=amne-native+llama-aar-operational"
           } > "$OUT.provenance.txt"
       - uses: actions/upload-artifact@v4
         with:
