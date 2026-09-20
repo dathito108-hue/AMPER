@@ -483,8 +483,6 @@ class MainActivity : ComponentActivity() {
             val restoredPlan = remember { planner.latest() }
             val initialConversationId = remember {
                 val primary = runtime.conversations.primary()
-                val checkpointConversation =
-                    restoredApproval?.conversationId ?: restoredPlan?.conversationId
                 val persistedConversation = conversationUiPreferences
                     .getString("active_conversation_id", null)
                     ?.let { io.amper.neuroos.core.ConversationId(it) }
@@ -492,8 +490,9 @@ class MainActivity : ComponentActivity() {
                         candidate == primary ||
                             runtime.conversations.recent(candidate, limit = 1).isNotEmpty()
                     }
-                checkpointConversation
+                restoredApproval?.conversationId
                     ?: persistedConversation
+                    ?: restoredPlan?.conversationId
                     ?: runtime.conversations.recentThreads(limit = 1)
                         .firstOrNull()
                         ?.conversationId
