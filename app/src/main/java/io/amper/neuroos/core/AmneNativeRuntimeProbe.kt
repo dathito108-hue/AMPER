@@ -156,6 +156,31 @@ object AmneNativeRuntimeProbe {
             backend.matVecQ8_0(q8, 1, 32, quantVector)
         )
 
+        val kVector = FloatArray(256) { index ->
+            ((index % 19) - 9).toFloat() * 0.03125f
+        }
+
+        val q4k = deterministicKQuantBlock(AmneTensorEncoding.Q4_K)
+        record(
+            AmneKernelPrimitive.MATVEC_Q4_K,
+            AmneReferenceCpuKernels.matVecQ4K(q4k, 1, 256, kVector),
+            backend.matVecQ4K(q4k, 1, 256, kVector)
+        )
+
+        val q5k = deterministicKQuantBlock(AmneTensorEncoding.Q5_K)
+        record(
+            AmneKernelPrimitive.MATVEC_Q5_K,
+            AmneReferenceCpuKernels.matVecQ5K(q5k, 1, 256, kVector),
+            backend.matVecQ5K(q5k, 1, 256, kVector)
+        )
+
+        val q6k = deterministicKQuantBlock(AmneTensorEncoding.Q6_K)
+        record(
+            AmneKernelPrimitive.MATVEC_Q6_K,
+            AmneReferenceCpuKernels.matVecQ6K(q6k, 1, 256, kVector),
+            backend.matVecQ6K(q6k, 1, 256, kVector)
+        )
+
         val normInput = floatArrayOf(-2f, -1f, 0.5f, 4f)
         val normWeight = floatArrayOf(1f, 0.75f, 1.25f, 0.5f)
         record(
@@ -202,6 +227,9 @@ object AmneNativeRuntimeProbe {
             AmneKernelPrimitive.MATVEC_F32,
             AmneKernelPrimitive.MATVEC_Q4_0,
             AmneKernelPrimitive.MATVEC_Q8_0,
+            AmneKernelPrimitive.MATVEC_Q4_K,
+            AmneKernelPrimitive.MATVEC_Q5_K,
+            AmneKernelPrimitive.MATVEC_Q6_K,
             AmneKernelPrimitive.RMS_NORM_F32,
             AmneKernelPrimitive.SILU_F32,
             AmneKernelPrimitive.SWIGLU_F32,
@@ -222,5 +250,45 @@ object AmneNativeRuntimeProbe {
             maxAbsoluteError = max,
             primitiveErrors = errors
         )
+    private fun deterministicKQuantBlock(
+        encoding: AmneTensorEncoding
+    ): ByteArray {
+        require(
+            encoding == AmneTensorEncoding.Q4_K ||
+                encoding == AmneTensorEncoding.Q5_K ||
+                encoding == AmneTensorEncoding.Q6_K
+        )
+        val bytes = ByteArray(encoding.blockBytes)
+        when (encoding) {
+            AmneTensorEncoding.Q4_K -> {
+                // d=0.0625 (0x2c00), dmin=0.03125 (0x2800)
+                bytes[0] = 0x00
+                bytes[1] = 0x2c
+                bytes[2] = 0x00
+                bytes[3] = 0x28
+                for (i in 0 until 12) bytes[4 + i] = ((i * 7 + 11) and 0xff).toByte()
+                for (i in 0 until 128) bytes[16 + i] = ((i * 13 + 5) and 0xff).toByte()
+            }
+            AmneTensorEncoding.Q5_K -> {
+                bytes[0] = 0x00
+                bytes[1] = 0x2c
+                bytes[2] = 0x00
+                bytes[3] = 0x28
+                for (i in 0 until 12) bytes[4 + i] = ((i * 5 + 9) and 0xff).toByte()
+                for (i in 0 until 32) bytes[16 + i] = ((i * 3 + 1) and 0xff).toByte()
+                for (i in 0 until 128) bytes[48 + i] = ((i * 11 + 7) and 0xff).toByte()
+            }
+            AmneTensorEncoding.Q6_K -> {
+                for (i in 0 until 128) bytes[i] = ((i * 9 + 3) and 0xff).toByte()
+                for (i in 0 until 64) bytes[128 + i] = ((i * 5 + 1) and 0xff).toByte()
+                for (i in 0 until 16) bytes[192 + i] = ((i % 15) - 7).toByte()
+                bytes[208] = 0x00
+                bytes[209] = 0x2c
+            }
+            else -> error("not K-quant")
+        }
+        return bytes
+    }
+
     }
 }
