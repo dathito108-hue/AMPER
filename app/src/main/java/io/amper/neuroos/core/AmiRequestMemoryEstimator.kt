@@ -36,7 +36,34 @@ object AmiRequestMemoryEstimator {
         promptTokens: Int,
         requestedOutputTokens: Int,
         maxWindowBytes: Int
+    ): AmiRequestMemoryEstimate =
+        estimateGeometry(
+            layerKvWidths = plan.layers.map { it.attention.kvWidth },
+            hiddenSize = plan.hiddenSize,
+            maxQueryWidth = plan.layers.maxOf { it.attention.queryWidth },
+            maxFfnWidth = plan.layers.maxOf { it.ffn.feedForwardSize },
+            maxContextTokens = plan.maxContextTokens,
+            promptTokens = promptTokens,
+            requestedOutputTokens = requestedOutputTokens,
+            maxWindowBytes = maxWindowBytes
+        )
+
+    internal fun estimateGeometry(
+        layerKvWidths: List<Int>,
+        hiddenSize: Int,
+        maxQueryWidth: Int,
+        maxFfnWidth: Int,
+        maxContextTokens: Int,
+        promptTokens: Int,
+        requestedOutputTokens: Int,
+        maxWindowBytes: Int
     ): AmiRequestMemoryEstimate {
+        require(layerKvWidths.isNotEmpty())
+        require(layerKvWidths.all { it > 0 })
+        require(hiddenSize > 0)
+        require(maxQueryWidth > 0)
+        require(maxFfnWidth > 0)
+        require(maxContextTokens > 0)
         require(promptTokens > 0)
         require(requestedOutputTokens > 0)
         require(maxWindowBytes > 0)
@@ -45,14 +72,14 @@ object AmiRequestMemoryEstimator {
             promptTokens,
             requestedOutputTokens
         )
-        require(activeContextTokens <= plan.maxContextTokens) {
+        require(activeContextTokens <= maxContextTokens) {
             "request context exceeds AMI decoder capacity"
         }
 
-        val kvBytes = plan.layers.fold(0L) { total, layer ->
+        val kvBytes = layerKvWidths.fold(0L) { total, kvWidth ->
             val layerBytes = Math.multiplyExact(
                 Math.multiplyExact(
-                    layer.attention.kvWidth.toLong(),
+                    kvWidth.toLong(),
                     activeContextTokens.toLong()
                 ),
                 2L * Float.SIZE_BYTES.toLong()
@@ -60,14 +87,12 @@ object AmiRequestMemoryEstimator {
             Math.addExact(total, layerBytes)
         }
 
-        val maxQueryWidth = plan.layers.maxOf { it.attention.queryWidth }
-        val maxKvWidth = plan.layers.maxOf { it.attention.kvWidth }
-        val maxFfnWidth = plan.layers.maxOf { it.ffn.feedForwardSize }
+        val maxKvWidth = layerKvWidths.max()
 
         // Bounded live FloatArray scratch used by attention/FFN plus a conservative multiplier for
         // JNI/output overlap. This is transient working memory, not foundation weight residency.
         val scratchFloats = listOf(
-            Math.multiplyExact(plan.hiddenSize.toLong(), 12L),
+            Math.multiplyExact(hiddenSize.toLong(), 12L),
             Math.multiplyExact(maxQueryWidth.toLong(), 4L),
             Math.multiplyExact(maxKvWidth.toLong(), 4L),
             Math.multiplyExact(maxFfnWidth.toLong(), 4L),
