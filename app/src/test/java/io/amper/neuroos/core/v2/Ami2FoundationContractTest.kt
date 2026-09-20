@@ -70,8 +70,9 @@ class Ami2FoundationContractTest {
         tokenizerSha256 = "2".repeat(64),
         chatProtocolSha256 = "3".repeat(64),
         logicalGraphSha256 = "4".repeat(64),
-        canonicalWeightsSha256 = "5".repeat(64),
-        semanticSha256 = "6".repeat(64),
+        tensorIndexSha256 = "5".repeat(64),
+        canonicalWeightsSha256 = "6".repeat(64),
+        semanticSha256 = "7".repeat(64),
         tensorCount = 128,
         vocabularySize = 32_000
     )
