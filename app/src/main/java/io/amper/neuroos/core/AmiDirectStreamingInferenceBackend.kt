@@ -1,8 +1,25 @@
 package io.amper.neuroos.core
 
+import io.amper.neuroos.core.v2.Amne2ConversationHotIdentity
+import io.amper.neuroos.core.v2.Amne2ConversationHotReusePolicy
+import io.amper.neuroos.core.v2.Amne2ExecutionSession
 import io.amper.neuroos.core.v2.Amne2ExecutionSessionFactory
 import io.amper.neuroos.core.v2.StoredAmi2Artifact
 import java.util.concurrent.ConcurrentHashMap
+
+private data class AmiDirectHotSessionSlot(
+    val identity: Amne2ConversationHotIdentity,
+    val session: Amne2ExecutionSession,
+    var committedTokenIds: IntArray
+)
+
+private data class AmiDirectSessionLease(
+    val session: Amne2ExecutionSession,
+    val promptTokenIds: IntArray,
+    val samplingHistoryPrefixTokenIds: IntArray,
+    val reused: Boolean,
+    val hotIdentity: Amne2ConversationHotIdentity?
+)
 
 data class AmiDirectPreparedModel(
     val artifact: StoredAmi2Artifact,
@@ -38,6 +55,8 @@ class AmiDirectStreamingInferenceBackend(
     private val sessionFactory = Amne2ExecutionSessionFactory(
         maxWindowBytes = maxWindowBytes
     )
+    private val hotSessionLock = Any()
+    private var hotSession: AmiDirectHotSessionSlot? = null
 
     override fun supports(model: InstalledModel): Boolean {
         if (!model.descriptor.format.equals("gguf", ignoreCase = true)) return false
