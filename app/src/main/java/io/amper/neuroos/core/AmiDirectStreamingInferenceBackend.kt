@@ -346,7 +346,7 @@ class AmiDirectStreamingInferenceBackend(
         )
 
     companion object {
-        const val BACKEND_ID: String = "amne-ami-direct"
+        const val BACKEND_ID: String = AmperCoreInferencePort.CORE_ID
         private const val MIB: Long = 1024L * 1024L
     }
 }
