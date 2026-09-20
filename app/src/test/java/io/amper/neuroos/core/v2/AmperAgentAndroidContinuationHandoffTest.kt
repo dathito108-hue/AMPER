@@ -101,11 +101,10 @@ class AmperAgentAndroidContinuationHandoffTest {
                 state = AmperAgentTaskState.CHECKPOINTED
             )
         )
-        val tampered = handoff.copy(
-            encodedEnvelope = handoff.encodedEnvelope + "\n"
-        )
-
         val result = runCatching {
+            val tampered = handoff.copy(
+                encodedEnvelope = handoff.encodedEnvelope + "\n"
+            )
             AmperAgentAndroidContinuationHandoffPolicy.verifyAndDecode(tampered)
                 .getOrThrow()
         }
