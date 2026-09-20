@@ -31,6 +31,12 @@ class OmegaCoreV2Test {
                     "new GGUF imports publish direct canonical AMI2 before any legacy runtime bridge"
                 )
         )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M3_AMNE2_RUNTIME }
+                .exitCriteria
+                .contains("verified AMI2 to AMNE2 execution admission boundary")
+        )
     }
 
     @Test
