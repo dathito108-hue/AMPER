@@ -169,6 +169,7 @@ object OmegaArchitectureLock {
         "memory-and-context-are-hardware-budgeted",
         "context-pressure-never-silently-evicts-kv",
         "runtime-readiness-is-consolidated-and-model-specific",
+        "amcf-cycles-stay-on-one-foundation",
         "gguf-is-import-source-only",
         "adaptive-compute-fast-to-deep",
         "verification-before-confidence",
@@ -226,6 +227,7 @@ object OmegaArchitectureLock {
             OmegaMilestoneId.M4_AMCF_FOUNDATION,
             listOf(
                 "single mobile cognitive architecture",
+                "OMEGA compute modes map to bounded AMCF cycles over one verified foundation",
                 "adaptive depth and recurrent reasoning",
                 "deep reasoning and verify/revise loop",
                 "early exit for fast requests"
