@@ -60,3 +60,41 @@ class AmperSingleCoreFoundationController(
         )
     }
 }
+
+
+/**
+ * Detaches an imported weight source without assuming every retained source is live in ModelRegistry.
+ * Only the single active foundation may be registered at runtime.
+ */
+class AmperSingleCoreSourceDetachService(
+    private val catalog: InstalledModelCatalog,
+    private val registry: MutableModelRegistry,
+    private val unloadRuntime: (ModelId) -> Result<Unit>
+) {
+    @Synchronized
+    fun detach(id: ModelId): Result<InstalledModel> = runCatching {
+        val current = requireNotNull(catalog.get(id)) {
+            "imported AMPER weight source not found: ${id.value}"
+        }
+
+        unloadRuntime(id).getOrThrow()
+        val wasLive = registry.unregister(id)
+
+        try {
+            require(catalog.remove(id)) {
+                "weight source disappeared during detach: ${id.value}"
+            }
+        } catch (catalogFailure: Throwable) {
+            if (wasLive) {
+                try {
+                    registry.register(current.descriptor)
+                } catch (rollbackFailure: Throwable) {
+                    catalogFailure.addSuppressed(rollbackFailure)
+                }
+            }
+            throw catalogFailure
+        }
+
+        current
+    }
+}
