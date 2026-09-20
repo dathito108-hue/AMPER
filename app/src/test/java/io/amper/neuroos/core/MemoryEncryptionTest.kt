@@ -14,6 +14,25 @@ class MemoryEncryptionTest {
     }
 
     @Test
+    fun encryptionUsesFreshProviderGenerated96BitNonceAndPreservesE1RoundTrip() {
+        val cipher = cipher(3, "provider-iv-key")
+
+        val first = cipher.encrypt("alpha")
+        val second = cipher.encrypt("alpha")
+        val firstParts = first.split('|')
+        val secondParts = second.split('|')
+
+        assertEquals(4, firstParts.size)
+        assertEquals("E1", firstParts[0])
+        assertEquals("provider-iv-key", firstParts[1])
+        assertEquals(12, java.util.Base64.getUrlDecoder().decode(firstParts[2]).size)
+        assertEquals(12, java.util.Base64.getUrlDecoder().decode(secondParts[2]).size)
+        assertFalse(firstParts[2] == secondParts[2])
+        assertEquals("alpha", cipher.decrypt(first))
+        assertEquals("alpha", cipher.decrypt(second))
+    }
+
+    @Test
     fun legacyPlaintextJournalMigratesAndReplays() {
         val dir = Files.createTempDirectory("amper-memory-migrate").toFile()
         val file = dir.resolve("memory.journal")
