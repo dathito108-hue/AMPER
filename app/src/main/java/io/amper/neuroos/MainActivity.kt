@@ -322,7 +322,14 @@ class MainActivity : ComponentActivity() {
             }
             val amperCore = remember {
                 AmperCoreInferencePort(
-                    artifactLookup = ami2CompilationService::existing,
+                    artifactLookup = { model ->
+                        ami2CompilationService.existing(model)
+                            ?: amiCompilationService.existing(model)?.let { legacy ->
+                                ami2CompilationService
+                                    .migrateLegacy(model, legacy.file)
+                                    .getOrNull()
+                            }
+                    },
                     hardwareSnapshot = amiHardwareProfiler::snapshot
                 )
             }
