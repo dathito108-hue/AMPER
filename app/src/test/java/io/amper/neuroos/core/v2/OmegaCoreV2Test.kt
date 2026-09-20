@@ -27,6 +27,7 @@ class OmegaCoreV2Test {
             "amcf-recurrent-state-is-structured-and-bounded" in
                 OmegaArchitectureLock.invariants
         )
+        assertTrue("amcf-cycle-state-commit-is-transactional" in OmegaArchitectureLock.invariants)
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
@@ -134,6 +135,14 @@ class OmegaCoreV2Test {
                 .exitCriteria
                 .contains(
                     "structured recurrent state carries confidence uncertainty and evidence without raw hidden reasoning"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M4_AMCF_FOUNDATION }
+                .exitCriteria
+                .contains(
+                    "AMCF cycle orchestration is bounded cancellation-aware and commits recurrent state only after successful cycles"
                 )
         )
     }
