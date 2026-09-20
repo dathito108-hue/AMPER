@@ -3,6 +3,7 @@ package io.amper.neuroos.core.v2
 import io.amper.neuroos.core.CapabilityId
 import io.amper.neuroos.core.InferenceCancellationSignal
 import io.amper.neuroos.core.IntegratedCognitiveStatePacket
+import io.amper.neuroos.core.IntegratedCognitiveStateRenderer
 import io.amper.neuroos.core.IntegratedCognitiveStateSource
 import io.amper.neuroos.core.ToolDescriptor
 
@@ -10,7 +11,8 @@ data class AmcfFrozenCognitiveSnapshot(
     val cognitiveStateDigest: String,
     val queryDigest: String,
     val capturedAtEpochMs: Long,
-    val qualitySignals: AmcfIntegratedCognitiveQualitySignals
+    val qualitySignals: AmcfIntegratedCognitiveQualitySignals,
+    val boundedGuidance: String
 ) {
     init {
         require(cognitiveStateDigest.matches(Regex("[0-9a-f]{64}")))
@@ -18,6 +20,10 @@ data class AmcfFrozenCognitiveSnapshot(
         require(capturedAtEpochMs >= 0L)
         require(qualitySignals.cognitiveStateDigest == cognitiveStateDigest) {
             "AMCF frozen quality signals must bind to the same cognitive snapshot"
+        }
+        require(boundedGuidance.isNotBlank())
+        require(boundedGuidance.length <= MAX_GUIDANCE_CHARS) {
+            "AMCF frozen cognitive guidance exceeds bounded prompt limit"
         }
     }
 
@@ -27,8 +33,14 @@ data class AmcfFrozenCognitiveSnapshot(
                 cognitiveStateDigest = packet.canonicalDigest,
                 queryDigest = packet.queryDigest,
                 capturedAtEpochMs = packet.capturedAtEpochMs,
-                qualitySignals = AmcfIntegratedCognitiveQualitySignals.from(packet)
+                qualitySignals = AmcfIntegratedCognitiveQualitySignals.from(packet),
+                boundedGuidance = IntegratedCognitiveStateRenderer.render(
+                    packet = packet,
+                    charBudget = MAX_GUIDANCE_CHARS
+                )
             )
+
+        const val MAX_GUIDANCE_CHARS: Int = 4 * 1024
     }
 }
 
@@ -137,7 +149,8 @@ class AmcfFrozenCognitiveRunCoordinator(
         val execution = AmcfProductionFoundationInferencePort(
             endpoint = endpoint,
             context = context,
-            qualityEvaluator = qualityEvaluator
+            qualityEvaluator = qualityEvaluator,
+            frozenCognitiveSnapshot = snapshot
         )
         val cycleRun = AmcfCycleOrchestrator(
             execution = execution,
