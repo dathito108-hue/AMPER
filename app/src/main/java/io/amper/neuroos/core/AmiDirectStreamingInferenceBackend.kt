@@ -153,7 +153,10 @@ class AmiDirectStreamingInferenceBackend(
     fun runtimeReadiness(
         model: InstalledModel
     ): Result<Amne2RuntimeReadinessSnapshot> = runCatching {
-        val runtime = prepareModel(model).getOrThrow()
+        val key = model.descriptor.id.value + ":" + model.sha256
+        val runtime = requireNotNull(prepared[key]) {
+            "AMNE2 runtime readiness is available only after model preparation"
+        }
         val readiness = directReadiness(runtime)
         val foundation = runtime.artifact.loaded.bundle.foundation
         val hot = synchronized(hotSessionLock) {
