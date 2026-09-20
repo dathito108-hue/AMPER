@@ -23,6 +23,7 @@ import io.amper.neuroos.core.ModelArtifactIdentityVerifier
 import io.amper.neuroos.core.ModelArtifactSource
 import io.amper.neuroos.core.ModelId
 import io.amper.neuroos.core.ModelRuntimeIdentity
+import io.amper.neuroos.core.MmapGgufMemoryEstimator
 import io.amper.neuroos.core.PreparableInferenceBackend
 import io.amper.neuroos.core.ResourceBudget
 import io.amper.neuroos.core.ResourceReclaimingInferenceBackend
@@ -104,15 +105,15 @@ private class LlamaAarInferenceBackend(
             model.descriptor.format.equals("gguf", ignoreCase = true)
 
     override fun estimate(model: InstalledModel, request: InferenceRequest): InferenceCost {
-        val mib = 1024L * 1024L
-        val modelMb = model.lengthBytes?.let { ((it + mib - 1L) / mib).toInt() } ?: 0
-        val reserveMb = max(384, modelMb / 5)
         val requiredContext = TitanPromptTokenEstimator.requiredContextTokens(this, model, request)
         val contextTokens = if (requiredContext > 2_048L) 4_096 else 2_048
         val cores = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
         val threads = (cores - 1).coerceIn(1, 6)
         return InferenceCost(
-            estimatedMemoryMb = if (modelMb == 0) 0 else modelMb + reserveMb,
+            estimatedMemoryMb = MmapGgufMemoryEstimator.estimateMemoryMb(
+                modelLengthBytes = model.lengthBytes,
+                contextTokens = contextTokens
+            ),
             preferredThreads = threads,
             contextTokens = contextTokens
         )
