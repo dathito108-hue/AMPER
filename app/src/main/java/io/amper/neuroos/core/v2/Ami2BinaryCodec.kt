@@ -586,8 +586,20 @@ class Ami2CanonicalBinaryReader {
             descriptors.mapTo(linkedSetOf()) { it.role } ==
                 Ami2FoundationContract.mandatoryArtifacts
         ) { "canonical AMI2 cannot contain optional/device artifacts in the foundation file" }
+        require(descriptors.map { it.role } == Ami2BinaryLayout.canonicalRoleOrder) {
+            "canonical AMI2 section order is invalid"
+        }
 
         descriptors.forEach { descriptor ->
+            val expectedAlignment =
+                if (descriptor.role == Ami2ArtifactRole.FOUNDATION_WEIGHTS) {
+                    Ami2BinaryLayout.FOUNDATION_ALIGNMENT_BYTES
+                } else {
+                    Ami2BinaryLayout.DEFAULT_ALIGNMENT_BYTES
+                }
+            require(descriptor.alignmentBytes == expectedAlignment) {
+                "canonical AMI2 section alignment is invalid: ${descriptor.role}"
+            }
             require(descriptor.endExclusive <= fileLength) {
                 "AMI2 section exceeds file length: ${descriptor.role}"
             }
