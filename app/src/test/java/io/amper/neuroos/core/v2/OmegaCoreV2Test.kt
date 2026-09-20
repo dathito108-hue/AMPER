@@ -60,6 +60,10 @@ class OmegaCoreV2Test {
             "agent-continuation-restores-exact-durable-plan-without-replay" in
                 OmegaArchitectureLock.invariants
         )
+        assertTrue(
+            "android-continuation-handoff-is-verified-and-non-authoritative" in
+                OmegaArchitectureLock.invariants
+        )
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)

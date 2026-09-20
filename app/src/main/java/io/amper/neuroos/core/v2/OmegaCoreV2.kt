@@ -180,6 +180,7 @@ object OmegaArchitectureLock {
         "agent-core-never-owns-tool-authority",
         "passive-agent-tasks-reuse-persistent-sovereign-plans",
         "agent-continuation-restores-exact-durable-plan-without-replay",
+        "android-continuation-handoff-is-verified-and-non-authoritative",
         "gguf-is-import-source-only",
         "adaptive-compute-fast-to-deep",
         "verification-before-confidence",
