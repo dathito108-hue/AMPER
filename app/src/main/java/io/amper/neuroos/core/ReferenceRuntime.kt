@@ -315,6 +315,11 @@ class AmperRuntime private constructor(
     ): AgiMobileLongHorizonProbePack =
         AgiMobileLongHorizonQualificationProbes.canonical(subject)
 
+    fun agiMobileLearningEvolutionQualificationProbes(
+        subject: AgiMobileQualificationSubject
+    ): AgiMobileLearningEvolutionProbePack =
+        AgiMobileLearningEvolutionQualificationProbes.canonical(subject)
+
     /** Rewrap production encrypted memory under a new managed key alias. */
     fun rotateMemoryEncryption(newKeyId: String): Int =
         requireNotNull(memoryKeyRotator) { "memory key rotation is unavailable for this runtime" }(newKeyId)
