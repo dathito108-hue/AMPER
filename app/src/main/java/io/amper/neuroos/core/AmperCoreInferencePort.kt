@@ -1,5 +1,7 @@
 package io.amper.neuroos.core
 
+import io.amper.neuroos.core.v2.StoredAmi2Artifact
+
 data class AmperCoreBootstrapReport(
     val nativePackaged: Boolean,
     val qualificationPassed: Boolean,
@@ -15,7 +17,7 @@ data class AmperCoreBootstrapReport(
  * derived from this core and therefore cannot acquire a second production inference endpoint.
  */
 class AmperCoreInferencePort(
-    artifactLookup: (InstalledModel) -> StoredAmiArtifact?,
+    artifactLookup: (InstalledModel) -> StoredAmi2Artifact?,
     hardwareSnapshot: () -> AmiHardwareSnapshot?
 ) {
     private val coreBackend = AmiDirectStreamingInferenceBackend(
