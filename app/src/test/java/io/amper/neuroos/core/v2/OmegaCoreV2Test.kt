@@ -23,6 +23,10 @@ class OmegaCoreV2Test {
                 OmegaArchitectureLock.invariants
         )
         assertTrue("amcf-cycles-stay-on-one-foundation" in OmegaArchitectureLock.invariants)
+        assertTrue(
+            "amcf-recurrent-state-is-structured-and-bounded" in
+                OmegaArchitectureLock.invariants
+        )
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
@@ -122,6 +126,14 @@ class OmegaCoreV2Test {
                 .exitCriteria
                 .contains(
                     "OMEGA compute modes map to bounded AMCF cycles over one verified foundation"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M4_AMCF_FOUNDATION }
+                .exitCriteria
+                .contains(
+                    "structured recurrent state carries confidence uncertainty and evidence without raw hidden reasoning"
                 )
         )
     }
