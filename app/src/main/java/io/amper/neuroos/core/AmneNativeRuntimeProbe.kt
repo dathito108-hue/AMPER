@@ -64,6 +64,35 @@ object AmneNativeRuntimeProbe {
             backend.matVecF32(matrix, 3, 3, vector)
         )
 
+        val quantVector = FloatArray(32) { index ->
+            ((index % 7) - 3).toFloat() * 0.25f
+        }
+        val q4 = ByteArray(AmneTensorEncoding.Q4_0.blockBytes)
+        q4[0] = 0x00
+        q4[1] = 0x3c
+        for (index in 0 until 16) {
+            val low = (index % 16) and 0x0f
+            val high = (15 - index) and 0x0f
+            q4[2 + index] = ((high shl 4) or low).toByte()
+        }
+        record(
+            AmneKernelPrimitive.MATVEC_Q4_0,
+            AmneReferenceCpuKernels.matVecQ4_0(q4, 1, 32, quantVector),
+            backend.matVecQ4_0(q4, 1, 32, quantVector)
+        )
+
+        val q8 = ByteArray(AmneTensorEncoding.Q8_0.blockBytes)
+        q8[0] = 0x00
+        q8[1] = 0x38
+        for (index in 0 until 32) {
+            q8[2 + index] = ((index % 17) - 8).toByte()
+        }
+        record(
+            AmneKernelPrimitive.MATVEC_Q8_0,
+            AmneReferenceCpuKernels.matVecQ8_0(q8, 1, 32, quantVector),
+            backend.matVecQ8_0(q8, 1, 32, quantVector)
+        )
+
         val normInput = floatArrayOf(-2f, -1f, 0.5f, 4f)
         val normWeight = floatArrayOf(1f, 0.75f, 1.25f, 0.5f)
         record(
@@ -108,6 +137,8 @@ object AmneNativeRuntimeProbe {
         val expectedPrimitives = setOf(
             AmneKernelPrimitive.DOT_F32,
             AmneKernelPrimitive.MATVEC_F32,
+            AmneKernelPrimitive.MATVEC_Q4_0,
+            AmneKernelPrimitive.MATVEC_Q8_0,
             AmneKernelPrimitive.RMS_NORM_F32,
             AmneKernelPrimitive.SILU_F32,
             AmneKernelPrimitive.SWIGLU_F32,
@@ -115,7 +146,7 @@ object AmneNativeRuntimeProbe {
             AmneKernelPrimitive.ROPE_F32
         )
         require(declared.containsAll(expectedPrimitives)) {
-            "AMNE native backend does not declare all Phase603 F32 primitives"
+            "AMNE native backend does not declare all Phase604 primitives"
         }
 
         val max = errors.values.maxOrNull() ?: Float.POSITIVE_INFINITY

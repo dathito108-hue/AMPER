@@ -202,7 +202,7 @@ jobs:
             echo "workflow_run_id=$GITHUB_RUN_ID"
             echo "workflow_run_number=$GITHUB_RUN_NUMBER"
             echo "package_mode=amne-arm64-neon-plus-llama-fallback"
-            echo "amne_native_abi=1"
+            echo "amne_native_abi=2"
           } > "$OUT.provenance.txt"
       - uses: actions/upload-artifact@v4
         if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'

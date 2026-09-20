@@ -1107,7 +1107,7 @@ class MainActivity : ComponentActivity() {
                             onClick = {
                                 amneQualificationBusy = true
                                 amneQualificationStatus =
-                                    "AMNE native · qualifying F32 primitives against reference..."
+                                    "AMNE native · qualifying F32 + Q4_0 + Q8_0 primitives against reference..."
                                 executionLanes.executeMaintenance {
                                     val startedNs = System.nanoTime()
                                     val result = AmneNativeRuntimeProbe.qualify()

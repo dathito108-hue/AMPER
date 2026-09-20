@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <vector>
 
@@ -27,6 +28,47 @@ bool requireFiniteVector(const float* data, jsize size) {
         }
     }
     return true;
+}
+
+float halfToFloat(std::uint16_t bits) {
+    const std::uint32_t sign = (bits >> 15U) & 0x1U;
+    const std::uint32_t exponent = (bits >> 10U) & 0x1fU;
+    const std::uint32_t fraction = bits & 0x3ffU;
+
+    std::uint32_t floatBits = 0U;
+    if (exponent == 0U && fraction == 0U) {
+        floatBits = sign << 31U;
+    } else if (exponent == 0U) {
+        std::uint32_t mantissa = fraction;
+        int shift = 0;
+        while ((mantissa & 0x400U) == 0U) {
+            mantissa <<= 1U;
+            ++shift;
+        }
+        mantissa &= 0x3ffU;
+        const std::uint32_t adjustedExponent =
+            static_cast<std::uint32_t>(127 - 15 - shift + 1);
+        floatBits =
+            (sign << 31U) |
+            (adjustedExponent << 23U) |
+            (mantissa << 13U);
+    } else if (exponent == 0x1fU) {
+        floatBits =
+            (sign << 31U) |
+            0x7f800000U |
+            (fraction << 13U);
+    } else {
+        const std::uint32_t adjustedExponent = exponent - 15U + 127U;
+        floatBits =
+            (sign << 31U) |
+            (adjustedExponent << 23U) |
+            (fraction << 13U);
+    }
+
+    float value = 0.0f;
+    static_assert(sizeof(value) == sizeof(floatBits));
+    std::memcpy(&value, &floatBits, sizeof(value));
+    return value;
 }
 
 float dotNeon(const float* left, const float* right, int length) {
@@ -132,6 +174,139 @@ Java_io_amper_neuroos_core_AmneNativeNeonKernels_nativeMatVecF32(
     }
 
     env->ReleaseFloatArrayElements(matrixArray, matrix, JNI_ABORT);
+    env->ReleaseFloatArrayElements(vectorArray, vector, JNI_ABORT);
+    return makeFloatArray(env, output);
+}
+
+extern "C"
+JNIEXPORT jfloatArray JNICALL
+Java_io_amper_neuroos_core_AmneNativeNeonKernels_nativeMatVecQ4_10(
+    JNIEnv* env,
+    jobject,
+    jbyteArray matrixArray,
+    jint rows,
+    jint columns,
+    jfloatArray vectorArray
+) {
+    if (matrixArray == nullptr || vectorArray == nullptr || rows <= 0 || columns <= 0) {
+        throwIllegalArgument(env, "AMNE Q4_0 matvec arguments are invalid");
+        return nullptr;
+    }
+    if ((columns % 32) != 0 || env->GetArrayLength(vectorArray) != columns) {
+        throwIllegalArgument(env, "AMNE Q4_0 matvec shape mismatch");
+        return nullptr;
+    }
+    const jint blocksPerRow = columns / 32;
+    const jlong expectedBytes =
+        static_cast<jlong>(rows) * static_cast<jlong>(blocksPerRow) * 18LL;
+    if (env->GetArrayLength(matrixArray) != expectedBytes) {
+        throwIllegalArgument(env, "AMNE Q4_0 matrix byte length mismatch");
+        return nullptr;
+    }
+
+    jbyte* matrix = env->GetByteArrayElements(matrixArray, nullptr);
+    jfloat* vector = env->GetFloatArrayElements(vectorArray, nullptr);
+    if (matrix == nullptr || vector == nullptr) {
+        if (matrix != nullptr) env->ReleaseByteArrayElements(matrixArray, matrix, JNI_ABORT);
+        if (vector != nullptr) env->ReleaseFloatArrayElements(vectorArray, vector, JNI_ABORT);
+        return nullptr;
+    }
+
+    std::vector<float> output(static_cast<std::size_t>(rows));
+    std::size_t byteOffset = 0U;
+    for (jint row = 0; row < rows; ++row) {
+        double sum = 0.0;
+        for (jint block = 0; block < blocksPerRow; ++block) {
+            const auto b0 = static_cast<std::uint8_t>(matrix[byteOffset]);
+            const auto b1 = static_cast<std::uint8_t>(matrix[byteOffset + 1U]);
+            const std::uint16_t scaleBits =
+                static_cast<std::uint16_t>(b0) |
+                (static_cast<std::uint16_t>(b1) << 8U);
+            const float scale = halfToFloat(scaleBits);
+            const jint vectorBase = block * 32;
+
+            for (jint packedIndex = 0; packedIndex < 16; ++packedIndex) {
+                const auto packed =
+                    static_cast<std::uint8_t>(matrix[byteOffset + 2U + packedIndex]);
+                const int low = static_cast<int>(packed & 0x0fU) - 8;
+                const int high = static_cast<int>((packed >> 4U) & 0x0fU) - 8;
+                sum +=
+                    static_cast<double>(scale * static_cast<float>(low)) *
+                    static_cast<double>(vector[vectorBase + packedIndex]);
+                sum +=
+                    static_cast<double>(scale * static_cast<float>(high)) *
+                    static_cast<double>(vector[vectorBase + 16 + packedIndex]);
+            }
+            byteOffset += 18U;
+        }
+        output[static_cast<std::size_t>(row)] = static_cast<float>(sum);
+    }
+
+    env->ReleaseByteArrayElements(matrixArray, matrix, JNI_ABORT);
+    env->ReleaseFloatArrayElements(vectorArray, vector, JNI_ABORT);
+    return makeFloatArray(env, output);
+}
+
+extern "C"
+JNIEXPORT jfloatArray JNICALL
+Java_io_amper_neuroos_core_AmneNativeNeonKernels_nativeMatVecQ8_10(
+    JNIEnv* env,
+    jobject,
+    jbyteArray matrixArray,
+    jint rows,
+    jint columns,
+    jfloatArray vectorArray
+) {
+    if (matrixArray == nullptr || vectorArray == nullptr || rows <= 0 || columns <= 0) {
+        throwIllegalArgument(env, "AMNE Q8_0 matvec arguments are invalid");
+        return nullptr;
+    }
+    if ((columns % 32) != 0 || env->GetArrayLength(vectorArray) != columns) {
+        throwIllegalArgument(env, "AMNE Q8_0 matvec shape mismatch");
+        return nullptr;
+    }
+    const jint blocksPerRow = columns / 32;
+    const jlong expectedBytes =
+        static_cast<jlong>(rows) * static_cast<jlong>(blocksPerRow) * 34LL;
+    if (env->GetArrayLength(matrixArray) != expectedBytes) {
+        throwIllegalArgument(env, "AMNE Q8_0 matrix byte length mismatch");
+        return nullptr;
+    }
+
+    jbyte* matrix = env->GetByteArrayElements(matrixArray, nullptr);
+    jfloat* vector = env->GetFloatArrayElements(vectorArray, nullptr);
+    if (matrix == nullptr || vector == nullptr) {
+        if (matrix != nullptr) env->ReleaseByteArrayElements(matrixArray, matrix, JNI_ABORT);
+        if (vector != nullptr) env->ReleaseFloatArrayElements(vectorArray, vector, JNI_ABORT);
+        return nullptr;
+    }
+
+    std::vector<float> output(static_cast<std::size_t>(rows));
+    std::size_t byteOffset = 0U;
+    for (jint row = 0; row < rows; ++row) {
+        double sum = 0.0;
+        for (jint block = 0; block < blocksPerRow; ++block) {
+            const auto b0 = static_cast<std::uint8_t>(matrix[byteOffset]);
+            const auto b1 = static_cast<std::uint8_t>(matrix[byteOffset + 1U]);
+            const std::uint16_t scaleBits =
+                static_cast<std::uint16_t>(b0) |
+                (static_cast<std::uint16_t>(b1) << 8U);
+            const float scale = halfToFloat(scaleBits);
+            const jint vectorBase = block * 32;
+
+            for (jint element = 0; element < 32; ++element) {
+                const auto quantized =
+                    static_cast<std::int8_t>(matrix[byteOffset + 2U + element]);
+                sum +=
+                    static_cast<double>(scale * static_cast<float>(quantized)) *
+                    static_cast<double>(vector[vectorBase + element]);
+            }
+            byteOffset += 34U;
+        }
+        output[static_cast<std::size_t>(row)] = static_cast<float>(sum);
+    }
+
+    env->ReleaseByteArrayElements(matrixArray, matrix, JNI_ABORT);
     env->ReleaseFloatArrayElements(vectorArray, vector, JNI_ABORT);
     return makeFloatArray(env, output);
 }
@@ -357,7 +532,7 @@ Java_io_amper_neuroos_core_AmneNativeNeonKernels_nativeAbiVersion(
     JNIEnv*,
     jobject
 ) {
-    return 1;
+    return 2;
 }
 
 JNIEXPORT jint JNI_OnLoad(JavaVM*, void*) {

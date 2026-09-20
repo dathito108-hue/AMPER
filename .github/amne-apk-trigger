@@ -1,3 +1,3 @@
-AMPER AMNE native APK trigger v1
-purpose=arm64-neon-kernel-qualification
-phase=603
+AMPER AMNE native APK trigger v2
+purpose=arm64-neon-quantized-kernel-qualification
+phase=604
