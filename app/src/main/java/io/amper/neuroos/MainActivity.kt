@@ -29,12 +29,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.amper.neuroos.core.AmperCoreInferencePort
+import io.amper.neuroos.core.AmperCoreSovereignStatusSource
 import io.amper.neuroos.core.AmperExecutionLanes
 import io.amper.neuroos.core.AmperRuntime
 import io.amper.neuroos.core.AmperSingleCoreFoundationController
 import io.amper.neuroos.core.AmperSingleCoreModelRegistry
 import io.amper.neuroos.core.AmperSingleCoreSourceDetachService
-import io.amper.neuroos.core.AmneNativeRuntimeProbe
 import io.amper.neuroos.core.AssistantStreamEvent
 import io.amper.neuroos.core.AssistantTurnStage
 import io.amper.neuroos.core.AutonomousGoalScheduler
@@ -356,7 +356,7 @@ class MainActivity : ComponentActivity() {
                     )
                     registry.register(
                         SovereignStatusToolProvider(
-                            RuntimeSovereignStatusSource(catalog, backends, governor)
+                            AmperCoreSovereignStatusSource(catalog, amperCore, governor)
                         )
                     )
                     registry.register(
@@ -626,7 +626,7 @@ class MainActivity : ComponentActivity() {
                     restoredApproval?.let {
                         "Restored pending action: ${it.proposal.capability.value} · not executed"
                     } ?: if (hasRuntimeBackend) {
-                        "AMPER Single-Core ready · " + backends.list().joinToString { it.id }
+                        "AMPER Single-Core ready · " + amperCore.id
                     } else {
                         "AMPER Core runtime unavailable"
                     }
@@ -1168,47 +1168,36 @@ class MainActivity : ComponentActivity() {
                         Text("AMNE mobile runtime", style = MaterialTheme.typography.titleMedium)
                         Text(amneQualificationStatus)
                         Button(
-                            enabled = AmneNativeRuntimeProbe.isPackaged() && !amneQualificationBusy,
+                            enabled = amperCore.nativeRuntimePackaged() && !amneQualificationBusy,
                             onClick = {
                                 amneQualificationBusy = true
                                 amneQualificationStatus =
-                                    "AMNE · qualifying + benchmarking native primitives before direct AMI admission..."
+                                    "AMPER Core · qualifying + benchmarking native primitives..."
                                 executionLanes.executeMaintenance {
                                     val startedNs = System.nanoTime()
-                                    val result = AmneNativeRuntimeProbe.benchmarkAndAdmit()
+                                    val result = amperCore.bootstrapNativeAdmission()
                                     val wallMs =
                                         (System.nanoTime() - startedNs) / 1_000_000L
                                     runOnUiThread {
                                         amneQualificationBusy = false
                                         result.fold(
                                             onSuccess = { report ->
-                                                val admission = report.admission
-                                                val admitted = admission.admittedPrimitives.size
-                                                val total = admission.benchmarkResults.size
-                                                val matrixSummary = listOf(
-                                                    io.amper.neuroos.core.AmneKernelPrimitive.MATVEC_F32,
-                                                    io.amper.neuroos.core.AmneKernelPrimitive.MATVEC_Q4_0,
-                                                    io.amper.neuroos.core.AmneKernelPrimitive.MATVEC_Q8_0,
-                                                    io.amper.neuroos.core.AmneKernelPrimitive.MATVEC_Q4_K,
-                                                    io.amper.neuroos.core.AmneKernelPrimitive.MATVEC_Q5_K,
-                                                    io.amper.neuroos.core.AmneKernelPrimitive.MATVEC_Q6_K
-                                                ).mapNotNull { primitive ->
-                                                    admission.benchmarkResults[primitive]
-                                                        ?.let { benchmark ->
-                                                            primitive.name.removePrefix("MATVEC_") +
-                                                                "=" +
-                                                                "%.2fx".format(benchmark.speedup) +
-                                                                if (benchmark.admitted) "*" else ""
-                                                        }
-                                                }.joinToString(" · ")
+                                                val matrixSummary = report.matrixCoverage
+                                                    .sortedBy { it.ordinal }
+                                                    .joinToString(" · ") {
+                                                        it.name.removePrefix("MATVEC_")
+                                                    }
                                                 amneQualificationStatus =
-                                                    "AMNE Core admission · numeric=" +
-                                                        if (report.qualification.passed) "PASS" else "FAIL" +
-                                                        " · native $admitted/$total primitives" +
+                                                    "AMPER Core admission · numeric=" +
+                                                        if (report.qualificationPassed) "PASS" else "FAIL" +
+                                                        " · native " +
+                                                        report.admittedPrimitives.size + "/" +
+                                                        report.benchmarkedPrimitives.size +
+                                                        " primitives" +
                                                         if (matrixSummary.isNotBlank()) {
-                                                            " · $matrixSummary"
+                                                            " · matrix $matrixSummary"
                                                         } else {
-                                                            ""
+                                                            " · no native matrix admitted"
                                                         } +
                                                         " · wall ${wallMs}ms"
                                             },
@@ -1223,7 +1212,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         ) {
-                            Text("Qualify + benchmark AMPER Core")
+                            Text("Re-qualify AMPER Core")
                         }
 
                         Text("GGUF capability profile", style = MaterialTheme.typography.titleMedium)
