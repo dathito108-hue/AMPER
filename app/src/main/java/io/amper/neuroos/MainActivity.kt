@@ -1142,6 +1142,67 @@ class MainActivity : ComponentActivity() {
                         ) {
                             Text("Run AMNE native qualification")
                         }
+                        Button(
+                            enabled = AmneNativeRuntimeProbe.isPackaged() && !amneQualificationBusy,
+                            onClick = {
+                                amneQualificationBusy = true
+                                amneQualificationStatus =
+                                    "AMNE · qualification + device benchmark · native routing locked until admission..."
+                                executionLanes.executeMaintenance {
+                                    val startedNs = System.nanoTime()
+                                    val result = AmneNativeRuntimeProbe.benchmarkAndAdmit()
+                                    val wallMs =
+                                        (System.nanoTime() - startedNs) / 1_000_000L
+                                    runOnUiThread {
+                                        amneQualificationBusy = false
+                                        result.fold(
+                                            onSuccess = { report ->
+                                                val admission = report.admission
+                                                val total =
+                                                    admission.benchmarkResults.size
+                                                val admitted =
+                                                    admission.admittedPrimitives.size
+                                                val matrixSummary = listOf(
+                                                    io.amper.neuroos.core.AmneKernelPrimitive.MATVEC_F32,
+                                                    io.amper.neuroos.core.AmneKernelPrimitive.MATVEC_Q4_0,
+                                                    io.amper.neuroos.core.AmneKernelPrimitive.MATVEC_Q8_0
+                                                ).mapNotNull { primitive ->
+                                                    admission.benchmarkResults[primitive]
+                                                        ?.let { benchmark ->
+                                                            primitive.name.removePrefix("MATVEC_") +
+                                                                "=" +
+                                                                "%.2fx".format(benchmark.speedup) +
+                                                                if (benchmark.admitted) "*" else ""
+                                                        }
+                                                }.joinToString(" · ")
+                                                amneQualificationStatus =
+                                                    "AMNE admission · numeric=" +
+                                                        if (report.qualification.passed) "PASS" else "FAIL" +
+                                                        " · native $admitted/$total primitives" +
+                                                        if (matrixSummary.isNotBlank()) {
+                                                            " · $matrixSummary"
+                                                        } else {
+                                                            ""
+                                                        } +
+                                                        " · min 1.05x · wall ${wallMs}ms"
+                                            },
+                                            onFailure = { error ->
+                                                amneQualificationStatus =
+                                                    "AMNE benchmark/admission unavailable · " +
+                                                        (error.message
+                                                            ?: error::class.java.simpleName) +
+                                                        " · reference routing retained"
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        ) {
+                            Text("Benchmark & admit AMNE")
+                        }
+                        Text(
+                            "* = native admitted; unmarked primitive remains on reference kernels"
+                        )
 
                         Text("GGUF capability profile", style = MaterialTheme.typography.titleMedium)
                         Text("Reasoning · always enabled")
