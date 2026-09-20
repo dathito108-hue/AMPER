@@ -532,7 +532,7 @@ Java_io_amper_neuroos_core_AmneNativeNeonKernels_nativeAbiVersion(
     JNIEnv*,
     jobject
 ) {
-    return 1;
+    return 2;
 }
 
 JNIEXPORT jint JNI_OnLoad(JavaVM*, void*) {
