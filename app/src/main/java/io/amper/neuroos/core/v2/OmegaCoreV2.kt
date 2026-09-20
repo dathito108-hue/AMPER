@@ -175,6 +175,7 @@ object OmegaArchitectureLock {
         "amcf-production-port-reuses-single-core-endpoint",
         "amcf-quality-reuses-integrated-cognitive-readiness",
         "amcf-run-cognitive-snapshot-is-frozen",
+        "m4-amcf-foundation-has-consolidated-qualification-gate",
         "gguf-is-import-source-only",
         "adaptive-compute-fast-to-deep",
         "verification-before-confidence",
@@ -240,7 +241,8 @@ object OmegaArchitectureLock {
                 "one immutable integrated cognitive snapshot is bound to the complete AMCF run",
                 "adaptive depth and recurrent reasoning",
                 "deep reasoning and verify/revise loop",
-                "early exit for fast requests"
+                "early exit for fast requests",
+                "FAST REASON DEEP VERIFY evidence passes one consolidated M4 qualification gate"
             )
         ),
         OmegaMilestone(
