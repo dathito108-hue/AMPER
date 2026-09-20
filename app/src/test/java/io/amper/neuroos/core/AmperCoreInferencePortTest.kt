@@ -57,7 +57,8 @@ class AmperCoreInferencePortTest {
             temperature = 0.25,
             preferredModelId = ModelId("legacy-continuity"),
             userPreferredModelId = ModelId("legacy-user-choice"),
-            sessionRoutingPreference = TitanSessionRoutingPreference.PREFER_REUSE
+            sessionRoutingPreference = TitanSessionRoutingPreference.PREFER_REUSE,
+            conversationSessionId = "conversation-primary"
         )
 
         val normalized = port.normalizeRequest(request)
@@ -71,6 +72,7 @@ class AmperCoreInferencePortTest {
             normalized.sessionRoutingPreference
         )
         assertTrue(normalized.attachments.isEmpty())
+        assertEquals(request.conversationSessionId, normalized.conversationSessionId)
         assertEquals(null, normalized.preferredModelId)
         assertEquals(null, normalized.userPreferredModelId)
         assertEquals(null, normalized.effectivePreferredModelId())
