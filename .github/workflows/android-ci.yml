@@ -179,21 +179,23 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
             "ndk;27.2.12479018" \
             "cmake;3.22.1"
-      - name: Build AMNE ARM64 + llama fallback APK
-        run: gradle :app:assembleDebug -PwithAmneNative=true -PwithLlamaAar=true --stacktrace
-      - name: Verify packaged AMNE and fallback runtimes
+      - name: Build AMPER single-core AMNE APK
+        run: gradle :app:assembleDebug -PwithAmneNative=true --stacktrace
+      - name: Verify AMNE-only runtime packaging
         run: |
           APK="app/build/outputs/apk/debug/app-debug.apk"
           unzip -l "$APK" > /tmp/amper-amne-apk-files.txt
           grep -q 'lib/arm64-v8a/libamper_amne.so' /tmp/amper-amne-apk-files.txt
-          grep -q 'lib/arm64-v8a/libllama_jni.so' /tmp/amper-amne-apk-files.txt
-          grep -q 'lib/arm64-v8a/libllama.so' /tmp/amper-amne-apk-files.txt
+          if grep -q 'lib/arm64-v8a/libllama' /tmp/amper-amne-apk-files.txt; then
+            echo "External llama runtime must not be packaged in AMPER single-core APK" >&2
+            exit 1
+          fi
       - name: Write AMNE APK provenance
         if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
         shell: bash
         run: |
           APK="app/build/outputs/apk/debug/app-debug.apk"
-          OUT="app/build/outputs/apk/debug/AMPER-amne-neon-$GITHUB_SHA.apk"
+          OUT="app/build/outputs/apk/debug/AMPER-single-core-$GITHUB_SHA.apk"
           cp "$APK" "$OUT"
           sha256sum "$OUT" | tee "$OUT.sha256"
           {
@@ -201,17 +203,17 @@ jobs:
             echo "git_ref=$GITHUB_REF"
             echo "workflow_run_id=$GITHUB_RUN_ID"
             echo "workflow_run_number=$GITHUB_RUN_NUMBER"
-            echo "package_mode=amne-arm64-neon-plus-llama-fallback"
+            echo "package_mode=amper-single-core-ami-amne-only"
             echo "amne_native_abi=2"
           } > "$OUT.provenance.txt"
       - uses: actions/upload-artifact@v4
         if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
         with:
-          name: AMPER-amne-neon-${{ github.sha }}
+          name: AMPER-single-core-${{ github.sha }}
           path: |
-            app/build/outputs/apk/debug/AMPER-amne-neon-${{ github.sha }}.apk
-            app/build/outputs/apk/debug/AMPER-amne-neon-${{ github.sha }}.apk.sha256
-            app/build/outputs/apk/debug/AMPER-amne-neon-${{ github.sha }}.apk.provenance.txt
+            app/build/outputs/apk/debug/AMPER-single-core-${{ github.sha }}.apk
+            app/build/outputs/apk/debug/AMPER-single-core-${{ github.sha }}.apk.sha256
+            app/build/outputs/apk/debug/AMPER-single-core-${{ github.sha }}.apk.provenance.txt
           retention-days: 7
 
   optional-llama-aar:

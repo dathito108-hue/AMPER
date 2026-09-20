@@ -13,7 +13,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.dp
 import io.amper.neuroos.core.ConversationId
-import io.amper.neuroos.core.ModelId
 import io.amper.neuroos.core.SovereignConversationCoordinator
 import io.amper.neuroos.core.SovereignConversationTranscriptBrowser
 
@@ -21,8 +20,8 @@ import io.amper.neuroos.core.SovereignConversationTranscriptBrowser
  * Browser for persisted sovereign conversation threads.
  *
  * Listing, searching, selecting and viewing a transcript never runs inference, proposes a tool
- * action, grants authority, or appends a conversation turn. Title, pin, model-preference and fork
- * controls are explicit local metadata writes initiated by the user and never rewrite source turns.
+ * action, grants authority, or appends a conversation turn. Title, pin and fork controls are
+ * explicit local metadata writes initiated by the user and never rewrite source turns.
  */
 @Composable
 fun SovereignConversationHistoryPanel(
@@ -33,10 +32,8 @@ fun SovereignConversationHistoryPanel(
     val transcriptBrowser = remember(conversations) { SovereignConversationTranscriptBrowser(conversations) }
     var searchQuery by remember(conversations) { mutableStateOf("") }
     var editingConversationId by remember(conversations) { mutableStateOf<ConversationId?>(null) }
-    var editingModelConversationId by remember(conversations) { mutableStateOf<ConversationId?>(null) }
     var viewingConversationId by remember(conversations) { mutableStateOf<ConversationId?>(null) }
     var titleDraft by remember(conversations) { mutableStateOf("") }
-    var modelDraft by remember(conversations) { mutableStateOf("") }
     var metadataStatus by remember(conversations) { mutableStateOf("") }
     val threads = if (searchQuery.isBlank()) {
         conversations.recentThreads(limit = 8)
@@ -130,7 +127,6 @@ fun SovereignConversationHistoryPanel(
 
         threads.forEach { thread ->
             val current = thread.conversationId == activeConversationId
-            val conversationPreferredModel = conversations.preferredModelId(thread.conversationId)
             val forkInfo = conversations.forkInfo(thread.conversationId)
             if (thread.pinned) Text("Pinned")
             if (thread.title != null) {
@@ -160,100 +156,7 @@ fun SovereignConversationHistoryPanel(
                         .joinToString(" · ") { it.value }
                 )
             }
-            Text(
-                "Conversation GGUF: " +
-                    (conversationPreferredModel?.value ?: "follow global/automatic routing")
-            )
-            Text("Conversation GGUF is a soft preference; Titan safety, capability and resource gates remain authoritative.")
-
-            if (editingModelConversationId == thread.conversationId) {
-                OutlinedTextField(
-                    value = modelDraft,
-                    onValueChange = { modelDraft = it.take(256) },
-                    label = { Text("Exact installed model ID") }
-                )
-                Button(
-                    enabled = modelDraft.isNotBlank(),
-                    onClick = {
-                        runCatching {
-                            conversations.setPreferredModelId(
-                                thread.conversationId,
-                                ModelId(modelDraft.trim())
-                            )
-                        }.fold(
-                            onSuccess = { selected ->
-                                editingModelConversationId = null
-                                modelDraft = ""
-                                metadataStatus = "Conversation GGUF preference saved: ${selected?.value}"
-                            },
-                            onFailure = { error ->
-                                metadataStatus = "Conversation GGUF update failed: ${error.message ?: error::class.java.simpleName}"
-                            }
-                        )
-                    }
-                ) {
-                    Text("Save conversation GGUF")
-                }
-                Button(
-                    onClick = {
-                        editingModelConversationId = null
-                        modelDraft = ""
-                        metadataStatus = ""
-                    }
-                ) {
-                    Text("Cancel GGUF edit")
-                }
-            } else {
-                Button(
-                    onClick = {
-                        editingModelConversationId = thread.conversationId
-                        modelDraft = conversationPreferredModel?.value.orEmpty()
-                        metadataStatus = ""
-                    }
-                ) {
-                    Text("Set conversation GGUF")
-                }
-            }
-
-            thread.latestAssistantModelId
-                ?.takeIf { it != conversationPreferredModel }
-                ?.let { lastModelId ->
-                    Button(
-                        onClick = {
-                            runCatching {
-                                conversations.setPreferredModelId(thread.conversationId, lastModelId)
-                            }.fold(
-                                onSuccess = {
-                                    metadataStatus = "Conversation now prefers last assistant model ${lastModelId.value}"
-                                },
-                                onFailure = { error ->
-                                    metadataStatus = "Conversation GGUF update failed: ${error.message ?: error::class.java.simpleName}"
-                                }
-                            )
-                        }
-                    ) {
-                        Text("Prefer last assistant model")
-                    }
-                }
-
-            if (conversationPreferredModel != null) {
-                Button(
-                    onClick = {
-                        runCatching {
-                            conversations.setPreferredModelId(thread.conversationId, null)
-                        }.fold(
-                            onSuccess = {
-                                metadataStatus = "Conversation now follows global/automatic routing"
-                            },
-                            onFailure = { error ->
-                                metadataStatus = "Conversation GGUF clear failed: ${error.message ?: error::class.java.simpleName}"
-                            }
-                        )
-                    }
-                ) {
-                    Text("Follow global/automatic routing")
-                }
-            }
+            Text("Inference core: AMPER · single active AMI/AMNE foundation")
 
             Button(
                 onClick = { viewingConversationId = thread.conversationId }

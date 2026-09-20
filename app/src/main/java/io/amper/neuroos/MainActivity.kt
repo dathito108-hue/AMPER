@@ -30,6 +30,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.amper.neuroos.core.AmperExecutionLanes
 import io.amper.neuroos.core.AmperRuntime
+import io.amper.neuroos.core.AmperSingleCoreFoundationController
+import io.amper.neuroos.core.AmperSingleCoreModelRegistry
+import io.amper.neuroos.core.AmperSingleCoreSourceDetachService
 import io.amper.neuroos.core.AmneNativeRuntimeProbe
 import io.amper.neuroos.core.AssistantStreamEvent
 import io.amper.neuroos.core.AssistantTurnStage
@@ -156,9 +159,37 @@ class MainActivity : ComponentActivity() {
             val nativeProjectorStagingDir = remember {
                 File(canonicalCacheDir, "amper-native-projector-stage")
             }
-            val modelRegistry = remember { InMemoryModelRegistry() }
+            val modelRegistry = remember { AmperSingleCoreModelRegistry() }
             val catalog = remember { FileInstalledModelCatalog(File(sovereignDir, "models.catalog")) }
-            remember { InstalledModelRegistryBootstrap(catalog, modelRegistry).restore() }
+            val coreFoundationPreferences = remember {
+                getSharedPreferences("amper-core-foundation", Context.MODE_PRIVATE)
+            }
+            val legacyRoutingPreferences = remember {
+                getSharedPreferences("amper-model-routing", Context.MODE_PRIVATE)
+            }
+            val coreFoundationController = remember {
+                AmperSingleCoreFoundationController(catalog, modelRegistry)
+            }
+            val initialCoreFoundationState = remember {
+                val persisted = coreFoundationPreferences
+                    .getString("active_source_model_id", null)
+                    ?.let(::ModelId)
+                    ?.takeIf { catalog.get(it) != null }
+                val migrated = persisted ?: legacyRoutingPreferences
+                    .getString("preferred_model_id", null)
+                    ?.let(::ModelId)
+                    ?.takeIf { catalog.get(it) != null }
+                coreFoundationController.restore(migrated).also { state ->
+                    state.activeModelId?.let { active ->
+                        coreFoundationPreferences.edit()
+                            .putString("active_source_model_id", active.value)
+                            .apply()
+                    }
+                    legacyRoutingPreferences.edit()
+                        .remove("preferred_model_id")
+                        .apply()
+                }
+            }
             val governor = remember { AndroidResourceGovernor(applicationContext) }
             val deviceStatusSource = remember { AndroidDeviceStatusSource(applicationContext) }
             val runtime = remember {
@@ -224,6 +255,10 @@ class MainActivity : ComponentActivity() {
                     projectors = projectorCatalog
                 ).reconcile()
             }
+            remember {
+                // Reassert the user-selected AMPER foundation after legacy reconciliation.
+                coreFoundationController.restore(initialCoreFoundationState.activeModelId)
+            }
             val projectorImporter = remember {
                 AndroidMultimodalProjectorImportService(
                     applicationContext,
@@ -252,30 +287,6 @@ class MainActivity : ComponentActivity() {
             val importer = remember { AndroidModelImportService(this, catalog, modelRegistry) }
             val capabilityManager = remember { InstalledModelCapabilityService(catalog, modelRegistry) }
             val backends = remember { InferenceBackendRegistry() }
-            val packManager = remember { TitanBackendPackManager(backends) }
-            val backendStatus = remember {
-                OptionalBackendPackLoader.attach(
-                    "io.amper.neuroos.backend.LlamaAarBackendPack",
-                    packManager
-                )
-            }
-            val mtmdEngineStatus = remember { OptionalMtmdNativeEngineLoader.load() }
-            remember {
-                mtmdEngineStatus.engine?.let { engine ->
-                    (engine as? LlamaNativeTextEngine)?.let { textEngine ->
-                        backends.register(
-                            LlamaNativeTextInferenceBackend(textEngine)
-                        )
-                    }
-                    backends.register(
-                        MtmdNativeInferenceBackend(
-                            engine = engine,
-                            projectors = projectorCatalog,
-                            projectorArtifacts = projectorResolver
-                        )
-                    )
-                }
-            }
             val contentModelArtifacts = remember {
                 ContentUriArtifactResolver(
                     contentResolver,
@@ -318,7 +329,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
             val detachManager = remember {
-                InstalledModelDetachService(catalog, modelRegistry, titan::unload)
+                AmperSingleCoreSourceDetachService(catalog, modelRegistry, titan::unload)
             }
             val nativePromotion = remember {
                 NativeCheckpointRuntimePromotionService(
@@ -337,19 +348,6 @@ class MainActivity : ComponentActivity() {
                     registry = modelRegistry,
                     projectors = projectorCatalog
                 )
-            }
-            val modelRoutingPreferences = remember {
-                getSharedPreferences("amper-model-routing", Context.MODE_PRIVATE)
-            }
-            val initialPreferredModelId = remember {
-                modelRoutingPreferences.getString("preferred_model_id", null)
-                    ?.let(::ModelId)
-                    ?.takeIf { catalog.get(it) != null }
-                    .also { valid ->
-                        if (valid == null) {
-                            modelRoutingPreferences.edit().remove("preferred_model_id").apply()
-                        }
-                    }
             }
             val assistantCapabilities = remember { SovereignAssistantToolExposure.capabilities }
             val androidActionLauncher = remember {
@@ -425,15 +423,7 @@ class MainActivity : ComponentActivity() {
             }
             val actionLoop = remember { runtime.actionLoop(toolRegistry, toolFabric) }
             val inferencePort = remember {
-                PreferredModelInferencePort(
-                    delegate = NativeModelPreferenceInferencePort(
-                        delegate = TitanInferencePort(titan),
-                        preferredNativeModel = {
-                            NativeInstalledModelSelector.preferredModelId(catalog)
-                        }
-                    ),
-                    initialPreferredModelId = initialPreferredModelId
-                )
+                TitanInferencePort(titan)
             }
             val assistant = remember {
                 SovereignAssistantTurnCoordinator(
@@ -567,21 +557,21 @@ class MainActivity : ComponentActivity() {
                 )
             }
             var detachArmedModelId by remember { mutableStateOf<ModelId?>(null) }
-            var preferredModelId by remember { mutableStateOf(initialPreferredModelId) }
-            var preferredPreparationCancellation by remember {
-                mutableStateOf<InferenceCancellationSignal?>(null)
-            }
-            DisposableEffect(preferredPreparationCancellation) {
-                val activePreparation = preferredPreparationCancellation
-                onDispose {
-                    activePreparation?.cancel()
-                }
+            var coreFoundationModelId by remember {
+                mutableStateOf(initialCoreFoundationState.activeModelId)
             }
             var modelSummary by remember {
-                mutableStateOf(catalog.list().joinToString { it.displayName }.ifBlank { "No user GGUF installed" })
+                mutableStateOf(
+                    catalog.list().joinToString { it.displayName }
+                        .ifBlank { "No imported weight source" }
+                )
             }
-            var hasModel by remember { mutableStateOf(catalog.list().isNotEmpty()) }
-            var prompt by remember { mutableStateOf("What model and backend are you using right now?") }
+            var hasModel by remember {
+                mutableStateOf(initialCoreFoundationState.activeModelId != null)
+            }
+            var prompt by remember {
+                mutableStateOf("Bạn là ai và đang dùng lõi suy luận nào?")
+            }
             var conversationId by remember {
                 mutableStateOf(
                     restoredApproval?.conversationId
@@ -597,9 +587,9 @@ class MainActivity : ComponentActivity() {
                     restoredApproval?.let {
                         "Restored pending action: ${it.proposal.capability.value} · not executed"
                     } ?: if (hasRuntimeBackend) {
-                        "Titan backend ready: " + backends.list().joinToString { it.id }
+                        "AMPER Single-Core ready · " + backends.list().joinToString { it.id }
                     } else {
-                        "No inference backend · text=${backendStatus.detail} · mtmd=${mtmdEngineStatus.detail}"
+                        "AMPER Core runtime unavailable"
                     }
                 )
             }
@@ -1062,28 +1052,43 @@ class MainActivity : ComponentActivity() {
                         onSuccess = {
                             importStatus = "Inspecting GGUF and computing SHA-256..."
                             executionLanes.executeInteractive {
-                                val result = importer.install(uri, profile)
+                                val result = importer.install(uri, profile).mapCatching { model ->
+                                    amiCompilationService.compile(model).getOrThrow()
+                                    titan.unloadAll().getOrThrow()
+                                    coreFoundationController.activate(model.descriptor.id)
+                                    coreFoundationPreferences.edit()
+                                        .putString("active_source_model_id", model.descriptor.id.value)
+                                        .apply()
+                                    model
+                                }
                                 runOnUiThread {
                                     result.fold(
                                         onSuccess = { model ->
                                             val capabilities = model.descriptor.capabilities
                                                 .sortedBy { it.value }
                                                 .joinToString { it.value }
-                                            importStatus = "Installed ${model.displayName} (GGUF v${model.ggufVersion}) · $capabilities"
+                                            coreFoundationModelId = model.descriptor.id
+                                            importStatus =
+                                                "AMPER Core foundation updated from ${model.displayName} · " +
+                                                    "GGUF → AMI SOURCE_EXACT · $capabilities"
                                             modelSummary = catalog.list().joinToString { it.displayName }
                                             hasModel = true
-                                            if (profileModelId == null) {
-                                                profileModelId = model.descriptor.id
-                                                profileCodeGeneration = model.descriptor.capabilities.contains(TitanCapabilities.CODE_GENERATION)
-                                                profilePlanning = model.descriptor.capabilities.contains(TitanCapabilities.PLANNING)
-                                                profileVision = model.descriptor.capabilities.contains(TitanCapabilities.VISION)
-                                                profileAudioUnderstanding =
-                                                    model.descriptor.capabilities.contains(TitanCapabilities.AUDIO_UNDERSTANDING)
-                                                profileStatus = "Selected ${model.displayName}"
-                                            }
+                                            profileModelId = model.descriptor.id
+                                            profileCodeGeneration =
+                                                model.descriptor.capabilities.contains(TitanCapabilities.CODE_GENERATION)
+                                            profilePlanning =
+                                                model.descriptor.capabilities.contains(TitanCapabilities.PLANNING)
+                                            profileVision =
+                                                model.descriptor.capabilities.contains(TitanCapabilities.VISION)
+                                            profileAudioUnderstanding =
+                                                model.descriptor.capabilities.contains(TitanCapabilities.AUDIO_UNDERSTANDING)
+                                            profileStatus =
+                                                "Active AMPER foundation: ${model.displayName}"
                                         },
                                         onFailure = { error ->
-                                            importStatus = "Import rejected: ${error.message ?: error::class.java.simpleName}"
+                                            importStatus =
+                                                "AMPER foundation import rejected: " +
+                                                    (error.message ?: error::class.java.simpleName)
                                         }
                                     )
                                 }
@@ -1109,16 +1114,17 @@ class MainActivity : ComponentActivity() {
                         Text("Kernel: ${report.kernelState}")
                         Text("Identity: ${report.selfIdentity}")
                         Text("Memory records: ${report.memoryRecords}")
-                        Text("Model route: ${report.modelRoute}")
-                        Text("User models: $modelSummary")
+                        Text("Core route: ${report.modelRoute}")
+                        Text("Imported weight sources: $modelSummary")
                         Text(
-                            "Preferred GGUF: " +
-                                (preferredModelId?.let { catalog.get(it)?.displayName } ?: "Automatic routing")
+                            "AMPER Core foundation: " +
+                                (coreFoundationModelId
+                                    ?.let { catalog.get(it)?.displayName }
+                                    ?: "not initialized")
                         )
+                        Text("Inference architecture: AMI + AMNE · single AMPER core")
                         Text("Titan budget: ${budget.memoryMb} MiB · thermal ${budget.thermalClass}")
                         Text("Governed tools: ${assistantCapabilities.joinToString(" · ") { it.value }}")
-                        Text("Text backend pack: ${backendStatus.detail}")
-                        Text("Native MTMD: ${mtmdEngineStatus.detail}")
 
                         Text("AMNE mobile runtime", style = MaterialTheme.typography.titleMedium)
                         Text(amneQualificationStatus)
@@ -1704,73 +1710,45 @@ class MainActivity : ComponentActivity() {
                                     Text(projectorStatus)
 
                                     Button(
-                                        enabled = preferredModelId != selectedId,
+                                        enabled = coreFoundationModelId != selectedId,
                                         onClick = {
-                                            preferredPreparationCancellation?.cancel()
-                                            inferencePort.prefer(selectedId)
-                                            preferredModelId = selectedId
-                                            modelRoutingPreferences.edit()
-                                                .putString("preferred_model_id", selectedId.value)
-                                                .apply()
-
-                                            val preparationCancellation =
-                                                InferenceCancellationSignal()
-                                            preferredPreparationCancellation =
-                                                preparationCancellation
                                             profileStatus =
-                                                "Preferred ${selected.displayName}; warming the verified native route in background..."
+                                                "Compiling and activating ${selected.displayName} as the single AMPER foundation..."
                                             executionLanes.executeInteractive {
-                                                val result = inferencePort.prepare(
-                                                    InferenceRequest(
-                                                        prompt =
-                                                            "Prepare the selected model for the next assistant turn.",
-                                                        requiredCapabilities =
-                                                            setOf(TitanCapabilities.REASONING),
-                                                        maxOutputTokens = 256,
-                                                        temperature = 0.7,
-                                                        userPreferredModelId = selectedId
-                                                    ),
-                                                    preparationCancellation
-                                                )
+                                                val result = runCatching {
+                                                    amiCompilationService.compile(selected).getOrThrow()
+                                                    titan.unloadAll().getOrThrow()
+                                                    coreFoundationController.activate(selectedId)
+                                                    coreFoundationPreferences.edit()
+                                                        .putString("active_source_model_id", selectedId.value)
+                                                        .apply()
+                                                    selected
+                                                }
                                                 runOnUiThread {
-                                                    if (
-                                                        preferredPreparationCancellation ===
-                                                        preparationCancellation
-                                                    ) {
-                                                        preferredPreparationCancellation = null
-                                                        result.fold(
-                                                            onSuccess = { prepared ->
-                                                                profileStatus =
-                                                                    "Preferred ${selected.displayName} · " +
-                                                                        "native route prepared via " +
-                                                                        prepared.backendId +
-                                                                        if (prepared.sessionReused) {
-                                                                            " · resident session reused"
-                                                                        } else {
-                                                                            " · warm residency ready"
-                                                                        }
-                                                            },
-                                                            onFailure = { error ->
-                                                                profileStatus =
-                                                                    if (
-                                                                        error is
-                                                                            InferenceCancelledException
-                                                                    ) {
-                                                                        "Preferred ${selected.displayName}; background preparation cancelled"
-                                                                    } else {
-                                                                        "Preferred ${selected.displayName}; " +
-                                                                            "routing saved, background preparation unavailable: " +
-                                                                            (error.message
-                                                                                ?: error::class.java.simpleName)
-                                                                    }
-                                                            }
-                                                        )
-                                                    }
+                                                    result.fold(
+                                                        onSuccess = { activated ->
+                                                            coreFoundationModelId = activated.descriptor.id
+                                                            hasModel = true
+                                                            profileStatus =
+                                                                "AMPER Core foundation active · ${activated.displayName} · AMI/AMNE only"
+                                                        },
+                                                        onFailure = { error ->
+                                                            profileStatus =
+                                                                "Foundation activation failed: " +
+                                                                    (error.message ?: error::class.java.simpleName)
+                                                        }
+                                                    )
                                                 }
                                             }
                                         }
                                     ) {
-                                        Text(if (preferredModelId == selectedId) "Preferred for routing" else "Prefer this model")
+                                        Text(
+                                            if (coreFoundationModelId == selectedId) {
+                                                "Active AMPER foundation"
+                                            } else {
+                                                "Use as AMPER foundation"
+                                            }
+                                        )
                                     }
 
                                     if (detachArmedModelId != selectedId) {
@@ -1783,14 +1761,10 @@ class MainActivity : ComponentActivity() {
                                             Text("Review detach from AMPER")
                                         }
                                     } else {
-                                        Text("Detach removes this model from AMPER routing/catalog and unloads backend state. The original GGUF remains untouched.")
+                                        Text("Detach removes this imported weight source from AMPER. The original GGUF file remains untouched; the live AMPER core still exposes at most one foundation.")
                                         Button(
                                             onClick = {
-                                                if (preferredModelId == selectedId) {
-                                                    preferredPreparationCancellation?.cancel()
-                                                    preferredPreparationCancellation = null
-                                                }
-                                                profileStatus = "Detaching ${selected.displayName} from AMPER..."
+                                                profileStatus = "Detaching ${selected.displayName} weight source from AMPER..."
                                                 executionLanes.executeInteractive {
                                                     val result = detachManager.detach(selectedId)
                                                     runOnUiThread {
@@ -1803,18 +1777,29 @@ class MainActivity : ComponentActivity() {
                                                                 if (pendingProjectorModelId == detached.descriptor.id) {
                                                                     pendingProjectorModelId = null
                                                                 }
-                                                                if (preferredModelId == detached.descriptor.id) {
-                                                                    inferencePort.prefer(null)
-                                                                    preferredModelId = null
-                                                                    modelRoutingPreferences.edit()
-                                                                        .remove("preferred_model_id")
+                                                                val remaining = catalog.list()
+                                                                if (coreFoundationModelId == detached.descriptor.id) {
+                                                                    val restored =
+                                                                        coreFoundationController.restore()
+                                                                    coreFoundationModelId =
+                                                                        restored.activeModelId
+                                                                    restored.activeModelId?.let { nextId ->
+                                                                        coreFoundationPreferences.edit()
+                                                                            .putString(
+                                                                                "active_source_model_id",
+                                                                                nextId.value
+                                                                            )
+                                                                            .apply()
+                                                                    } ?: coreFoundationPreferences.edit()
+                                                                        .remove("active_source_model_id")
                                                                         .apply()
                                                                 }
-                                                                val remaining = catalog.list()
                                                                 modelSummary = remaining.joinToString { it.displayName }
-                                                                    .ifBlank { "No user GGUF installed" }
-                                                                hasModel = remaining.isNotEmpty()
-                                                                val next = remaining.firstOrNull()
+                                                                    .ifBlank { "No imported weight source" }
+                                                                hasModel = coreFoundationModelId != null
+                                                                val next = coreFoundationModelId
+                                                                    ?.let(catalog::get)
+                                                                    ?: remaining.firstOrNull()
                                                                 profileModelId = next?.descriptor?.id
                                                                 profileCodeGeneration = next?.descriptor?.capabilities
                                                                     ?.contains(TitanCapabilities.CODE_GENERATION) == true
@@ -1825,7 +1810,10 @@ class MainActivity : ComponentActivity() {
                                                                 profileAudioUnderstanding = next?.descriptor?.capabilities
                                                                     ?.contains(TitanCapabilities.AUDIO_UNDERSTANDING) == true
                                                                 profileStatus =
-                                                                    "Detached ${detached.displayName}; original GGUF/mmproj files were not deleted"
+                                                                    "Detached weight source ${detached.displayName}; AMPER Core foundation=" +
+                                                                        (coreFoundationModelId
+                                                                            ?.let { catalog.get(it)?.displayName }
+                                                                            ?: "none")
                                                             },
                                                             onFailure = { error ->
                                                                 detachArmedModelId = null
@@ -1847,20 +1835,6 @@ class MainActivity : ComponentActivity() {
                                             Text("Keep model attached")
                                         }
                                     }
-                                }
-                            }
-                            if (preferredModelId != null) {
-                                Button(
-                                    onClick = {
-                                        preferredPreparationCancellation?.cancel()
-                                        preferredPreparationCancellation = null
-                                        inferencePort.prefer(null)
-                                        preferredModelId = null
-                                        modelRoutingPreferences.edit().remove("preferred_model_id").apply()
-                                        profileStatus = "Automatic model routing restored"
-                                    }
-                                ) {
-                                    Text("Use automatic model routing")
                                 }
                             }
                             Text(profileStatus)
@@ -2388,9 +2362,7 @@ class MainActivity : ComponentActivity() {
                                 val thread = conversationId
                                 val turnAttachments = pendingInferenceAttachments
                                 val cancellation = InferenceCancellationSignal()
-                                preferredPreparationCancellation?.cancel()
-                                preferredPreparationCancellation = null
-                                activeInferenceCancellation = cancellation
+                                                                activeInferenceCancellation = cancellation
                                 pendingApproval = null
                                 inferenceStatus = "QUEUED · waiting for interactive inference lane..."
                                 inferenceOutput = ""
@@ -2398,7 +2370,7 @@ class MainActivity : ComponentActivity() {
                                     runOnUiThread {
                                         if (activeInferenceCancellation === cancellation) {
                                             inferenceStatus =
-                                                "RUNNING · AMPER cognition → Titan route → local model..."
+                                                "RUNNING · AMPER cognition → single AMI/AMNE core..."
                                         }
                                     }
                                     val assistantStartedNs = System.nanoTime()
@@ -2421,7 +2393,7 @@ class MainActivity : ComponentActivity() {
                                                         AssistantTurnStage.NATIVE_SYSTEM2 ->
                                                             "RUNNING · stage NATIVE_SYSTEM2"
                                                         AssistantTurnStage.TITAN_INFERENCE ->
-                                                            "RUNNING · stage TITAN_INFERENCE · blocking backend capped at 32 tokens"
+                                                            "RUNNING · stage TITAN_INFERENCE · AMPER single-core execution"
                                                         AssistantTurnStage.ACTION_EVALUATION ->
                                                             "RUNNING · stage ACTION_EVALUATION"
                                                         AssistantTurnStage.FINALIZING ->
