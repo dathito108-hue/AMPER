@@ -98,7 +98,7 @@ class AmneNativeNeonKernels : AmneKernelBackend {
 
     override fun softmaxF32(input: FloatArray): FloatArray {
         require(input.isNotEmpty())
-        require(input.all(Float::isFinite))
+        require(input.all { it.isFinite() })
         return nativeSoftmaxF32(input)
     }
 
