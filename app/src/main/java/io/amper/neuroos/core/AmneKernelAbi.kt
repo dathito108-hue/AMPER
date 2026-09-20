@@ -10,6 +10,9 @@ enum class AmneKernelPrimitive {
     MATVEC_F32,
     MATVEC_Q4_0,
     MATVEC_Q8_0,
+    MATVEC_Q4_K,
+    MATVEC_Q5_K,
+    MATVEC_Q6_K,
     RMS_NORM_F32,
     SILU_F32,
     SWIGLU_F32,
@@ -25,7 +28,10 @@ enum class AmneTensorEncoding(
     F32(0L, 1, 4),
     F16(1L, 1, 2),
     Q4_0(2L, 32, 18),
-    Q8_0(8L, 32, 34);
+    Q8_0(8L, 32, 34),
+    Q4_K(12L, 256, 144),
+    Q5_K(13L, 256, 176),
+    Q6_K(14L, 256, 210);
 
     companion object {
         fun fromGgmlType(typeId: Long): AmneTensorEncoding? =
@@ -76,6 +82,38 @@ interface AmneKernelBackend {
         columns: Int,
         vector: FloatArray
     ): FloatArray
+
+    /**
+     * K-quant methods have portable exact-reference defaults so adding the storage ABI does not
+     * accidentally advertise native acceleration. Optimized backends must explicitly declare the
+     * matching primitive in their descriptor before dispatch can select them.
+     */
+    fun matVecQ4K(
+        matrixBlocks: ByteArray,
+        rows: Int,
+        columns: Int,
+        vector: FloatArray
+    ): FloatArray = AmneKQuantCodec.matVecQ4K(
+        matrixBlocks, rows, columns, vector
+    )
+
+    fun matVecQ5K(
+        matrixBlocks: ByteArray,
+        rows: Int,
+        columns: Int,
+        vector: FloatArray
+    ): FloatArray = AmneKQuantCodec.matVecQ5K(
+        matrixBlocks, rows, columns, vector
+    )
+
+    fun matVecQ6K(
+        matrixBlocks: ByteArray,
+        rows: Int,
+        columns: Int,
+        vector: FloatArray
+    ): FloatArray = AmneKQuantCodec.matVecQ6K(
+        matrixBlocks, rows, columns, vector
+    )
 
     fun rmsNormF32(
         input: FloatArray,
