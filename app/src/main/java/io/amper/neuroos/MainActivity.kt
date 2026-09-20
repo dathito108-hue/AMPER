@@ -28,6 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import io.amper.neuroos.core.AmperExecutionLanes
 import io.amper.neuroos.core.AmperRuntime
 import io.amper.neuroos.core.AssistantStreamEvent
 import io.amper.neuroos.core.AutonomousGoalScheduler
@@ -123,7 +124,6 @@ import io.amper.neuroos.core.TitanCapabilities
 import io.amper.neuroos.core.TitanCortexRuntime
 import io.amper.neuroos.core.TitanInferencePort
 import java.io.File
-import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -464,7 +464,7 @@ class MainActivity : ComponentActivity() {
             val restoredApproval = remember { assistant.restorePendingApproval() }
             val restoredPlan = remember { planner.latest() }
             val initialProfileModel = remember { catalog.list().firstOrNull() }
-            val executor = remember { Executors.newSingleThreadExecutor() }
+            val executionLanes = remember { AmperExecutionLanes() }
             DisposableEffect(Unit) {
                 AndroidReflexMaintenanceProcessRegistry.register(
                     reflexMaintenanceCoordinator
@@ -472,7 +472,7 @@ class MainActivity : ComponentActivity() {
                 reflexJobScheduler.reconcile(
                     runtime.reflexLearningMaintenanceQueue.pending()
                 )
-                executor.execute {
+                executionLanes.executeMaintenance {
                     runCatching { reflexLifecycle.maintain() }
                 }
                 reflexMaintenanceLoop.start()
@@ -481,8 +481,10 @@ class MainActivity : ComponentActivity() {
                         reflexMaintenanceCoordinator
                     )
                     reflexMaintenanceLoop.close()
-                    runCatching { executor.execute { titan.unloadAll() } }
-                    executor.shutdown()
+                    runCatching {
+                        executionLanes.executeInteractive { titan.unloadAll() }
+                    }
+                    executionLanes.close()
                 }
             }
 
@@ -642,7 +644,7 @@ class MainActivity : ComponentActivity() {
             val budget = governor.currentBudget()
             val captureMicrophone: () -> Unit = {
                 perceptionStatus = "Sampling microphone locally..."
-                executor.execute {
+                executionLanes.executeInteractive {
                     val result = perceptionCapture.captureMicrophone()
                     runOnUiThread {
                         result.fold(
@@ -686,7 +688,7 @@ class MainActivity : ComponentActivity() {
                     liveAudioCaptureInProgress = true
                     attachmentStatus =
                         "Recording 4 seconds of microphone audio in RAM for model-native understanding..."
-                    executor.execute {
+                    executionLanes.executeInteractive {
                         val result = liveAudioCapture.capture()
                         runOnUiThread {
                             liveAudioCaptureInProgress = false
@@ -770,7 +772,7 @@ class MainActivity : ComponentActivity() {
                 } else {
                     attachmentStatus =
                         "Encoding camera vision snapshot in RAM for model-native inference..."
-                    executor.execute {
+                    executionLanes.executeInteractive {
                         val encoded = try {
                             AndroidCameraVisionAttachmentEncoder.encode(bitmap)
                         } finally {
@@ -871,7 +873,7 @@ class MainActivity : ComponentActivity() {
             ) { uri ->
                 if (uri != null) {
                     attachmentStatus = "Loading image attachment locally..."
-                    executor.execute {
+                    executionLanes.executeInteractive {
                         val result = attachmentLoader.load(uri, InferenceAttachmentKind.IMAGE)
                         runOnUiThread {
                             result.fold(
@@ -909,7 +911,7 @@ class MainActivity : ComponentActivity() {
             ) { uri ->
                 if (uri != null) {
                     attachmentStatus = "Loading audio attachment locally..."
-                    executor.execute {
+                    executionLanes.executeInteractive {
                         val result = attachmentLoader.load(uri, InferenceAttachmentKind.AUDIO)
                         runOnUiThread {
                             result.fold(
@@ -968,7 +970,7 @@ class MainActivity : ComponentActivity() {
                                 onSuccess = {
                                     projectorStatus =
                                         "Inspecting mmproj GGUF and computing SHA-256..."
-                                    executor.execute {
+                                    executionLanes.executeInteractive {
                                         val result = projectorImporter.install(
                                             model = target,
                                             uri = uri,
@@ -1014,7 +1016,7 @@ class MainActivity : ComponentActivity() {
                     importer.persistReadPermission(uri).fold(
                         onSuccess = {
                             importStatus = "Inspecting GGUF and computing SHA-256..."
-                            executor.execute {
+                            executionLanes.executeInteractive {
                                 val result = importer.install(uri, profile)
                                 runOnUiThread {
                                     result.fold(
@@ -1189,7 +1191,7 @@ class MainActivity : ComponentActivity() {
                                                 audioUnderstanding = profileAudioUnderstanding
                                             )
                                             profileStatus = "Updating ${selected.displayName} capability metadata..."
-                                            executor.execute {
+                                            executionLanes.executeInteractive {
                                                 val result = capabilityManager.reclassify(modelId, requestedProfile)
                                                 runOnUiThread {
                                                     result.fold(
@@ -1293,7 +1295,7 @@ class MainActivity : ComponentActivity() {
                                                 preparationCancellation
                                             profileStatus =
                                                 "Preferred ${selected.displayName}; warming the verified native route in background..."
-                                            executor.execute {
+                                            executionLanes.executeInteractive {
                                                 val result = inferencePort.prepare(
                                                     InferenceRequest(
                                                         prompt =
@@ -1365,7 +1367,7 @@ class MainActivity : ComponentActivity() {
                                                     preferredPreparationCancellation = null
                                                 }
                                                 profileStatus = "Detaching ${selected.displayName} from AMPER..."
-                                                executor.execute {
+                                                executionLanes.executeInteractive {
                                                     val result = detachManager.detach(selectedId)
                                                     runOnUiThread {
                                                         result.fold(
@@ -1490,7 +1492,7 @@ class MainActivity : ComponentActivity() {
                         Button(
                             onClick = {
                                 perceptionStatus = "Sampling device sensors..."
-                                executor.execute {
+                                executionLanes.executeInteractive {
                                     val result = perceptionCapture.captureSensors()
                                     runOnUiThread {
                                         result.fold(
@@ -1900,9 +1902,13 @@ class MainActivity : ComponentActivity() {
                             enabled = hasModel && hasRuntimeBackend && !smokeTestBusy,
                             onClick = {
                                 smokeTestBusy = true
-                                smokeTestStatus = "Loading preferred GGUF and running local inference..."
+                                smokeTestStatus = "QUEUED · waiting for interactive inference lane..."
                                 smokeTestOutput = ""
-                                executor.execute {
+                                executionLanes.executeInteractive {
+                                    runOnUiThread {
+                                        smokeTestStatus =
+                                            "RUNNING · Titan routing → staged GGUF verification → native load/generation..."
+                                    }
                                     val startedNs = System.nanoTime()
                                     val result = inferencePort.infer(
                                         InferenceRequest(
@@ -1958,11 +1964,19 @@ class MainActivity : ComponentActivity() {
                                 val thread = conversationId
                                 val turnAttachments = pendingInferenceAttachments
                                 val cancellation = InferenceCancellationSignal()
+                                preferredPreparationCancellation?.cancel()
+                                preferredPreparationCancellation = null
                                 activeInferenceCancellation = cancellation
                                 pendingApproval = null
-                                inferenceStatus = "AMPER reasoning with governed tools..."
+                                inferenceStatus = "QUEUED · waiting for interactive inference lane..."
                                 inferenceOutput = ""
-                                executor.execute {
+                                executionLanes.executeInteractive {
+                                    runOnUiThread {
+                                        if (activeInferenceCancellation === cancellation) {
+                                            inferenceStatus =
+                                                "RUNNING · AMPER cognition → Titan route → local model..."
+                                        }
+                                    }
                                     val result = assistant.respondStreaming(
                                         conversationId = thread,
                                         userPrompt = userPrompt,
@@ -2025,7 +2039,11 @@ class MainActivity : ComponentActivity() {
                                         }
                                     }
                                     if (result.isSuccess) {
-                                        runCatching { reflexLifecycle.maintain() }
+                                        runCatching {
+                                            executionLanes.executeMaintenance {
+                                                runCatching { reflexLifecycle.maintain() }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -2055,7 +2073,7 @@ class MainActivity : ComponentActivity() {
                                     val cancellation = InferenceCancellationSignal()
                                     activeInferenceCancellation = cancellation
                                     inferenceStatus = "Executing approved action through Authority Gate..."
-                                    executor.execute {
+                                    executionLanes.executeInteractive {
                                         val result = assistant.approveStreaming(
                                             pending,
                                             cancellation
@@ -2115,7 +2133,7 @@ class MainActivity : ComponentActivity() {
                                 onClick = {
                                     val thread = pending.conversationId
                                     inferenceStatus = "Rejecting pending action without tool execution..."
-                                    executor.execute {
+                                    executionLanes.executeInteractive {
                                         val result = assistant.reject(pending)
                                         val stillPending = if (result.isFailure) {
                                             assistant.restorePendingApproval(thread)
@@ -2153,7 +2171,7 @@ class MainActivity : ComponentActivity() {
                                 val goal = planGoal
                                 val thread = conversationId
                                 planStatus = "Creating bounded plan; no tool execution allowed during planning..."
-                                executor.execute {
+                                executionLanes.executeInteractive {
                                     val result = planner.create(thread, goal)
                                     runOnUiThread {
                                         routeObservation = titan.latestRouteObservation()
@@ -2178,7 +2196,7 @@ class MainActivity : ComponentActivity() {
                                 val thread = conversationId
                                 planStatus =
                                     "Running one bounded persistent-goal cognitive cycle..."
-                                executor.execute {
+                                executionLanes.executeInteractive {
                                     val result = persistentGoalExecutive.runNext(thread)
                                     runOnUiThread {
                                         routeObservation = titan.latestRouteObservation()
@@ -2314,7 +2332,7 @@ class MainActivity : ComponentActivity() {
                                 onAdvance = {
                                     val current = plan
                                     planStatus = "Advancing exactly one governed plan step..."
-                                    executor.execute {
+                                    executionLanes.executeInteractive {
                                         val result = planner.advance(current)
                                         val advance = result.getOrNull()
                                         val refreshed = if (advance is PlanAdvanceResult.ContextChanged) {
@@ -2454,7 +2472,7 @@ class MainActivity : ComponentActivity() {
                                 onApprove = { stepIndex ->
                                     val current = plan
                                     planStatus = "Executing approved plan step through Authority Gate..."
-                                    executor.execute {
+                                    executionLanes.executeInteractive {
                                         val result = planner.approve(current, stepIndex)
                                         runOnUiThread {
                                             result.fold(
@@ -2492,7 +2510,7 @@ class MainActivity : ComponentActivity() {
                             enabled = hasModel && hasRuntimeBackend,
                             onClick = {
                                 inferenceStatus = "Releasing Titan model..."
-                                executor.execute {
+                                executionLanes.executeInteractive {
                                     val result = titan.unloadAll()
                                     runOnUiThread {
                                         inferenceStatus = result.fold(
