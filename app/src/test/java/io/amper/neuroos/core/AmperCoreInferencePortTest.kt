@@ -43,6 +43,38 @@ class AmperCoreInferencePortTest {
     }
 
     @Test
+    fun productionPortErasesLegacyModelChoiceHintsOnly() {
+        val port = AmperCoreInferencePort(
+            artifactLookup = { null },
+            hardwareSnapshot = { null }
+        )
+        val request = InferenceRequest(
+            prompt = "xin chao",
+            requiredCapabilities = setOf(CapabilityId("reasoning")),
+            maxOutputTokens = 96,
+            temperature = 0.25,
+            preferredModelId = ModelId("legacy-continuity"),
+            userPreferredModelId = ModelId("legacy-user-choice"),
+            sessionRoutingPreference = TitanSessionRoutingPreference.PREFER_REUSE
+        )
+
+        val normalized = port.normalizeRequest(request)
+
+        assertEquals(request.prompt, normalized.prompt)
+        assertEquals(request.requiredCapabilities, normalized.requiredCapabilities)
+        assertEquals(request.maxOutputTokens, normalized.maxOutputTokens)
+        assertEquals(request.temperature, normalized.temperature, 0.0)
+        assertEquals(
+            request.sessionRoutingPreference,
+            normalized.sessionRoutingPreference
+        )
+        assertTrue(normalized.attachments.isEmpty())
+        assertEquals(null, normalized.preferredModelId)
+        assertEquals(null, normalized.userPreferredModelId)
+        assertEquals(null, normalized.effectivePreferredModelId())
+    }
+
+    @Test
     fun productionPortExposesOneAmperCoreEndpoint() {
         val port = AmperCoreInferencePort(
             artifactLookup = { null },
