@@ -7,6 +7,18 @@ data class AmneDeviceQualificationReport(
     val primitiveErrors: Map<AmneKernelPrimitive, Float>
 )
 
+data class AmneDeviceAdmissionReport(
+    val qualification: AmneDeviceQualificationReport,
+    val admission: AmneBackendAdmission
+) {
+    init {
+        require(qualification.backendId == admission.backendId)
+        if (!qualification.passed) {
+            require(admission.admittedPrimitives.isEmpty())
+        }
+    }
+}
+
 /**
  * Runtime-safe optional AMNE native discovery.
  *
@@ -24,13 +36,64 @@ object AmneNativeRuntimeProbe {
         tolerance: Float = 2e-4f
     ): Result<AmneDeviceQualificationReport> = runCatching {
         require(tolerance >= 0f)
+        qualifyBackend(loadBackend(), tolerance)
+    }
 
+    fun benchmarkAndAdmit(
+        tolerance: Float = 2e-4f,
+        minimumSpeedup: Double = AmneDispatchAdmissionPolicy.DEFAULT_MINIMUM_SPEEDUP
+    ): Result<AmneDeviceAdmissionReport> = runCatching {
+        require(tolerance >= 0f)
+        require(minimumSpeedup >= 1.0)
+
+        val backend = loadBackend()
+        val qualification = qualifyBackend(backend, tolerance)
+        if (!qualification.passed) {
+            AmneProcessKernelRuntime.resetToReference()
+            val rejected = AmneDispatchAdmissionPolicy.evaluate(
+                backendId = backend.descriptor.backendId,
+                numericalQualificationPassed = false,
+                measurements = emptyList(),
+                minimumSpeedup = minimumSpeedup
+            )
+            return@runCatching AmneDeviceAdmissionReport(
+                qualification = qualification,
+                admission = rejected
+            )
+        }
+
+        val measurements = AmneDeviceMicrobenchmark.compare(
+            reference = AmneReferenceCpuKernels,
+            candidate = backend,
+            primitives = backend.descriptor.primitives
+        )
+        val admission = AmneDispatchAdmissionPolicy.evaluate(
+            backendId = backend.descriptor.backendId,
+            numericalQualificationPassed = true,
+            measurements = measurements,
+            minimumSpeedup = minimumSpeedup
+        )
+        AmneProcessKernelRuntime.install(backend, admission)
+
+        AmneDeviceAdmissionReport(
+            qualification = qualification,
+            admission = admission
+        )
+    }
+
+    private fun loadBackend(): AmneKernelBackend {
         val type = Class.forName(BACKEND_CLASS)
         val instance = type.getDeclaredConstructor().newInstance()
         require(instance is AmneKernelBackend) {
             "packaged AMNE native backend does not implement AmneKernelBackend"
         }
-        val backend = instance
+        return instance
+    }
+
+    private fun qualifyBackend(
+        backend: AmneKernelBackend,
+        tolerance: Float
+    ): AmneDeviceQualificationReport {
         val errors = linkedMapOf<AmneKernelPrimitive, Float>()
 
         fun record(
@@ -150,7 +213,7 @@ object AmneNativeRuntimeProbe {
         }
 
         val max = errors.values.maxOrNull() ?: Float.POSITIVE_INFINITY
-        AmneDeviceQualificationReport(
+        return AmneDeviceQualificationReport(
             backendId = backend.descriptor.backendId,
             passed = errors.keys == expectedPrimitives &&
                 errors.values.all {
