@@ -115,6 +115,7 @@ object AmneDeviceMicrobenchmark {
                 val workload = workloads[primitive] ?: return@mapNotNull null
                 benchmarkOne(
                     primitive = primitive,
+                    innerIterations = workload.innerIterations,
                     reference = { workload.invoke(reference) },
                     candidate = { workload.invoke(candidate) }
                 )
@@ -211,9 +212,11 @@ object AmneDeviceMicrobenchmark {
 
     private fun benchmarkOne(
         primitive: AmneKernelPrimitive,
+        innerIterations: Int,
         reference: () -> Float,
         candidate: () -> Float
     ): AmnePrimitiveBenchmark {
+        require(innerIterations > 0)
         repeat(WARMUP_ROUNDS) {
             sink += reference()
             sink += candidate()
@@ -223,11 +226,11 @@ object AmneDeviceMicrobenchmark {
         val candidateSamples = LongArray(SAMPLE_COUNT)
         for (sample in 0 until SAMPLE_COUNT) {
             if (sample % 2 == 0) {
-                referenceSamples[sample] = measure(reference, primitive)
-                candidateSamples[sample] = measure(candidate, primitive)
+                referenceSamples[sample] = measure(reference, innerIterations)
+                candidateSamples[sample] = measure(candidate, innerIterations)
             } else {
-                candidateSamples[sample] = measure(candidate, primitive)
-                referenceSamples[sample] = measure(reference, primitive)
+                candidateSamples[sample] = measure(candidate, innerIterations)
+                referenceSamples[sample] = measure(reference, innerIterations)
             }
         }
 
@@ -248,20 +251,9 @@ object AmneDeviceMicrobenchmark {
 
     private fun measure(
         operation: () -> Float,
-        primitive: AmneKernelPrimitive
+        iterations: Int
     ): Long {
-        val iterations = when (primitive) {
-            AmneKernelPrimitive.DOT_F32 -> 16
-            AmneKernelPrimitive.MATVEC_F32,
-            AmneKernelPrimitive.MATVEC_Q4_0,
-            AmneKernelPrimitive.MATVEC_Q8_0 -> 2
-            AmneKernelPrimitive.RMS_NORM_F32,
-            AmneKernelPrimitive.SILU_F32,
-            AmneKernelPrimitive.SWIGLU_F32 -> 8
-            AmneKernelPrimitive.SOFTMAX_F32 -> 16
-            AmneKernelPrimitive.ROPE_F32 -> 32
-        }
-
+        require(iterations > 0)
         val started = System.nanoTime()
         repeat(iterations) {
             sink += operation()
