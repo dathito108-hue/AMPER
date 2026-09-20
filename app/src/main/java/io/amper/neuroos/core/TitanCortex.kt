@@ -372,6 +372,9 @@ class TitanCortexRuntime(
         require(normalized.attachments == request.attachments) {
             "request normalizer must not change attachments"
         }
+        require(normalized.conversationSessionId == request.conversationSessionId) {
+            "request normalizer must not change conversation session lifecycle"
+        }
         return normalized
     }
 
