@@ -1,6 +1,5 @@
 package io.amper.neuroos.core
 
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
@@ -306,7 +305,7 @@ class AmiDecoderFfnExecutionTest {
         val bytes = ByteBuffer
             .allocate(values.size * 4)
             .order(ByteOrder.LITTLE_ENDIAN)
-        values.forEach(bytes::putFloat)
+        values.forEach { value -> bytes.putFloat(value) }
         raf.seek(offset)
         raf.write(bytes.array())
     }
