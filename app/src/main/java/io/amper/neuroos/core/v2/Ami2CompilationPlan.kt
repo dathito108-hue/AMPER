@@ -160,6 +160,7 @@ object Ami2CompilationPlanner {
         tokenizerSha256: String,
         chatProtocolSha256: String,
         logicalGraphSha256: String,
+        tensorIndexSha256: String,
         canonicalWeightsSha256: String,
         tensorCount: Int,
         vocabularySize: Int
