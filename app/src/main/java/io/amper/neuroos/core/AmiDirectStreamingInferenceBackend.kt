@@ -104,28 +104,25 @@ class AmiDirectStreamingInferenceBackend(
     ): InferenceCost {
         val runtime = prepareModel(model).getOrThrow()
         val hardware = hardwareSnapshot()
-        val contextTokens = runtime.stackPlan.maxContextTokens
-        val kvBytes = runtime.stackPlan.layers.fold(0L) { total, layer ->
-            val perLayer = Math.multiplyExact(
-                Math.multiplyExact(
-                    layer.attention.kvWidth.toLong(),
-                    contextTokens.toLong()
-                ),
-                2L * Float.SIZE_BYTES.toLong()
-            )
-            Math.addExact(total, perLayer)
+        val promptTokens = AmiTokenizerEncoder.encode(
+            runtime.tokenizer,
+            request.prompt
+        ).size.also {
+            require(it > 0) { "AMI tokenizer produced an empty prompt" }
         }
-        val kvMb = ((kvBytes + MIB - 1L) / MIB)
-            .coerceAtMost(Int.MAX_VALUE.toLong())
-            .toInt()
-        val workingMb = 192
+        val memory = AmiRequestMemoryEstimator.estimate(
+            plan = runtime.stackPlan,
+            promptTokens = promptTokens,
+            requestedOutputTokens = request.maxOutputTokens,
+            maxWindowBytes = maxWindowBytes
+        )
         return InferenceCost(
-            estimatedMemoryMb = Math.addExact(workingMb, kvMb),
+            estimatedMemoryMb = memory.estimatedMemoryMb,
             preferredThreads = hardware?.logicalProcessors
                 ?.minus(1)
                 ?.coerceIn(1, 6)
                 ?: 1,
-            contextTokens = contextTokens
+            contextTokens = runtime.stackPlan.maxContextTokens
         )
     }
 
@@ -347,7 +344,6 @@ class AmiDirectStreamingInferenceBackend(
 
     companion object {
         const val BACKEND_ID: String = AmperCoreInferencePort.CORE_ID
-        private const val MIB: Long = 1024L * 1024L
     }
 }
 
