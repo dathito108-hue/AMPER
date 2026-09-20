@@ -1,5 +1,6 @@
 package io.amper.neuroos.core.v2
 
+import io.amper.neuroos.core.ModelArtifactSource
 import java.io.EOFException
 import java.io.File
 import java.io.FileInputStream
@@ -83,7 +84,7 @@ data class Ami2WrittenBinaryArtifact(
 data class Ami2LoadedBinaryArtifact(
     val file: File,
     val bundle: Ami2FoundationBundle,
-    val migrationEvidence: Ami2MigrationEvidence,
+    val migrationEvidence: Ami2MigrationEvidence?,
     val sections: List<Ami2BinarySectionDescriptor>,
     val fileSha256: String
 )
@@ -165,6 +166,62 @@ class Ami2FileRangePayloadSource(
                 val read = input.read(buffer, 0, wanted)
                 if (read < 0) {
                     throw EOFException("AMI2 file-range source changed or was truncated")
+                }
+                if (read == 0) continue
+                digest.update(buffer, 0, read)
+                output.write(buffer, 0, read)
+                remaining -= read.toLong()
+            }
+        }
+        return digest.digest().toHex()
+    }
+}
+
+class Ami2ModelArtifactRangePayloadSource(
+    private val source: ModelArtifactSource,
+    val sourceOffset: Long,
+    override val length: Long,
+    override val expectedSha256: String
+) : Ami2PayloadSource {
+    init {
+        require(sourceOffset >= 0L) { "AMI2 model-source range offset must be non-negative" }
+        require(length > 0L) { "AMI2 model-source range must be non-empty" }
+        require(expectedSha256.matches(Regex("[0-9a-f]{64}"))) {
+            "AMI2 model-source range digest must be lowercase SHA-256"
+        }
+        source.lengthBytes?.let { sourceLength ->
+            require(Math.addExact(sourceOffset, length) <= sourceLength) {
+                "AMI2 model-source range exceeds declared source length"
+            }
+        }
+    }
+
+    override fun copyTo(
+        output: RandomAccessFile,
+        destinationOffset: Long,
+        buffer: ByteArray
+    ): String {
+        require(buffer.isNotEmpty()) { "AMI2 streaming copy buffer must be non-empty" }
+        val digest = MessageDigest.getInstance("SHA-256")
+        source.openStream().use { input ->
+            var skipRemaining = sourceOffset
+            while (skipRemaining > 0L) {
+                val wanted = minOf(skipRemaining, buffer.size.toLong()).toInt()
+                val read = input.read(buffer, 0, wanted)
+                if (read < 0) {
+                    throw EOFException("AMI2 model source changed or was truncated while seeking")
+                }
+                if (read == 0) continue
+                skipRemaining -= read.toLong()
+            }
+
+            output.seek(destinationOffset)
+            var remaining = length
+            while (remaining > 0L) {
+                val wanted = minOf(remaining, buffer.size.toLong()).toInt()
+                val read = input.read(buffer, 0, wanted)
+                if (read < 0) {
+                    throw EOFException("AMI2 model source changed or was truncated during copy")
                 }
                 if (read == 0) continue
                 digest.update(buffer, 0, read)
@@ -463,9 +520,11 @@ class Ami2CanonicalBinaryWriter {
             append("canonical_weights_sha256=").append(f.canonicalWeightsSha256).append('\n')
             append("tensor_count=").append(f.tensorCount).append('\n')
             append("vocabulary_size=").append(f.vocabularySize).append('\n')
-            append("legacy_ami1_sha256=")
-                .append(plan.migrationEvidence.legacyAmi1Sha256)
-                .append('\n')
+            plan.migrationEvidence?.let { evidence ->
+                append("legacy_ami1_sha256=")
+                    .append(evidence.legacyAmi1Sha256)
+                    .append('\n')
+            }
         }.toByteArray(Charsets.UTF_8)
     }
 
@@ -644,9 +703,7 @@ class Ami2CanonicalBinaryReader {
         Ami2LoadedBinaryArtifact(
             file = file,
             bundle = bundle,
-            migrationEvidence = Ami2MigrationEvidence(
-                requireField(manifest, "legacy_ami1_sha256", "AMI2 manifest")
-            ),
+            migrationEvidence = manifest["legacy_ami1_sha256"]?.let(::Ami2MigrationEvidence),
             sections = header.descriptors,
             fileSha256 = sha256File(file)
         )
