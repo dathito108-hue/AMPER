@@ -150,7 +150,24 @@ class AmneKernelDispatchTest {
             )
         )
         val registry = AmneKernelRegistry(
-            listOf(AmneReferenceCpuKernels, optimized)
+            backends = listOf(AmneReferenceCpuKernels, optimized),
+            admissions = listOf(
+                AmneBackendAdmission(
+                    backendId = "fake-dotprod",
+                    admittedPrimitives = setOf(AmneKernelPrimitive.MATVEC_Q4_0),
+                    numericalQualificationPassed = true,
+                    benchmarkResults = mapOf(
+                        AmneKernelPrimitive.MATVEC_Q4_0 to AmnePrimitiveBenchmark(
+                            primitive = AmneKernelPrimitive.MATVEC_Q4_0,
+                            referenceMedianNs = 2_000L,
+                            candidateMedianNs = 1_000L,
+                            speedup = 2.0,
+                            admitted = true
+                        )
+                    ),
+                    minimumSpeedup = 1.05
+                )
+            )
         )
         val hardware = AmiHardwareSnapshot(
             features = setOf(
@@ -165,6 +182,41 @@ class AmneKernelDispatchTest {
 
         assertEquals(
             "fake-dotprod",
+            registry.backendFor(
+                AmneKernelPrimitive.MATVEC_Q4_0,
+                hardware
+            ).descriptor.backendId
+        )
+    }
+
+    @Test
+    fun optimizedBackendWithoutAdmissionCannotRoute() {
+        val optimized = FakeOptimizedBackend(
+            AmneKernelDescriptor(
+                backendId = "fake-unqualified",
+                primitives = setOf(AmneKernelPrimitive.MATVEC_Q4_0),
+                requiredHardware = setOf(
+                    AmiHardwareFeature.ARM64,
+                    AmiHardwareFeature.NEON
+                ),
+                deterministicReference = false
+            )
+        )
+        val registry = AmneKernelRegistry(
+            listOf(AmneReferenceCpuKernels, optimized)
+        )
+        val hardware = AmiHardwareSnapshot(
+            features = setOf(
+                AmiHardwareFeature.ARM64,
+                AmiHardwareFeature.NEON
+            ),
+            logicalProcessors = 8,
+            memoryClassMb = 512,
+            lowRamDevice = false
+        )
+
+        assertEquals(
+            AmneReferenceCpuKernels.descriptor.backendId,
             registry.backendFor(
                 AmneKernelPrimitive.MATVEC_Q4_0,
                 hardware
