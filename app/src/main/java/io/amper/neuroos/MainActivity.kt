@@ -163,6 +163,9 @@ class MainActivity : ComponentActivity() {
             val coreFoundationPreferences = remember {
                 getSharedPreferences("amper-core-foundation", Context.MODE_PRIVATE)
             }
+            val conversationUiPreferences = remember {
+                getSharedPreferences("amper-conversation-ui", Context.MODE_PRIVATE)
+            }
             val legacyRoutingPreferences = remember {
                 getSharedPreferences("amper-model-routing", Context.MODE_PRIVATE)
             }
@@ -478,6 +481,26 @@ class MainActivity : ComponentActivity() {
             }
             val restoredApproval = remember { assistant.restorePendingApproval() }
             val restoredPlan = remember { planner.latest() }
+            val initialConversationId = remember {
+                val primary = runtime.conversations.primary()
+                val persistedConversation = conversationUiPreferences
+                    .getString("active_conversation_id", null)
+                    ?.let { io.amper.neuroos.core.ConversationId(it) }
+                    ?.takeIf { candidate ->
+                        candidate == primary ||
+                            runtime.conversations.recent(candidate, limit = 1).isNotEmpty()
+                    }
+                restoredApproval?.conversationId
+                    ?: persistedConversation
+                    ?: restoredPlan?.conversationId
+                    ?: runtime.conversations.recentThreads(limit = 1)
+                        .firstOrNull()
+                        ?.conversationId
+                    ?: primary
+            }
+            val initialConversationTurns = remember {
+                runtime.conversations.recent(initialConversationId, limit = 12)
+            }
             val initialProfileModel = remember { catalog.list().firstOrNull() }
             val executionLanes = remember { AmperExecutionLanes() }
             val amneQualificationBusyState = remember {
@@ -612,11 +635,7 @@ class MainActivity : ComponentActivity() {
                 mutableStateOf("Bạn là ai và đang dùng lõi suy luận nào?")
             }
             var conversationId by remember {
-                mutableStateOf(
-                    restoredApproval?.conversationId
-                        ?: restoredPlan?.conversationId
-                        ?: runtime.conversations.primary()
-                )
+                mutableStateOf(initialConversationId)
             }
             var pendingApproval by remember {
                 mutableStateOf<SovereignAssistantTurnResult.PendingApproval?>(restoredApproval)
@@ -625,7 +644,10 @@ class MainActivity : ComponentActivity() {
                 mutableStateOf(
                     restoredApproval?.let {
                         "Restored pending action: ${it.proposal.capability.value} · not executed"
-                    } ?: if (hasRuntimeBackend) {
+                    } ?: if (initialConversationTurns.isNotEmpty()) {
+                        "Restored conversation ${initialConversationId.value.take(12)} · " +
+                            "${initialConversationTurns.size} recent turn(s) · AMPER Core ready"
+                    } else if (hasRuntimeBackend) {
                         "AMPER Single-Core ready · " + amperCore.id
                     } else {
                         "AMPER Core runtime unavailable"
@@ -637,12 +659,20 @@ class MainActivity : ComponentActivity() {
                     if (restoredApproval != null) {
                         "AMPER restored an unexecuted side-effect approval checkpoint. Review it before approving or rejecting."
                     } else {
-                        ""
+                        initialConversationTurns.joinToString("\n\n") { turn ->
+                            "${turn.role.name}: ${turn.text}"
+                        }
                     }
                 )
             }
             var routeObservation by remember {
                 mutableStateOf(titan.latestRouteObservation())
+            }
+            DisposableEffect(conversationId) {
+                conversationUiPreferences.edit()
+                    .putString("active_conversation_id", conversationId.value)
+                    .apply()
+                onDispose { }
             }
             var smokeTestBusy by remember { mutableStateOf(false) }
             var smokeTestStatus by remember {
@@ -2292,7 +2322,7 @@ class MainActivity : ComponentActivity() {
                                 executionLanes.executeInteractive {
                                     runOnUiThread {
                                         smokeTestStatus =
-                                            "RUNNING · Titan routing → staged GGUF verification → native load/generation · primes assistant-compatible warm session..."
+                                            "RUNNING · AMPER Core admission → AMI/AMNE generation · single-core local inference..."
                                     }
                                     val startedNs = System.nanoTime()
                                     val result = inferencePort.infer(
