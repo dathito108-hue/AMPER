@@ -1,8 +1,25 @@
 package io.amper.neuroos.core
 
+import io.amper.neuroos.core.v2.Amne2ConversationHotIdentity
+import io.amper.neuroos.core.v2.Amne2ConversationHotReusePolicy
+import io.amper.neuroos.core.v2.Amne2ExecutionSession
 import io.amper.neuroos.core.v2.Amne2ExecutionSessionFactory
 import io.amper.neuroos.core.v2.StoredAmi2Artifact
 import java.util.concurrent.ConcurrentHashMap
+
+private data class AmiDirectHotSessionSlot(
+    val identity: Amne2ConversationHotIdentity,
+    val session: Amne2ExecutionSession,
+    var committedTokenIds: IntArray
+)
+
+private data class AmiDirectSessionLease(
+    val session: Amne2ExecutionSession,
+    val promptTokenIds: IntArray,
+    val samplingHistoryPrefixTokenIds: IntArray,
+    val reused: Boolean,
+    val hotIdentity: Amne2ConversationHotIdentity?
+)
 
 data class AmiDirectPreparedModel(
     val artifact: StoredAmi2Artifact,
@@ -38,6 +55,8 @@ class AmiDirectStreamingInferenceBackend(
     private val sessionFactory = Amne2ExecutionSessionFactory(
         maxWindowBytes = maxWindowBytes
     )
+    private val hotSessionLock = Any()
+    private var hotSession: AmiDirectHotSessionSlot? = null
 
     override fun supports(model: InstalledModel): Boolean {
         if (!model.descriptor.format.equals("gguf", ignoreCase = true)) return false
@@ -195,18 +214,18 @@ class AmiDirectStreamingInferenceBackend(
         val textEmitter = AmiStableStreamingTextEmitter()
         var chunkIndex = 0
         val generationStartedNs = System.nanoTime()
-        val session = sessionFactory.open(
-            artifactFile = runtime.artifact.file,
+        val lease = acquireExecutionSession(
+            model = model,
+            runtime = runtime,
             hardware = hardware,
-            maxContextTokens = minOf(
-                runtime.stackPlan.maxContextTokens,
-                promptIds.size + request.maxOutputTokens
-            )
-        ).getOrThrow()
+            request = request,
+            fullPromptTokenIds = promptIds
+        )
 
         val result = try {
-            session.generate(
-                promptTokenIds = promptIds,
+            lease.session.generate(
+                promptTokenIds = lease.promptTokenIds,
+                samplingHistoryPrefixTokenIds = lease.samplingHistoryPrefixTokenIds,
                 config = AmiGenerationConfig(
                     maxNewTokens = request.maxOutputTokens,
                     sampling = AmiSamplingConfig(
@@ -235,15 +254,26 @@ class AmiDirectStreamingInferenceBackend(
                             }
                     }
                 }
-            ).getOrThrow()
+            ).getOrThrow().also {
+                cancellation.throwIfCancelled()
+            }
+        } catch (error: Throwable) {
+            handleExecutionFailure(lease)
+            throw error
         } finally {
-            session.close()
+            if (lease.hotIdentity == null) {
+                runCatching { lease.session.close().getOrThrow() }
+            }
         }
-        cancellation.throwIfCancelled()
 
         val finalGeneratedIds = result.generatedTokenIds
             .takeWhile { it !in stopIds }
             .toIntArray()
+        commitHotSession(
+            lease = lease,
+            fullPromptTokenIds = promptIds,
+            executedGeneratedTokenIds = finalGeneratedIds
+        )
         val finalText = AmiDetokenizer.decode(
             runtime.tokenizer,
             finalGeneratedIds
@@ -281,7 +311,7 @@ class AmiDirectStreamingInferenceBackend(
             text = finalText,
             promptTokens = promptIds.size,
             outputTokens = outputTokens,
-            sessionReused = false,
+            sessionReused = lease.reused,
             tokensPerSecond = tokensPerSecond,
             promptEvalTimeMs = promptPrepMs,
             generationTimeMs = generationMs
@@ -290,6 +320,142 @@ class AmiDirectStreamingInferenceBackend(
 
     override fun unload(modelId: ModelId): Result<Unit> = runCatching {
         prepared.entries.removeIf { it.value.artifact.modelId == modelId }
+        synchronized(hotSessionLock) {
+            val current = hotSession
+            if (current?.identity?.modelId == modelId.value) {
+                runCatching { current.session.close().getOrThrow() }
+                hotSession = null
+            }
+        }
+    }
+
+    private fun acquireExecutionSession(
+        model: InstalledModel,
+        runtime: AmiDirectPreparedModel,
+        hardware: AmiHardwareSnapshot,
+        request: InferenceRequest,
+        fullPromptTokenIds: IntArray
+    ): AmiDirectSessionLease {
+        val lifecycleId = request.conversationSessionId
+        if (lifecycleId == null) {
+            val session = sessionFactory.open(
+                artifactFile = runtime.artifact.file,
+                hardware = hardware,
+                maxContextTokens = minOf(
+                    runtime.stackPlan.maxContextTokens,
+                    fullPromptTokenIds.size + request.maxOutputTokens
+                )
+            ).getOrThrow()
+            return AmiDirectSessionLease(
+                session = session,
+                promptTokenIds = fullPromptTokenIds,
+                samplingHistoryPrefixTokenIds = intArrayOf(),
+                reused = false,
+                hotIdentity = null
+            )
+        }
+
+        val foundation = runtime.artifact.loaded.bundle.foundation
+        val requestedIdentity = Amne2ConversationHotIdentity(
+            conversationSessionId = lifecycleId,
+            modelId = model.descriptor.id.value,
+            foundationId = foundation.foundationId,
+            semanticSha256 = foundation.semanticSha256,
+            artifactSha256 = runtime.artifact.loaded.fileSha256
+        )
+
+        synchronized(hotSessionLock) {
+            val current = hotSession
+            if (current != null) {
+                val suffix = runCatching {
+                    require(current.session.position == current.committedTokenIds.size) {
+                        "AMNE2 hot-session KV position differs from committed token history"
+                    }
+                    Amne2ConversationHotReusePolicy.reusablePromptSuffix(
+                        cachedIdentity = current.identity,
+                        requestedIdentity = requestedIdentity,
+                        committedTokenIds = current.committedTokenIds,
+                        fullPromptTokenIds = fullPromptTokenIds,
+                        requestedOutputTokens = request.maxOutputTokens,
+                        maxContextTokens = current.session.maxContextTokens
+                    )
+                }.getOrNull()
+
+                if (suffix != null) {
+                    return AmiDirectSessionLease(
+                        session = current.session,
+                        promptTokenIds = suffix,
+                        samplingHistoryPrefixTokenIds = current.committedTokenIds.copyOf(),
+                        reused = true,
+                        hotIdentity = requestedIdentity
+                    )
+                }
+
+                runCatching { current.session.close().getOrThrow() }
+                hotSession = null
+            }
+
+            val session = sessionFactory.open(
+                artifactFile = runtime.artifact.file,
+                hardware = hardware,
+                maxContextTokens = runtime.stackPlan.maxContextTokens
+            ).getOrThrow()
+            hotSession = AmiDirectHotSessionSlot(
+                identity = requestedIdentity,
+                session = session,
+                committedTokenIds = intArrayOf()
+            )
+            return AmiDirectSessionLease(
+                session = session,
+                promptTokenIds = fullPromptTokenIds,
+                samplingHistoryPrefixTokenIds = intArrayOf(),
+                reused = false,
+                hotIdentity = requestedIdentity
+            )
+        }
+    }
+
+    private fun commitHotSession(
+        lease: AmiDirectSessionLease,
+        fullPromptTokenIds: IntArray,
+        executedGeneratedTokenIds: IntArray
+    ) {
+        val identity = lease.hotIdentity ?: return
+        val committed = IntArray(
+            fullPromptTokenIds.size + executedGeneratedTokenIds.size
+        )
+        fullPromptTokenIds.copyInto(committed, destinationOffset = 0)
+        executedGeneratedTokenIds.copyInto(
+            committed,
+            destinationOffset = fullPromptTokenIds.size
+        )
+
+        synchronized(hotSessionLock) {
+            val current = requireNotNull(hotSession) {
+                "AMNE2 hot session disappeared before commit"
+            }
+            require(current.session === lease.session) {
+                "AMNE2 hot session changed before commit"
+            }
+            require(current.identity == identity) {
+                "AMNE2 hot-session identity changed before commit"
+            }
+            require(current.session.position == committed.size) {
+                "AMNE2 KV position does not match committed conversation token history"
+            }
+            current.committedTokenIds = committed
+        }
+    }
+
+    private fun handleExecutionFailure(lease: AmiDirectSessionLease) {
+        if (lease.hotIdentity == null || lease.reused) return
+        synchronized(hotSessionLock) {
+            val current = hotSession
+            if (current?.session === lease.session) {
+                runCatching { current.session.close().getOrThrow() }
+                hotSession = null
+            }
+        }
     }
 
     private fun prepareModel(

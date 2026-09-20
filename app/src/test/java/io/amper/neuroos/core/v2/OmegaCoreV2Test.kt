@@ -14,6 +14,7 @@ class OmegaCoreV2Test {
         assertTrue("one-amper-foundation-runtime" in OmegaArchitectureLock.invariants)
         assertTrue("ami2-is-canonical-model-format" in OmegaArchitectureLock.invariants)
         assertTrue("amne2-is-canonical-execution-engine" in OmegaArchitectureLock.invariants)
+        assertTrue("conversation-hot-state-is-identity-bound" in OmegaArchitectureLock.invariants)
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
@@ -65,6 +66,14 @@ class OmegaCoreV2Test {
                 .exitCriteria
                 .contains(
                     "production AMPER Core inference consumes canonical AMI2 through AMNE2 sessions"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M3_AMNE2_RUNTIME }
+                .exitCriteria
+                .contains(
+                    "conversation hot-state reuse is bound to lifecycle and verified artifact identity"
                 )
         )
     }

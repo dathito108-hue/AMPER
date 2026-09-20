@@ -328,6 +328,7 @@ class SovereignAssistantTurnCoordinator(
             preferredModelId = previousModelId,
             userPreferredModelId = runtime.conversations.preferredModelId(conversationId),
             sessionRoutingPreference = boundInferenceProfile.sessionRoutingPreference,
+            conversationSessionId = conversationId.value,
             attachments = attachments
         )
         val firstStreamGate = if (

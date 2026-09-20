@@ -23,7 +23,15 @@ data class InferenceRequest(
      * and does not bypass context, memory, health, feedback or execution admission.
      */
     val sessionRoutingPreference: TitanSessionRoutingPreference = TitanSessionRoutingPreference.STANDARD,
-    val attachments: List<InferenceAttachment> = emptyList()
+    val attachments: List<InferenceAttachment> = emptyList(),
+    /**
+     * Optional opaque lifecycle key for reuse inside the single AMPER Core.
+     *
+     * It is not a routing hint and cannot select a model/backend. Production AMNE2 may use it only
+     * to reuse state already bound to the same verified foundation/artifact when prompt-token
+     * continuity is proven. Auxiliary reflection/synthesis passes should leave it null.
+     */
+    val conversationSessionId: String? = null
 ) {
     init {
         require(prompt.isNotBlank())
@@ -32,6 +40,10 @@ data class InferenceRequest(
         require(temperature in 0.0..2.0)
         preferredModelId?.let { require(it.value.isNotBlank()) { "preferred model id must not be blank" } }
         userPreferredModelId?.let { require(it.value.isNotBlank()) { "user preferred model id must not be blank" } }
+        conversationSessionId?.let {
+            require(it.isNotBlank()) { "conversation session id must not be blank" }
+            require(it.length <= 160) { "conversation session id exceeds lifecycle-key limit" }
+        }
         MultimodalInferencePolicy.validateAttachments(attachments)
         val attachmentCapabilities = MultimodalInferencePolicy.requiredCapabilities(attachments)
         require(requiredCapabilities.containsAll(attachmentCapabilities)) {
@@ -359,6 +371,9 @@ class TitanCortexRuntime(
         }
         require(normalized.attachments == request.attachments) {
             "request normalizer must not change attachments"
+        }
+        require(normalized.conversationSessionId == request.conversationSessionId) {
+            "request normalizer must not change conversation session lifecycle"
         }
         return normalized
     }
