@@ -13,6 +13,10 @@ on:
           - full
   pull_request:
     branches: [ main ]
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/qualification-apk-trigger'
 
 permissions:
   contents: read
@@ -46,6 +50,10 @@ jobs:
             echo "native_changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            echo "native_changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           git fetch --no-tags origin "$BASE_SHA" --depth=1
           CHANGED="$(git diff --name-only "$BASE_SHA" "$GITHUB_SHA")"
           printf "%s\n" "$CHANGED"
@@ -66,20 +74,23 @@ jobs:
       - name: Build canonical debug APK
         run: gradle :app:assembleDebug --stacktrace
       - name: Write canonical APK provenance
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
         shell: bash
+        env:
+          DISPATCH_MODE: ${{ inputs.mode }}
         run: |
           APK="app/build/outputs/apk/debug/app-debug.apk"
+          MODE_LABEL="${DISPATCH_MODE:-fast-main-trigger}"
           sha256sum "$APK" | tee "$APK.sha256"
           {
             echo "git_sha=$GITHUB_SHA"
             echo "git_ref=$GITHUB_REF"
             echo "workflow_run_id=$GITHUB_RUN_ID"
             echo "workflow_run_number=$GITHUB_RUN_NUMBER"
-            echo "mode=${{ inputs.mode }}"
+            echo "mode=$MODE_LABEL"
           } > "$APK.provenance.txt"
       - uses: actions/upload-artifact@v4
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
         with:
           name: AMPER-canonical-debug-${{ github.sha }}
           path: |
