@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
+import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.util.UUID
@@ -12,7 +13,7 @@ import java.util.UUID
 class ContentUriModelArtifactSource(
     private val resolver: ContentResolver,
     private val uri: Uri
-) : DescriptorBoundNativeModelPathSource {
+) : ModelArtifactSource {
     private val metadata: Pair<String, Long?> by lazy { queryMetadata() }
 
     override val locator: String = uri.toString()
@@ -21,20 +22,6 @@ class ContentUriModelArtifactSource(
 
     override fun openStream(): InputStream = resolver.openInputStream(uri)
         ?: throw IOException("unable to open model URI: $uri")
-
-    /**
-     * Expose the already-authorized user document to llama.cpp without copying the
-     * GGUF into the sovereign store. The ParcelFileDescriptor remains open while
-     * the native loader consumes /proc/self/fd/<fd>, satisfying the descriptor-bound
-     * native path contract through the entire callback.
-     */
-    override fun <T> withNativePath(block: (String) -> T): T {
-        val descriptor = resolver.openFileDescriptor(uri, "r")
-            ?: throw IOException("unable to open native descriptor for model URI: $uri")
-        descriptor.use {
-            return block("/proc/self/fd/${it.fd}")
-        }
-    }
 
     private fun queryMetadata(): Pair<String, Long?> {
         var name = uri.lastPathSegment ?: "model.gguf"
@@ -104,10 +91,21 @@ class AndroidModelImportService(
     }
 }
 
-class ContentUriArtifactResolver(private val resolver: ContentResolver) : ModelArtifactResolver {
+class ContentUriArtifactResolver(
+    private val resolver: ContentResolver,
+    private val nativeStagingRoot: File? = null
+) : ModelArtifactResolver {
     override fun resolve(model: InstalledModel): ModelArtifactSource? = runCatching {
         val uri = Uri.parse(model.locator)
         require(uri.scheme == ContentResolver.SCHEME_CONTENT) { "not a content URI" }
-        ContentUriModelArtifactSource(resolver, uri)
+        val source = ContentUriModelArtifactSource(resolver, uri)
+        nativeStagingRoot?.let { root ->
+            AppPrivateStagedModelArtifactSource(
+                source = source,
+                stagingRoot = root,
+                contentSha256 = model.sha256,
+                expectedLengthBytes = model.lengthBytes
+            )
+        } ?: source
     }.getOrNull()
 }
