@@ -43,6 +43,14 @@ class OmegaCoreV2Test {
                 .exitCriteria
                 .contains("bounded AMI2 mmap execution view")
         )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M3_AMNE2_RUNTIME }
+                .exitCriteria
+                .contains(
+                    "verified AMI2 decoder semantic binding reuses the qualified decoder stack"
+                )
+        )
     }
 
     @Test
