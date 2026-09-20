@@ -28,6 +28,10 @@ class OmegaCoreV2Test {
                 OmegaArchitectureLock.invariants
         )
         assertTrue("amcf-cycle-state-commit-is-transactional" in OmegaArchitectureLock.invariants)
+        assertTrue(
+            "amcf-production-port-reuses-single-core-endpoint" in
+                OmegaArchitectureLock.invariants
+        )
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
@@ -143,6 +147,14 @@ class OmegaCoreV2Test {
                 .exitCriteria
                 .contains(
                     "AMCF cycle orchestration is bounded cancellation-aware and commits recurrent state only after successful cycles"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M4_AMCF_FOUNDATION }
+                .exitCriteria
+                .contains(
+                    "AMCF production cycles execute through the existing single-core AMI2/AMNE2 inference endpoint"
                 )
         )
     }
