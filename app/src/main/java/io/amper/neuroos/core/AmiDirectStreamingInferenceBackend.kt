@@ -3,7 +3,6 @@ package io.amper.neuroos.core
 import io.amper.neuroos.core.v2.Amne2ConversationHotIdentity
 import io.amper.neuroos.core.v2.Amne2ContextPressureAction
 import io.amper.neuroos.core.v2.Amne2ContextPressurePolicy
-import io.amper.neuroos.core.v2.Amne2ConversationHotReusePolicy
 import io.amper.neuroos.core.v2.Amne2ExecutionSession
 import io.amper.neuroos.core.v2.Amne2MemoryBudget
 import io.amper.neuroos.core.v2.Amne2ExecutionSessionFactory
