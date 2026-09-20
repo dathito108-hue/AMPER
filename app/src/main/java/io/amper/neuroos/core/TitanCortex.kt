@@ -434,6 +434,8 @@ class TitanCortexRuntime(
      * Chunks never change route selection, feedback, persistence or authority. Observer exceptions
      * are isolated from backend health. A blocking backend emits one complete text chunk only after
      * inference has finished, so AMPER never presents synthetic streaming as realtime generation.
+     * Phase595 bounds the output budget of that blocking fallback so an interactive "streaming"
+     * request cannot silently spend hundreds of mobile CPU tokens before exposing its first text.
      */
     fun inferStream(
         request: InferenceRequest,
@@ -467,7 +469,10 @@ class TitanCortexRuntime(
                 cancellation = cancellation
             )
             .getOrThrow()
-        val executionRequest = route.executionRequest(request)
+        val executionRequest = TitanBlockingStreamFallbackPolicy.bound(
+            backend = route.backend,
+            request = route.executionRequest(request)
+        )
         val streamedText = StringBuilder()
         var nextChunkIndex = 0
         var terminalSeen = false
