@@ -138,12 +138,14 @@ class ReflexLearningJobService : JobService() {
         ReflexMaintenanceExecutionGate.exclusive {
             val governor = AndroidResourceGovernor(applicationContext)
             val deviceStatusSource = AndroidDeviceStatusSource(applicationContext)
+            val canonicalFilesDir =
+                AndroidAppPrivateStorage.canonicalFilesDir(applicationContext)
             val runtime = AmperRuntime.persistentEncrypted(
-                rootDir = filesDir,
+                rootDir = canonicalFilesDir,
                 governor = governor,
                 deviceStatusSource = deviceStatusSource
             )
-            val sovereignDir = File(filesDir, "amper-sovereign")
+            val sovereignDir = File(canonicalFilesDir, "amper-sovereign")
             val artifacts = FileReflexLinearArtifactStore(
                 File(sovereignDir, "native-reflex")
             )
