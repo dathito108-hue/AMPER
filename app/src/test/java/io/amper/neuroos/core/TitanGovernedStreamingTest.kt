@@ -56,6 +56,7 @@ class TitanGovernedStreamingTest {
         assertEquals(listOf("hello", " ", "world"), chunks.filterNot { it.finished }.map { it.text })
         assertTrue(chunks.last().finished)
         assertEquals(1, backend.executions)
+        assertEquals(TitanBlockingStreamFallbackPolicy.MAX_OUTPUT_TOKENS, backend.lastMaxOutputTokens)
     }
 
     @Test
@@ -124,6 +125,27 @@ class TitanGovernedStreamingTest {
     }
 
     @Test
+    fun trueStreamingBackendKeepsFullCallerOutputBudget() {
+        val backend = RecordingStreamingBackend()
+        val request = InferenceRequest("stream budget", maxOutputTokens = 384)
+
+        val bounded = TitanBlockingStreamFallbackPolicy.bound(backend, request)
+
+        assertEquals(384, bounded.maxOutputTokens)
+    }
+
+    @Test
+    fun blockingBackendOutputBudgetIsCappedForInteractiveStreamFallback() {
+        val backend = BlockingBackend()
+        val request = InferenceRequest("blocking budget", maxOutputTokens = 384)
+
+        val bounded = TitanBlockingStreamFallbackPolicy.bound(backend, request)
+
+        assertEquals(TitanBlockingStreamFallbackPolicy.MAX_OUTPUT_TOKENS, bounded.maxOutputTokens)
+        assertEquals(384, request.maxOutputTokens)
+    }
+
+    @Test
     fun blockingBackendFallsBackToOneCompletedChunkWithoutPretendingRealtime() {
         val descriptor = ModelDescriptor(
             id = ModelId("blocking-brain"),
@@ -156,7 +178,10 @@ class TitanGovernedStreamingTest {
         )
         val chunks = mutableListOf<InferenceChunk>()
 
-        val response = titan.inferStream(InferenceRequest("blocking fallback"), chunks::add).getOrThrow()
+        val response = titan.inferStream(
+            InferenceRequest("blocking fallback", maxOutputTokens = 384),
+            chunks::add
+        ).getOrThrow()
 
         assertEquals("completed-only", response.text)
         assertEquals(listOf("completed-only"), chunks.filterNot { it.finished }.map { it.text })
@@ -203,6 +228,7 @@ class TitanGovernedStreamingTest {
     private class BlockingBackend : ManagedInferenceBackend {
         override val id: String = "blocking-backend"
         var executions: Int = 0
+        var lastMaxOutputTokens: Int? = null
 
         override fun supports(model: InstalledModel): Boolean = true
         override fun health(): BackendHealth = BackendHealth(BackendState.READY)
@@ -215,6 +241,7 @@ class TitanGovernedStreamingTest {
             request: InferenceRequest
         ): Result<InferenceResponse> {
             executions += 1
+            lastMaxOutputTokens = request.maxOutputTokens
             return Result.success(
                 InferenceResponse(model.descriptor.id, id, "completed-only")
             )
