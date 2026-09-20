@@ -140,7 +140,8 @@ class TitanGovernedStreamingTest {
 
         val bounded = TitanBlockingStreamFallbackPolicy.bound(backend, request)
 
-        assertEquals(TitanBlockingStreamFallbackPolicy.MAX_OUTPUT_TOKENS, bounded.maxOutputTokens)
+        assertEquals(32, TitanBlockingStreamFallbackPolicy.MAX_OUTPUT_TOKENS)
+        assertEquals(32, bounded.maxOutputTokens)
         assertEquals(384, request.maxOutputTokens)
     }
 

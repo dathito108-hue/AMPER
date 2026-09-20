@@ -100,7 +100,7 @@ interface StreamingInferenceBackend : InferenceBackend {
  * True streaming backends retain the caller's complete output budget.
  */
 object TitanBlockingStreamFallbackPolicy {
-    const val MAX_OUTPUT_TOKENS: Int = 64
+    const val MAX_OUTPUT_TOKENS: Int = 32
 
     fun bound(
         backend: InferenceBackend,

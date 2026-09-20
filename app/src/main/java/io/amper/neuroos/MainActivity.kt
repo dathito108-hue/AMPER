@@ -1908,14 +1908,14 @@ class MainActivity : ComponentActivity() {
                                 executionLanes.executeInteractive {
                                     runOnUiThread {
                                         smokeTestStatus =
-                                            "RUNNING · Titan routing → staged GGUF verification → native load/generation..."
+                                            "RUNNING · Titan routing → staged GGUF verification → native load/generation · primes assistant-compatible warm session..."
                                     }
                                     val startedNs = System.nanoTime()
                                     val result = inferencePort.infer(
                                         InferenceRequest(
                                             prompt = "Reply with one short sentence confirming local inference is working.",
                                             maxOutputTokens = 32,
-                                            temperature = 0.0
+                                            temperature = 0.7
                                         )
                                     )
                                     val wallMs = (System.nanoTime() - startedNs) / 1_000_000L
@@ -1997,7 +1997,7 @@ class MainActivity : ComponentActivity() {
                                                         AssistantTurnStage.NATIVE_SYSTEM2 ->
                                                             "RUNNING · stage NATIVE_SYSTEM2"
                                                         AssistantTurnStage.TITAN_INFERENCE ->
-                                                            "RUNNING · stage TITAN_INFERENCE · blocking backends use bounded mobile output"
+                                                            "RUNNING · stage TITAN_INFERENCE · blocking backend capped at 32 tokens"
                                                         AssistantTurnStage.ACTION_EVALUATION ->
                                                             "RUNNING · stage ACTION_EVALUATION"
                                                         AssistantTurnStage.FINALIZING ->
