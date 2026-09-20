@@ -553,6 +553,11 @@ class MainActivity : ComponentActivity() {
             var routeObservation by remember {
                 mutableStateOf(titan.latestRouteObservation())
             }
+            var smokeTestBusy by remember { mutableStateOf(false) }
+            var smokeTestStatus by remember {
+                mutableStateOf("Physical local inference smoke test not run")
+            }
+            var smokeTestOutput by remember { mutableStateOf("") }
             var activeInferenceCancellation by remember {
                 mutableStateOf<InferenceCancellationSignal?>(null)
             }
@@ -1870,6 +1875,61 @@ class MainActivity : ComponentActivity() {
                         )
 
                         TitanRouteObservatoryPanel(routeObservation)
+
+                        Text("Physical local inference smoke test")
+                        Text(smokeTestStatus)
+                        if (smokeTestOutput.isNotBlank()) {
+                            Text(smokeTestOutput)
+                        }
+                        Button(
+                            enabled = hasModel && hasRuntimeBackend && !smokeTestBusy,
+                            onClick = {
+                                smokeTestBusy = true
+                                smokeTestStatus = "Loading preferred GGUF and running local inference..."
+                                smokeTestOutput = ""
+                                executor.execute {
+                                    val startedNs = System.nanoTime()
+                                    val result = inferencePort.infer(
+                                        InferenceRequest(
+                                            prompt = "Reply with one short sentence confirming local inference is working.",
+                                            maxOutputTokens = 32,
+                                            temperature = 0.0
+                                        )
+                                    )
+                                    val wallMs = (System.nanoTime() - startedNs) / 1_000_000L
+                                    runOnUiThread {
+                                        smokeTestBusy = false
+                                        routeObservation = titan.latestRouteObservation()
+                                        result.fold(
+                                            onSuccess = { response ->
+                                                val speed = response.tokensPerSecond
+                                                    ?.let { value -> " · %.1f tok/s".format(value) }
+                                                    .orEmpty()
+                                                val generated = response.outputTokens
+                                                    ?.let { " · $it output tok" }
+                                                    .orEmpty()
+                                                val generation = response.generationTimeMs
+                                                    ?.let { " · generation ${it}ms" }
+                                                    .orEmpty()
+                                                smokeTestStatus =
+                                                    "PASS · model=${response.modelId.value} · backend=${response.backendId}" +
+                                                        generated + speed + generation + " · wall=${wallMs}ms"
+                                                smokeTestOutput = response.text
+                                            },
+                                            onFailure = { error ->
+                                                smokeTestStatus =
+                                                    "FAIL · ${error::class.java.simpleName}: " +
+                                                        (error.message ?: "no detail") +
+                                                        " · wall=${wallMs}ms"
+                                                smokeTestOutput = ""
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        ) {
+                            Text(if (smokeTestBusy) "Running local inference..." else "Run local inference smoke test")
+                        }
 
                         OutlinedTextField(
                             value = prompt,
