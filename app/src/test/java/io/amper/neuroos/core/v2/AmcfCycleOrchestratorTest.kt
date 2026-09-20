@@ -19,7 +19,7 @@ class AmcfCycleOrchestratorTest {
             execution = AmcfCycleExecutionPort { request, _ ->
                 Result.success(observationFor(request.cycle))
             },
-            commitObserver = AmcfRecurrentStateCommitObserver { committed += it }
+            stateObserver = AmcfRecurrentStateObserver { committed += it }
         )
 
         val result = orchestrator.run(plan).getOrThrow()
@@ -63,7 +63,7 @@ class AmcfCycleOrchestratorTest {
                     )
                 )
             },
-            commitObserver = AmcfRecurrentStateCommitObserver { committed += it }
+            stateObserver = AmcfRecurrentStateObserver { committed += it }
         )
 
         val result = orchestrator.run(plan, cancellation)
@@ -84,7 +84,7 @@ class AmcfCycleOrchestratorTest {
                     Result.success(observationFor(request.cycle))
                 }
             },
-            commitObserver = AmcfRecurrentStateCommitObserver { committed += it }
+            stateObserver = AmcfRecurrentStateObserver { committed += it }
         )
 
         val result = orchestrator.run(plan)
