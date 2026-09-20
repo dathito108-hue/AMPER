@@ -59,6 +59,14 @@ class OmegaCoreV2Test {
                     "single AMNE2 execution session owns decoder plan KV state and cancellation"
                 )
         )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M3_AMNE2_RUNTIME }
+                .exitCriteria
+                .contains(
+                    "production AMPER Core inference consumes canonical AMI2 through AMNE2 sessions"
+                )
+        )
     }
 
     @Test
