@@ -186,7 +186,9 @@ class Amne2ExecutionSessionFactory(
     private val viewFactory: Amne2ExecutionViewFactory = Amne2ExecutionViewFactory(),
     private val bindingFactory: Amne2DecoderSemanticBindingFactory =
         Amne2DecoderSemanticBindingFactory(),
-    private val maxWindowBytes: Int = Amne2ExecutionViewFactory.DEFAULT_MAX_WINDOW_BYTES
+    private val maxWindowBytes: Int = Amne2ExecutionViewFactory.DEFAULT_MAX_WINDOW_BYTES,
+    private val hardwareAutotuner: Amne2HardwareAutotuner =
+        Amne2ProcessHardwareAutotuning.autotuner
 ) {
     init {
         require(maxWindowBytes > 0)
@@ -197,6 +199,7 @@ class Amne2ExecutionSessionFactory(
         hardware: AmiHardwareSnapshot,
         maxContextTokens: Int? = null
     ): Result<Amne2ExecutionSession> = runCatching {
+        hardwareAutotuner.tune(hardware).getOrThrow()
         val view = viewFactory.open(artifactFile, hardware).getOrThrow()
         val binding = bindingFactory.bind(view).getOrThrow()
         val plan = AmiDecoderStackPlanner
