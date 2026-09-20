@@ -304,11 +304,11 @@ class AmiAutoregressiveGenerator(
         stackPlan: AmiDecoderStackPlan,
         state: AmiDecoderStackState,
         promptTokenIds: IntArray,
-        samplingHistoryPrefixTokenIds: IntArray = intArrayOf(),
         config: AmiGenerationConfig,
         hardware: AmiHardwareSnapshot?,
         cancellation: InferenceCancellationSignal? = null,
-        onToken: ((AmiGeneratedToken) -> Unit)? = null
+        onToken: ((AmiGeneratedToken) -> Unit)? = null,
+        samplingHistoryPrefixTokenIds: IntArray = intArrayOf()
     ): Result<AmiGenerationResult> {
         require(promptTokenIds.isNotEmpty()) {
             "AMI generation requires at least one prompt token"
