@@ -1,3 +1,3 @@
-AMPER AMNE native APK trigger v4
-purpose=ami-layer0-ffn-execution
-phase=606
+AMPER AMNE native APK trigger v3
+purpose=ami-layer0-attention-kv-full-decoder
+phase=607
