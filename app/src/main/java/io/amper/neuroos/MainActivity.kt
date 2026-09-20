@@ -647,6 +647,10 @@ class MainActivity : ComponentActivity() {
             }
             val report = remember { runtime.tick("bootstrap-self-check") }
             val budget = governor.currentBudget()
+            var qualificationStatus by remember {
+                mutableStateOf(deviceQualificationHarness.statusSummaryOrIdle())
+            }
+            var qualificationBusy by remember { mutableStateOf(false) }
 
             val captureMicrophone: () -> Unit = {
                 perceptionStatus = "Sampling microphone locally..."
@@ -1080,6 +1084,142 @@ class MainActivity : ComponentActivity() {
                         Text("Governed tools: ${assistantCapabilities.joinToString(" · ") { it.value }}")
                         Text("Text backend pack: ${backendStatus.detail}")
                         Text("Native MTMD: ${mtmdEngineStatus.detail}")
+
+                        Text(
+                            "AGI-Mobile physical qualification",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(qualificationStatus)
+                        Button(
+                            enabled = !qualificationBusy,
+                            onClick = {
+                                runCatching {
+                                    deviceQualificationHarness.startSession()
+                                    deviceQualificationHarness.statusSummaryOrIdle()
+                                }.fold(
+                                    onSuccess = { qualificationStatus = it },
+                                    onFailure = { error ->
+                                        qualificationStatus =
+                                            "Qualification start failed: " +
+                                                (error.message ?: error::class.java.simpleName)
+                                    }
+                                )
+                            }
+                        ) {
+                            Text("Start / reset qualification")
+                        }
+                        Button(
+                            enabled = !qualificationBusy,
+                            onClick = {
+                                qualificationBusy = true
+                                qualificationStatus =
+                                    "Running 4 bounded physical resource samples..."
+                                executor.execute {
+                                    val result = runCatching {
+                                        deviceQualificationHarness.recordResourceBatch(4)
+                                        deviceQualificationHarness.statusSummary()
+                                    }
+                                    runOnUiThread {
+                                        qualificationBusy = false
+                                        qualificationStatus = result.fold(
+                                            onSuccess = { it },
+                                            onFailure = { error ->
+                                                "Resource qualification failed: " +
+                                                    (error.message
+                                                        ?: error::class.java.simpleName)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        ) {
+                            Text("Run resource batch (4 tiers)")
+                        }
+                        Button(
+                            enabled = !qualificationBusy,
+                            onClick = {
+                                qualificationStatus =
+                                    "Persisting restart checkpoint; reopen AMPER after it closes..."
+                                runCatching {
+                                    deviceQualificationHarness
+                                        .prepareAndTerminateForProcessRestart()
+                                }.onFailure { error ->
+                                    qualificationStatus =
+                                        "Process-restart preparation failed: " +
+                                            (error.message ?: error::class.java.simpleName)
+                                }
+                            }
+                        ) {
+                            Text("Prepare + restart AMPER process")
+                        }
+                        Button(
+                            enabled = !qualificationBusy,
+                            onClick = {
+                                runCatching {
+                                    deviceQualificationHarness.prepareRestartCheckpoint()
+                                }.fold(
+                                    onSuccess = {
+                                        qualificationStatus =
+                                            "Reboot checkpoint persisted. Reboot the phone now, " +
+                                                "then open AMPER once to record recovery."
+                                    },
+                                    onFailure = { error ->
+                                        qualificationStatus =
+                                            "Reboot checkpoint failed: " +
+                                                (error.message ?: error::class.java.simpleName)
+                                    }
+                                )
+                            }
+                        ) {
+                            Text("Prepare phone reboot sample")
+                        }
+                        Button(
+                            enabled = !qualificationBusy,
+                            onClick = {
+                                qualificationStatus =
+                                    deviceQualificationHarness.statusSummaryOrIdle()
+                            }
+                        ) {
+                            Text("Refresh qualification progress")
+                        }
+                        Button(
+                            enabled = !qualificationBusy,
+                            onClick = {
+                                qualificationBusy = true
+                                qualificationStatus =
+                                    "Running exact-APK ten-domain final qualification..."
+                                executor.execute {
+                                    val result = runCatching {
+                                        deviceQualificationHarness.finalizeQualification()
+                                    }
+                                    runOnUiThread {
+                                        qualificationBusy = false
+                                        qualificationStatus = result.fold(
+                                            onSuccess = { finalReport ->
+                                                "Final verdict=${finalReport.verdict}; " +
+                                                    "aggregate=" +
+                                                    (finalReport.aggregateScore ?: "~") +
+                                                    "; blockers=" +
+                                                    finalReport.hardBlockers
+                                                        .joinToString(",") { it.name }
+                                                        .ifBlank { "none" }
+                                            },
+                                            onFailure = { error ->
+                                                "Finalize unavailable: " +
+                                                    (error.message
+                                                        ?: error::class.java.simpleName)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        ) {
+                            Text("Finalize exact-APK 10-domain qualification")
+                        }
+                        Text(
+                            "Target: 16 resource samples (4 batches), at least 8 process restarts, " +
+                                "at least 4 phone reboots, and at least 16 restart/reboot samples total."
+                        )
 
                         Text("GGUF capability profile", style = MaterialTheme.typography.titleMedium)
                         Text("Reasoning · always enabled")
