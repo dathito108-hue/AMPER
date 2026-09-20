@@ -19,7 +19,10 @@ class AndroidAgiMobileDeviceQualificationHarness(
     private val governor: ResourceGovernor
 ) {
     private val appContext = context.applicationContext
-    private val root = File(appContext.filesDir, "amper-sovereign/device-qualification")
+    private val root = File(
+        AndroidAppPrivateStorage.canonicalFilesDir(appContext),
+        "amper-sovereign/device-qualification"
+    )
     private val store: AgiMobileDeviceQualificationStore =
         FileAgiMobileDeviceQualificationStore(File(root, "device-evidence-v1.txt"))
     private val prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
