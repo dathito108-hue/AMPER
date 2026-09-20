@@ -322,7 +322,7 @@ class MainActivity : ComponentActivity() {
             }
             val amperCore = remember {
                 AmperCoreInferencePort(
-                    artifactLookup = amiCompilationService::existing,
+                    artifactLookup = ami2CompilationService::existing,
                     hardwareSnapshot = amiHardwareProfiler::snapshot
                 )
             }
@@ -1134,10 +1134,8 @@ class MainActivity : ComponentActivity() {
                             importStatus = "Inspecting GGUF and computing SHA-256..."
                             executionLanes.executeInteractive {
                                 val result = importer.install(uri, profile).mapCatching { model ->
-                                    // M2 canonical import: AMI2 is published first.
+                                    // Canonical production import: GGUF -> AMI2 -> AMNE2.
                                     ami2CompilationService.compileDirect(model).getOrThrow()
-                                    // Temporary M3 bridge: current inference still consumes AMI1/AMNE1.
-                                    amiCompilationService.compile(model).getOrThrow()
                                     titan.unloadAll().getOrThrow()
                                     coreFoundationController.activate(model.descriptor.id)
                                     coreFoundationPreferences.edit()
@@ -1154,7 +1152,7 @@ class MainActivity : ComponentActivity() {
                                             coreFoundationModelId = model.descriptor.id
                                             importStatus =
                                                 "AMPER Core foundation updated from ${model.displayName} · " +
-                                                    "GGUF → AMI2 canonical · AMI1 runtime bridge · $capabilities"
+                                                    "GGUF → AMI2 → AMNE2 · $capabilities"
                                             modelSummary = catalog.list().joinToString { it.displayName }
                                             hasModel = true
                                             profileModelId = model.descriptor.id
@@ -1750,7 +1748,7 @@ class MainActivity : ComponentActivity() {
                                                 "Compiling and activating ${selected.displayName} as the single AMPER foundation..."
                                             executionLanes.executeInteractive {
                                                 val result = runCatching {
-                                                    amiCompilationService.compile(selected).getOrThrow()
+                                                    ami2CompilationService.compileDirect(selected).getOrThrow()
                                                     titan.unloadAll().getOrThrow()
                                                     coreFoundationController.activate(selectedId)
                                                     coreFoundationPreferences.edit()
@@ -1764,7 +1762,7 @@ class MainActivity : ComponentActivity() {
                                                             coreFoundationModelId = activated.descriptor.id
                                                             hasModel = true
                                                             profileStatus =
-                                                                "AMPER Core foundation active · ${activated.displayName} · AMI2 canonical · AMI1/AMNE1 runtime bridge"
+                                                                "AMPER Core foundation active · ${activated.displayName} · AMI2/AMNE2 production"
                                                         },
                                                         onFailure = { error ->
                                                             profileStatus =
