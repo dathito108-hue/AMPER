@@ -84,3 +84,34 @@ class AmperCoreInferencePort(
         const val CORE_ID: String = "amper-core"
     }
 }
+
+
+/**
+ * Sovereign status source for the production single-core architecture.
+ *
+ * Imported sources are reported for lineage, but runtime status exposes exactly one AMPER Core
+ * endpoint rather than a list of competing inference backends.
+ */
+class AmperCoreSovereignStatusSource(
+    private val catalog: InstalledModelCatalog,
+    private val core: AmperCoreInferencePort,
+    private val governor: ResourceGovernor
+) : SovereignStatusSource {
+    override fun snapshot(): SovereignStatusSnapshot {
+        val health = core.health()
+        return SovereignStatusSnapshot(
+            models = catalog.list()
+                .sortedBy { it.displayName.lowercase() }
+                .take(8)
+                .map { "${it.displayName}:${it.descriptor.id.value}" },
+            backends = listOf(
+                SovereignBackendStatus(
+                    id = core.id,
+                    state = health.state.name,
+                    hardwareAcceleration = health.hardwareAcceleration
+                )
+            ),
+            budget = governor.currentBudget()
+        )
+    }
+}
