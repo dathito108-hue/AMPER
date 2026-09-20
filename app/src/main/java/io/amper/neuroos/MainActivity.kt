@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import io.amper.neuroos.core.AmperExecutionLanes
 import io.amper.neuroos.core.AmperRuntime
 import io.amper.neuroos.core.AmperSingleCoreFoundationController
+import io.amper.neuroos.core.AmperSingleCoreModelRegistry
 import io.amper.neuroos.core.AmperSingleCoreSourceDetachService
 import io.amper.neuroos.core.AmneNativeRuntimeProbe
 import io.amper.neuroos.core.AssistantStreamEvent
@@ -158,7 +159,7 @@ class MainActivity : ComponentActivity() {
             val nativeProjectorStagingDir = remember {
                 File(canonicalCacheDir, "amper-native-projector-stage")
             }
-            val modelRegistry = remember { InMemoryModelRegistry() }
+            val modelRegistry = remember { AmperSingleCoreModelRegistry() }
             val catalog = remember { FileInstalledModelCatalog(File(sovereignDir, "models.catalog")) }
             val coreFoundationPreferences = remember {
                 getSharedPreferences("amper-core-foundation", Context.MODE_PRIVATE)
@@ -253,6 +254,10 @@ class MainActivity : ComponentActivity() {
                     registry = modelRegistry,
                     projectors = projectorCatalog
                 ).reconcile()
+            }
+            remember {
+                // Reassert the user-selected AMPER foundation after legacy reconciliation.
+                coreFoundationController.restore(initialCoreFoundationState.activeModelId)
             }
             val projectorImporter = remember {
                 AndroidMultimodalProjectorImportService(
