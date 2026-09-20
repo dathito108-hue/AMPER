@@ -22,6 +22,7 @@ class OmegaCoreV2Test {
             "runtime-readiness-is-consolidated-and-model-specific" in
                 OmegaArchitectureLock.invariants
         )
+        assertTrue("amcf-cycles-stay-on-one-foundation" in OmegaArchitectureLock.invariants)
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
@@ -113,6 +114,14 @@ class OmegaCoreV2Test {
                 .exitCriteria
                 .contains(
                     "consolidated AMNE2 readiness exposes identity, memory budget, kernel dispatch, hot-session state and degraded reasons"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M4_AMCF_FOUNDATION }
+                .exitCriteria
+                .contains(
+                    "OMEGA compute modes map to bounded AMCF cycles over one verified foundation"
                 )
         )
     }
