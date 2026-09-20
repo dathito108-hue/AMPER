@@ -487,7 +487,7 @@ class MainActivity : ComponentActivity() {
                     restoredApproval?.conversationId ?: restoredPlan?.conversationId
                 val persistedConversation = conversationUiPreferences
                     .getString("active_conversation_id", null)
-                    ?.let(::io.amper.neuroos.core.ConversationId)
+                    ?.let { io.amper.neuroos.core.ConversationId(it) }
                     ?.takeIf { candidate ->
                         candidate == primary ||
                             runtime.conversations.recent(candidate, limit = 1).isNotEmpty()
