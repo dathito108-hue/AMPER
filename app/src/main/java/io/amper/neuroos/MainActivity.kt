@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import io.amper.neuroos.core.AmperExecutionLanes
 import io.amper.neuroos.core.AmperRuntime
 import io.amper.neuroos.core.AmperSingleCoreFoundationController
+import io.amper.neuroos.core.AmperSingleCoreSourceDetachService
 import io.amper.neuroos.core.AmneNativeRuntimeProbe
 import io.amper.neuroos.core.AssistantStreamEvent
 import io.amper.neuroos.core.AssistantTurnStage
@@ -323,7 +324,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
             val detachManager = remember {
-                InstalledModelDetachService(catalog, modelRegistry, titan::unload)
+                AmperSingleCoreSourceDetachService(catalog, modelRegistry, titan::unload)
             }
             val nativePromotion = remember {
                 NativeCheckpointRuntimePromotionService(
@@ -1755,14 +1756,10 @@ class MainActivity : ComponentActivity() {
                                             Text("Review detach from AMPER")
                                         }
                                     } else {
-                                        Text("Detach removes this model from AMPER routing/catalog and unloads backend state. The original GGUF remains untouched.")
+                                        Text("Detach removes this imported weight source from AMPER. The original GGUF file remains untouched; the live AMPER core still exposes at most one foundation.")
                                         Button(
                                             onClick = {
-                                                if (preferredModelId == selectedId) {
-                                                    preferredPreparationCancellation?.cancel()
-                                                    preferredPreparationCancellation = null
-                                                }
-                                                profileStatus = "Detaching ${selected.displayName} from AMPER..."
+                                                profileStatus = "Detaching ${selected.displayName} weight source from AMPER..."
                                                 executionLanes.executeInteractive {
                                                     val result = detachManager.detach(selectedId)
                                                     runOnUiThread {
@@ -1775,18 +1772,29 @@ class MainActivity : ComponentActivity() {
                                                                 if (pendingProjectorModelId == detached.descriptor.id) {
                                                                     pendingProjectorModelId = null
                                                                 }
-                                                                if (preferredModelId == detached.descriptor.id) {
-                                                                    inferencePort.prefer(null)
-                                                                    preferredModelId = null
-                                                                    modelRoutingPreferences.edit()
-                                                                        .remove("preferred_model_id")
+                                                                val remaining = catalog.list()
+                                                                if (coreFoundationModelId == detached.descriptor.id) {
+                                                                    val restored =
+                                                                        coreFoundationController.restore()
+                                                                    coreFoundationModelId =
+                                                                        restored.activeModelId
+                                                                    restored.activeModelId?.let { nextId ->
+                                                                        coreFoundationPreferences.edit()
+                                                                            .putString(
+                                                                                "active_source_model_id",
+                                                                                nextId.value
+                                                                            )
+                                                                            .apply()
+                                                                    } ?: coreFoundationPreferences.edit()
+                                                                        .remove("active_source_model_id")
                                                                         .apply()
                                                                 }
-                                                                val remaining = catalog.list()
                                                                 modelSummary = remaining.joinToString { it.displayName }
-                                                                    .ifBlank { "No user GGUF installed" }
-                                                                hasModel = remaining.isNotEmpty()
-                                                                val next = remaining.firstOrNull()
+                                                                    .ifBlank { "No imported weight source" }
+                                                                hasModel = coreFoundationModelId != null
+                                                                val next = coreFoundationModelId
+                                                                    ?.let(catalog::get)
+                                                                    ?: remaining.firstOrNull()
                                                                 profileModelId = next?.descriptor?.id
                                                                 profileCodeGeneration = next?.descriptor?.capabilities
                                                                     ?.contains(TitanCapabilities.CODE_GENERATION) == true
@@ -1797,7 +1805,10 @@ class MainActivity : ComponentActivity() {
                                                                 profileAudioUnderstanding = next?.descriptor?.capabilities
                                                                     ?.contains(TitanCapabilities.AUDIO_UNDERSTANDING) == true
                                                                 profileStatus =
-                                                                    "Detached ${detached.displayName}; original GGUF/mmproj files were not deleted"
+                                                                    "Detached weight source ${detached.displayName}; AMPER Core foundation=" +
+                                                                        (coreFoundationModelId
+                                                                            ?.let { catalog.get(it)?.displayName }
+                                                                            ?: "none")
                                                             },
                                                             onFailure = { error ->
                                                                 detachArmedModelId = null
