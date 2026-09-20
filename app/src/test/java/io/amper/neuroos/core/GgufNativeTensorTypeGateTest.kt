@@ -25,13 +25,13 @@ class GgufNativeTensorTypeGateTest {
     }
 
     @Test
-    fun nativeAbiProfileRejectsUnprofiledTypeBeforeJniLoad() {
+    fun amperAmiProfileRejectsUnprofiledTypeBeforeCoreAdmission() {
         val bytes = singleTensorArtifact(
             tensorType = 777L,
             firstDimension = 1UL,
             dataBytes = 1
         )
-        val profile = GgufTensorLayoutProfiles.LLAMA_ANDROID_0_1_1
+        val profile = GgufTensorLayoutProfiles.AMPER_AMI_V1
 
         val result = GgufInspector(tensorLayoutProfile = profile)
             .inspect(ByteArrayModelArtifactSource(bytes))
@@ -43,7 +43,7 @@ class GgufNativeTensorTypeGateTest {
     }
 
     @Test
-    fun nativeAbiProfileStillAcceptsProfiledFixedWidthType() {
+    fun amperAmiProfileAcceptsProfiledFixedWidthType() {
         val bytes = singleTensorArtifact(
             tensorType = 0L, // F32
             firstDimension = 1UL,
@@ -51,14 +51,14 @@ class GgufNativeTensorTypeGateTest {
         )
 
         val result = GgufInspector(
-            tensorLayoutProfile = GgufTensorLayoutProfiles.LLAMA_ANDROID_0_1_1
+            tensorLayoutProfile = GgufTensorLayoutProfiles.AMPER_AMI_V1
         ).inspect(ByteArrayModelArtifactSource(bytes))
 
         assertTrue(result.isSuccess)
     }
 
     @Test
-    fun nativeAbiProfileStillAcceptsProfiledQuantizedType() {
+    fun amperAmiProfileAcceptsProfiledQuantizedType() {
         val bytes = singleTensorArtifact(
             tensorType = 2L, // Q4_0: 32 elements -> 18 encoded bytes
             firstDimension = 32UL,
@@ -66,7 +66,7 @@ class GgufNativeTensorTypeGateTest {
         )
 
         val result = GgufInspector(
-            tensorLayoutProfile = GgufTensorLayoutProfiles.LLAMA_ANDROID_0_1_1
+            tensorLayoutProfile = GgufTensorLayoutProfiles.AMPER_AMI_V1
         ).inspect(ByteArrayModelArtifactSource(bytes))
 
         assertTrue(result.isSuccess)

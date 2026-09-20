@@ -4,33 +4,9 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-val withLlamaAar = providers.gradleProperty("withLlamaAar")
-    .map(String::toBoolean)
-    .orElse(false)
-val llamaAndroidVersion = "0.1.1"
-val withMtmdNative = providers.gradleProperty("withMtmdNative")
-    .map(String::toBoolean)
-    .orElse(false)
-val withMtmdVulkan = providers.gradleProperty("withMtmdVulkan")
-    .map(String::toBoolean)
-    .orElse(false)
 val withAmneNative = providers.gradleProperty("withAmneNative")
     .map(String::toBoolean)
     .orElse(false)
-val spirvHeadersDir = providers.gradleProperty("spirvHeadersDir").orNull
-val vulkanHeadersDir = providers.gradleProperty("vulkanHeadersDir").orNull
-val withMtmdNativeRuntime = withMtmdNative.get() || withMtmdVulkan.get()
-
-require(!(withMtmdNative.get() && withMtmdVulkan.get())) {
-    "withMtmdNative and withMtmdVulkan are distinct CPU/Vulkan native runtime modes; enable only one"
-}
-require(!(withLlamaAar.get() && withMtmdNativeRuntime)) {
-    "withLlamaAar and native MTMD runtimes package different llama.cpp runtimes; enable only one"
-}
-require(!(withAmneNative.get() && withMtmdNativeRuntime)) {
-    "AMNE native and MTMD native use separate CMake roots; enable only one native build mode"
-}
-
 android {
     namespace = "io.amper.neuroos"
     compileSdk = 35
@@ -42,24 +18,9 @@ android {
         versionCode = 1
         versionName = "0.1.0-canonical"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField("String", "LLAMA_ANDROID_VERSION", "\"$llamaAndroidVersion\"")
-        if (withMtmdNativeRuntime || withAmneNative.get()) {
+        if (withAmneNative.get()) {
             ndk {
                 abiFilters += "arm64-v8a"
-            }
-        }
-        if (withMtmdNativeRuntime) {
-            externalNativeBuild {
-                cmake {
-                    arguments += "-DAMPER_MTMD_VULKAN=" +
-                        if (withMtmdVulkan.get()) "ON" else "OFF"
-                    if (withMtmdVulkan.get() && !spirvHeadersDir.isNullOrBlank()) {
-                        arguments += "-DAMPER_SPIRV_HEADERS_DIR=$spirvHeadersDir"
-                    }
-                    if (withMtmdVulkan.get() && !vulkanHeadersDir.isNullOrBlank()) {
-                        arguments += "-DAMPER_VULKAN_HEADERS_DIR=$vulkanHeadersDir"
-                    }
-                }
             }
         }
     }
@@ -69,25 +30,8 @@ android {
         buildConfig = true
     }
 
-    if (withLlamaAar.get()) {
-        // Optional backend sources are compiled only when the prebuilt runtime is requested.
-        sourceSets.getByName("main").java.srcDir("src/llamaAar/java")
-    }
-
-    if (withMtmdNativeRuntime) {
-        // Phase148+ native multimodal runtime. Phase156 optionally compiles Vulkan acceleration.
-        sourceSets.getByName("main").java.srcDir("src/mtmdNative/java")
-        ndkVersion = "27.2.12479018"
-        externalNativeBuild {
-            cmake {
-                path = file("src/mtmdNative/cpp/CMakeLists.txt")
-                version = "3.22.1"
-            }
-        }
-    }
-
     if (withAmneNative.get()) {
-        // AMNE is a standalone ARM64 execution runtime and can coexist with the prebuilt llama AAR.
+        // AMNE is the only production native inference runtime in the AMPER single-core architecture.
         sourceSets.getByName("main").java.srcDir("src/amneNative/java")
         ndkVersion = "27.2.12479018"
         externalNativeBuild {
@@ -112,11 +56,6 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
-
-    if (withLlamaAar.get()) {
-        // Prebuilt arm64-v8a llama.cpp runtime. No NDK/CMake is added to :app.
-        implementation("dev.ffmpegkit-maintained:llama-android:$llamaAndroidVersion")
-    }
 
     testImplementation("junit:junit:4.13.2")
 }
