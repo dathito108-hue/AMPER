@@ -91,7 +91,7 @@ class AmcfRecurrentStateTest {
             )
         )
         val state = AmcfRecurrentStateTransition.record(
-            cycle = plan.cycles[7],
+            cycle = plan.cycles[0],
             previous = null,
             candidateDigest = "2".repeat(64),
             evidenceDigest = "3".repeat(64),
@@ -102,7 +102,7 @@ class AmcfRecurrentStateTest {
 
         val decision = AmcfEarlyExitGate.decide(
             plan = plan,
-            completedCycle = plan.cycles[7],
+            completedCycle = plan.cycles[0],
             state = state
         )
 

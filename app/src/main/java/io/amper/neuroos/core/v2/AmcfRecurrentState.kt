@@ -65,11 +65,15 @@ object AmcfRecurrentStateTransition {
         uncertainty: Double,
         evidenceSufficiency: Double
     ): AmcfRecurrentState {
-        previous?.let { prior ->
-            require(prior.foundation == cycle.foundation) {
+        if (previous == null) {
+            require(cycle.index == 1) {
+                "AMCF recurrent state must begin at cycle 1"
+            }
+        } else {
+            require(previous.foundation == cycle.foundation) {
                 "AMCF recurrent state cannot change foundation identity"
             }
-            require(cycle.index > prior.completedCycleIndex) {
+            require(cycle.index > previous.completedCycleIndex) {
                 "AMCF recurrent cycle index must advance"
             }
         }
