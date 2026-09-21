@@ -458,7 +458,15 @@ class AgentContinuationJobService : JobService() {
         val future = worker.submit {
             val result = AmperAgentAndroidContinuationHostDispatcher.dispatch(
                 handoff = handoff,
-                execution = AndroidAgentContinuationProcessRegistry.current()
+                execution = AndroidAgentContinuationProcessRegistry.current(),
+                executionFallback = {
+                    runCatching {
+                        AndroidCanonicalSovereignRuntimeBootstrap
+                            .acquire(applicationContext)
+                            .agent
+                            .execution
+                    }
+                }
             ).getOrElse { error ->
                 AmperAgentAndroidHostExecutionResult(
                     state = AmperAgentAndroidHostExecutionState.RETRY_LATER,
