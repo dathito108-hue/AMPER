@@ -97,6 +97,63 @@ class AmperAgentPendingTriggerDispatchTest {
     }
 
     @Test
+    fun retryAfterPlanCompletedProducesTerminalNoopWithoutCreatingAnotherPlan() {
+        val registry = MemoryBackedAmperAgentProactiveTriggerSourceRegistry(
+            InMemoryMemoryOs()
+        )
+        val source = source()
+        registry.upsert(source, updatedAtEpochMs = 1L)
+        registry.accept(observation()).getOrThrow()
+
+        val plans = FakePlanPort()
+        val proactive = AmperAgentProactiveTaskCoordinator(plans) { 100L }
+        val eventWake = AmperAgentProactiveEventWakeCoordinator(plans) { 200L }
+        val binder = AmperAgentPendingTriggerDispatchCoordinator(
+            registry = registry,
+            admissions = AmperAgentTaskAdmissionRegistry(),
+            proactive = proactive,
+            eventWake = eventWake
+        )
+
+        val first = requireNotNull(
+            binder.bindOldest(source.sourceId, ConversationId("primary")).getOrThrow()
+        )
+        plans.current = requireNotNull(plans.current).copy(
+            steps = requireNotNull(plans.current).steps.map {
+                it.copy(status = PlanStepStatus.EXECUTED)
+            }
+        )
+
+        val retried = requireNotNull(
+            binder.bindOldest(source.sourceId, ConversationId("primary")).getOrThrow()
+        )
+
+        assertEquals(first.planId, retried.planId)
+        assertEquals(1, plans.createdDurablePlans)
+        assertFalse(retried.requiresEventWakeSchedule)
+        assertEquals(
+            AmperAgentEventWakeDisposition.TERMINAL_NOOP,
+            retried.handoff.disposition
+        )
+        assertEquals(AmperAgentTaskState.COMPLETED, retried.checkpoint.taskState)
+        assertEquals(1, registry.pending(source.sourceId).size)
+    }
+
+    @Test
+    fun deterministicPlanIdentityIsObservationSpecific() {
+        val first = AmperAgentPendingTriggerDispatchCoordinator
+            .deterministicPlanId("1".repeat(64))
+        val same = AmperAgentPendingTriggerDispatchCoordinator
+            .deterministicPlanId("1".repeat(64))
+        val other = AmperAgentPendingTriggerDispatchCoordinator
+            .deterministicPlanId("2".repeat(64))
+
+        assertEquals(first, same)
+        assertTrue(first != other)
+        assertTrue(first.value.startsWith("agent-trigger-plan:"))
+    }
+
+    @Test
     fun bindingFailsClosedWhenPendingIdentityNoLongerMatchesSourceRevision() {
         val registry = FakeRegistry(
             AmperAgentPersistedProactiveTriggerSource(
