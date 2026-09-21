@@ -361,7 +361,7 @@ class MainActivity : ComponentActivity() {
                 if (amperCore.nativeRuntimePackaged()) {
                     executionLanes.executeMaintenance {
                         val startedNs = System.nanoTime()
-                        val result = amperCore.bootstrapNativeAdmission()
+                        val result = canonicalGraph.ensureNativeAdmission()
                         val wallMs =
                             (System.nanoTime() - startedNs) / 1_000_000L
                         runOnUiThread {
