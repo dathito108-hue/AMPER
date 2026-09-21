@@ -68,6 +68,7 @@ This coordinator never acknowledges the FIFO and never owns Android scheduling.
 Properties:
 
 - one stable job id per source;
+- registration/reconciliation fails closed if two source ids collide in the bounded job-id namespace;
 - persisted across reboot;
 - battery-not-low and storage-not-low constraints;
 - thermal/memory-aware latency reused from the Phase657 resource policy;
@@ -82,8 +83,10 @@ It then binds only the oldest pending observation.
 For a runnable handoff, it must successfully install that exact verified handoff through
 `AndroidAgentEventWakeScheduler` before acknowledgement.
 
-For approval-blocked or terminal handoffs, no EVENT_WAKE job is installed. The durable canonical plan
-plus verified non-runnable handoff is the completed binding, so the FIFO entry may be acknowledged.
+For approval-blocked or terminal handoffs, the same Phase657 scheduler adapter is still invoked. It
+verifies the non-runnable handoff and cancels any stale stable EVENT_WAKE job for that identity, but
+installs no new execution job. Only after that cancellation/verification succeeds may the FIFO entry
+be acknowledged.
 
 Only after those conditions hold does the service call the Phase660 FIFO acknowledgement.
 
@@ -110,7 +113,8 @@ another execution identity.
 ### Scheduler or transient binding failure
 
 The FIFO is not acknowledged. The one-shot dispatcher retries only within its bounded explicit retry
-budget. Durable pending state remains available for later reconciliation.
+budget. JobService interruption itself does not request an unbounded OS retry loop. Durable pending
+state remains available for foreground reconciliation, re-enable, or a later source observation.
 
 ### Source disabled while pending
 
@@ -144,6 +148,7 @@ Phase661 adds:
 - `pending-trigger-fifo-acks-only-after-durable-verified-dispatch-binding`
 - `pending-trigger-dispatch-reuses-governed-event-wake-scheduler`
 - `pending-trigger-dispatch-adds-no-planner-tool-or-model-path`
+- `pending-trigger-dispatch-job-identities-fail-closed-on-collision`
 
 The M5 exit criteria are extended to require deterministic crash/retry binding, ACK-after-verified
 handoff/schedule, bounded one-shot dispatch, and foreground/re-enable/source-event recovery.
@@ -157,7 +162,7 @@ Phase661 covers:
 - retry after terminal completion -> same plan + TERMINAL_NOOP;
 - source-revision/observation identity drift -> fail closed before plan creation;
 - disabled source -> no binding;
-- pending-dispatch job-id namespace separation;
+- pending-dispatch job-id namespace separation and deterministic collision fail-closed regression;
 - APP_LOCAL_EVENT acceptance -> dispatch request;
 - foreground reconciliation -> recovery request for persisted FIFO work;
 - disable/re-enable -> pause then resume;
