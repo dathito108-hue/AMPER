@@ -277,6 +277,9 @@ class MainActivity : ComponentActivity() {
             val agentPlanPort = agentGraph.agentPlanPort
             val agentAdmissions = agentGraph.agentAdmissions
             val agentPassiveTasks = agentGraph.agentPassiveTasks
+            val agentProactiveLifecycle = agentGraph.agentProactiveLifecycle
+            val agentProactiveLifecycleController =
+                agentGraph.agentProactiveLifecycleController
             val agentContinuation = agentGraph.agentContinuation
             val agentContinuationExecution = agentGraph.execution
             val activePerceptionPort = remember {
@@ -355,6 +358,11 @@ class MainActivity : ComponentActivity() {
                 runCatching {
                     agentGraph.agentTriggerSourceController
                         .reconcileAll()
+                        .getOrThrow()
+                }
+                runCatching {
+                    agentProactiveLifecycleController
+                        .reconcileTracked()
                         .getOrThrow()
                 }
                 reflexJobScheduler.reconcile(
@@ -2623,13 +2631,38 @@ class MainActivity : ComponentActivity() {
                                 conversationId = opened.conversationId
                                 pendingApproval = assistant.restorePendingApproval(opened.conversationId)
                                 planStatus = "Opened persisted plan ${opened.id.value.take(8)}; no plan step executed"
+                            },
+                            onPlanMutated = { mutated ->
+                                executionLanes.executeInteractive {
+                                    agentProactiveLifecycleController.reconcilePlan(mutated.id)
+                                }
+                            }
+                        )
+
+                        ProactiveTaskLifecyclePanel(
+                            lifecycle = agentProactiveLifecycle,
+                            onOpen = { opened ->
+                                activePlan = opened
+                                conversationId = opened.conversationId
+                                pendingApproval = assistant.restorePendingApproval(opened.conversationId)
+                                planStatus =
+                                    "Opened proactive canonical plan ${opened.id.value.takeLast(12)}; no step executed"
                             }
                         )
 
                         activePlan?.let { plan ->
+                            val proactiveLifecycle =
+                                agentProactiveLifecycle.findByPlanId(plan.id)
                             GovernedPlanExecutionConsolePanel(
                                 plan = plan,
                                 receiptLedger = runtime.plans.receipts,
+                                manualAdvanceEnabled = proactiveLifecycle == null,
+                                manualAdvanceDisabledReason =
+                                    if (proactiveLifecycle != null) {
+                                        "This proactive plan is EVENT_WAKE-owned. Background continuation advances through the canonical Phase656/657 path; this console remains the approval surface only."
+                                    } else {
+                                        null
+                                    },
                                 onAdvance = {
                                     val current = plan
                                     planStatus = "Advancing exactly one governed plan step..."
@@ -2775,11 +2808,31 @@ class MainActivity : ComponentActivity() {
                                     planStatus = "Executing approved plan step through Authority Gate..."
                                     executionLanes.executeInteractive {
                                         val result = planner.approve(current, stepIndex)
+                                        val lifecycleResume = result.getOrNull()?.let { processed ->
+                                            agentProactiveLifecycleController
+                                                .resumeAfterGovernedDecision(processed.plan.id)
+                                        }
                                         runOnUiThread {
                                             result.fold(
                                                 onSuccess = { processed ->
                                                     activePlan = processed.plan
-                                                    planStatus = "Approved step ${processed.step.index}: ${processed.outcome.status}"
+                                                    val base =
+                                                        "Approved step ${processed.step.index}: ${processed.outcome.status}"
+                                                    planStatus = when {
+                                                        lifecycleResume == null -> base
+                                                        lifecycleResume.isFailure ->
+                                                            base +
+                                                                " · proactive continuation remains durable but re-arm failed: " +
+                                                                (
+                                                                    lifecycleResume.exceptionOrNull()?.message
+                                                                        ?: "unknown"
+                                                                    )
+                                                        lifecycleResume.getOrNull() == true ->
+                                                            base + " · proactive EVENT_WAKE re-armed"
+                                                        lifecycleResume.getOrNull() == false ->
+                                                            base + " · proactive task reached non-runnable durable state"
+                                                        else -> base
+                                                    }
                                                 },
                                                 onFailure = { error ->
                                                     planStatus = "Plan approval failed: ${error.message ?: error::class.java.simpleName}"
@@ -2789,9 +2842,46 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 onReject = { stepIndex ->
-                                    val rejected = planner.reject(plan, stepIndex)
-                                    activePlan = rejected
-                                    planStatus = "Rejected plan step $stepIndex; no tool invoked"
+                                    val current = plan
+                                    planStatus = "Rejecting plan step without tool execution..."
+                                    executionLanes.executeInteractive {
+                                        val rejected = runCatching {
+                                            planner.reject(current, stepIndex)
+                                        }
+                                        val lifecycleResume = rejected.getOrNull()?.let { updated ->
+                                            agentProactiveLifecycleController
+                                                .resumeAfterGovernedDecision(updated.id)
+                                        }
+                                        runOnUiThread {
+                                            rejected.fold(
+                                                onSuccess = { updated ->
+                                                    activePlan = updated
+                                                    val base =
+                                                        "Rejected plan step $stepIndex; no tool invoked"
+                                                    planStatus = when {
+                                                        lifecycleResume == null -> base
+                                                        lifecycleResume.isFailure ->
+                                                            base +
+                                                                " · proactive continuation remains durable but reconcile failed: " +
+                                                                (
+                                                                    lifecycleResume.exceptionOrNull()?.message
+                                                                        ?: "unknown"
+                                                                    )
+                                                        lifecycleResume.getOrNull() == true ->
+                                                            base + " · next proactive EVENT_WAKE re-armed"
+                                                        lifecycleResume.getOrNull() == false ->
+                                                            base + " · proactive task is terminal/non-runnable"
+                                                        else -> base
+                                                    }
+                                                },
+                                                onFailure = { error ->
+                                                    planStatus =
+                                                        "Plan rejection failed: " +
+                                                            (error.message ?: error::class.java.simpleName)
+                                                }
+                                            )
+                                        }
+                                    }
                                 }
                             )
                         }
@@ -2803,6 +2893,9 @@ class MainActivity : ComponentActivity() {
                                 activePlan = recovered
                                 conversationId = recovered.conversationId
                                 pendingApproval = assistant.restorePendingApproval(recovered.conversationId)
+                                executionLanes.executeInteractive {
+                                    agentProactiveLifecycleController.reconcilePlan(recovered.id)
+                                }
                                 planStatus = "Reconciled plan ${recovered.id.value.take(8)}; provider was not replayed"
                             }
                         )
