@@ -33,6 +33,12 @@ object AndroidAgentColdExecutionBootstrap {
         handoff: AmperAgentAndroidContinuationHandoff
     ): Result<AmperAgentAndroidHostExecutionResult> = runCatching {
         coldExecutionLock.withLock {
+            AndroidAgentContinuationProcessRegistry.current()?.let { warm ->
+                return@withLock AmperAgentAndroidContinuationHostDispatcher
+                    .dispatch(handoff, warm)
+                    .getOrThrow()
+            }
+
             val session = open(context.applicationContext)
             try {
                 AmperAgentAndroidContinuationHostDispatcher
@@ -104,7 +110,9 @@ object AndroidAgentColdExecutionBootstrap {
             hardwareSnapshot = hardware::snapshot
         )
         if (core.nativeRuntimePackaged()) {
-            core.bootstrapNativeAdmission().getOrThrow()
+            // Qualification failure is fail-closed to the existing reference kernels. It must not
+            // turn a valid persisted task into an infinite JobScheduler retry loop.
+            core.bootstrapNativeAdmission()
         }
 
         val titan = TitanCortexRuntime(
