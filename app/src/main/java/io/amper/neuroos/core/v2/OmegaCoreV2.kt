@@ -210,6 +210,8 @@ object OmegaArchitectureLock {
         "proactive-governed-decisions-reuse-existing-plan-approval-and-event-wake",
         "proactive-event-wake-plans-disable-manual-ui-advance",
         "proactive-lifecycle-ledger-is-bounded-and-terminal-compacted",
+        "proactive-lifecycle-reconciliation-does-not-register-process-admissions",
+        "proactive-lifecycle-provenance-corruption-fails-closed",
         "gguf-is-import-source-only",
         "adaptive-compute-fast-to-deep",
         "verification-before-confidence",
