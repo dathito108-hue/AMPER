@@ -74,6 +74,52 @@ class AndroidAgentProactiveTriggerSourceSchedulerTest {
     }
 
     @Test
+    fun pendingDispatchJobIdentityIsStableAndSeparateFromSourceAndEventWakeNamespaces() {
+        val first = AndroidAgentPendingTriggerDispatchJobIdentity.jobIdFor("monitor.example")
+        val same = AndroidAgentPendingTriggerDispatchJobIdentity.jobIdFor("monitor.example")
+        val other = AndroidAgentPendingTriggerDispatchJobIdentity.jobIdFor("monitor.other")
+
+        assertEquals(first, same)
+        assertTrue(first != other)
+        assertTrue(AndroidAgentPendingTriggerDispatchJobIdentity.owns(first))
+        assertFalse(AndroidAgentPendingTriggerDispatchJobIdentity.owns(
+            AndroidAgentTriggerSourceJobIdentity.jobIdFor("monitor.example")
+        ))
+        assertFalse(AndroidAgentPendingTriggerDispatchJobIdentity.owns(0x32000001))
+    }
+
+    @Test
+    fun pendingDispatchJobIdentityCollisionFailsClosed() {
+        val first = "collision.731"
+        val second = "collision.3505"
+
+        assertEquals(
+            AndroidAgentPendingTriggerDispatchJobIdentity.jobIdFor(first),
+            AndroidAgentPendingTriggerDispatchJobIdentity.jobIdFor(second)
+        )
+        assertTrue(
+            runCatching {
+                AndroidAgentPendingTriggerDispatchJobIdentity.requireCollisionFree(
+                    listOf(first, second)
+                )
+            }.isFailure
+        )
+    }
+
+    @Test
+    fun pendingDispatchRetryBudgetIsExplicitAndBounded() {
+        assertEquals(1, AndroidAgentPendingTriggerDispatchPolicy.nextAttempt(0))
+        assertEquals(2, AndroidAgentPendingTriggerDispatchPolicy.nextAttempt(1))
+        assertEquals(3, AndroidAgentPendingTriggerDispatchPolicy.nextAttempt(2))
+        assertEquals(null, AndroidAgentPendingTriggerDispatchPolicy.nextAttempt(3))
+        assertTrue(
+            runCatching {
+                AndroidAgentPendingTriggerDispatchPolicy.requireAttempt(4)
+            }.isFailure
+        )
+    }
+
+    @Test
     fun controllerReconcilesUpsertDisableAndRemoveWithoutExecutionAuthority() {
         val registry = MemoryBackedAmperAgentProactiveTriggerSourceRegistry(
             InMemoryMemoryOs()
@@ -112,9 +158,11 @@ class AndroidAgentProactiveTriggerSourceSchedulerTest {
             InMemoryMemoryOs()
         )
         val scheduler = FakeScheduler()
+        val pendingDispatch = FakePendingDispatch()
         val controller = AndroidAgentProactiveTriggerSourceController(
             registry = registry,
-            scheduler = scheduler
+            scheduler = scheduler,
+            pendingDispatch = pendingDispatch
         )
         val local = source(
             sourceId = "local.example",
@@ -134,6 +182,7 @@ class AndroidAgentProactiveTriggerSourceSchedulerTest {
         assertEquals(OmegaBackgroundMode.EVENT_WAKE, accepted.qualified.admission.backgroundMode)
         assertEquals(local.sourceId, accepted.qualified.sourceId)
         assertEquals(0, scheduler.lastDesiredScheduled)
+        assertEquals(listOf(local.sourceId to 0), pendingDispatch.requested)
 
         val scheduled = source(sourceId = "scheduled.example")
         controller.upsert(scheduled, updatedAtEpochMs = 2L).getOrThrow()
@@ -144,6 +193,124 @@ class AndroidAgentProactiveTriggerSourceSchedulerTest {
             payloadDigest = "e".repeat(64)
         )
         assertTrue(wrongAdapter.isFailure)
+    }
+
+    @Test
+    fun foregroundReconciliationRequestsPendingWorkAndEnableResumesIt() {
+        val registry = MemoryBackedAmperAgentProactiveTriggerSourceRegistry(
+            InMemoryMemoryOs()
+        )
+        val local = source(
+            sourceId = "local.recovery",
+            kind = AmperAgentProactiveTriggerSourceKind.APP_LOCAL_EVENT,
+            minimumIntervalMs =
+                AmperAgentProactiveTriggerSource.APP_LOCAL_EVENT_MIN_INTERVAL_MS
+        )
+        registry.upsert(local, updatedAtEpochMs = 1L)
+        registry.accept(
+            io.amper.neuroos.core.v2.AmperAgentProactiveTriggerObservation(
+                sourceId = local.sourceId,
+                observedAtEpochMs = 1_000_000L,
+                payloadDigest = "f".repeat(64)
+            )
+        ).getOrThrow()
+
+        val scheduler = FakeScheduler()
+        val pendingDispatch = FakePendingDispatch()
+        val controller = AndroidAgentProactiveTriggerSourceController(
+            registry = registry,
+            scheduler = scheduler,
+            pendingDispatch = pendingDispatch
+        )
+
+        controller.reconcileAll().getOrThrow()
+        assertEquals(listOf(local.sourceId to 0), pendingDispatch.requested)
+
+        controller
+            .setEnabled(local.sourceId, false, updatedAtEpochMs = 2_000_000L)
+            .getOrThrow()
+        assertTrue(local.sourceId in pendingDispatch.cancelled)
+
+        controller
+            .setEnabled(local.sourceId, true, updatedAtEpochMs = 3_000_000L)
+            .getOrThrow()
+        assertEquals(
+            listOf(local.sourceId to 0, local.sourceId to 0),
+            pendingDispatch.requested
+        )
+    }
+
+    @Test
+    fun foregroundReconciliationFailsWhenPendingDispatchScheduleIsRejected() {
+        val registry = MemoryBackedAmperAgentProactiveTriggerSourceRegistry(
+            InMemoryMemoryOs()
+        )
+        val local = source(
+            sourceId = "local.rejected",
+            kind = AmperAgentProactiveTriggerSourceKind.APP_LOCAL_EVENT,
+            minimumIntervalMs =
+                AmperAgentProactiveTriggerSource.APP_LOCAL_EVENT_MIN_INTERVAL_MS
+        )
+        registry.upsert(local, updatedAtEpochMs = 1L)
+        registry.accept(
+            io.amper.neuroos.core.v2.AmperAgentProactiveTriggerObservation(
+                sourceId = local.sourceId,
+                observedAtEpochMs = 1_000_000L,
+                payloadDigest = "8".repeat(64)
+            )
+        ).getOrThrow()
+
+        val controller = AndroidAgentProactiveTriggerSourceController(
+            registry = registry,
+            scheduler = FakeScheduler(),
+            pendingDispatch = FakePendingDispatch(acceptSchedule = false)
+        )
+
+        assertTrue(controller.reconcileAll().isFailure)
+        assertEquals(1, registry.pending(local.sourceId).size)
+    }
+
+    @Test
+    fun pendingFifoBlocksRemovalAndSuccessfulRemovalCancelsBothAndroidJobs() {
+        val registry = MemoryBackedAmperAgentProactiveTriggerSourceRegistry(
+            InMemoryMemoryOs()
+        )
+        val local = source(
+            sourceId = "local.remove",
+            kind = AmperAgentProactiveTriggerSourceKind.APP_LOCAL_EVENT,
+            minimumIntervalMs =
+                AmperAgentProactiveTriggerSource.APP_LOCAL_EVENT_MIN_INTERVAL_MS
+        )
+        registry.upsert(local, updatedAtEpochMs = 1L)
+        val accepted = registry.accept(
+            io.amper.neuroos.core.v2.AmperAgentProactiveTriggerObservation(
+                sourceId = local.sourceId,
+                observedAtEpochMs = 1_000_000L,
+                payloadDigest = "9".repeat(64)
+            )
+        ).getOrThrow()
+
+        val scheduler = FakeScheduler()
+        val pendingDispatch = FakePendingDispatch()
+        val controller = AndroidAgentProactiveTriggerSourceController(
+            registry = registry,
+            scheduler = scheduler,
+            pendingDispatch = pendingDispatch
+        )
+
+        assertFalse(controller.remove(local.sourceId).getOrThrow())
+        assertTrue(scheduler.cancelled.isEmpty())
+        assertTrue(pendingDispatch.cancelled.isEmpty())
+
+        registry.acknowledgePending(
+            local.sourceId,
+            accepted.qualified.observationIdentitySha256,
+            updatedAtEpochMs = 2_000_000L
+        ).getOrThrow()
+
+        assertTrue(controller.remove(local.sourceId).getOrThrow())
+        assertEquals(listOf(local.sourceId), scheduler.cancelled)
+        assertEquals(listOf(local.sourceId), pendingDispatch.cancelled)
     }
 
     @Test
@@ -183,6 +350,22 @@ class AndroidAgentProactiveTriggerSourceSchedulerTest {
         userConfigured = true,
         enabled = enabled
     )
+
+    private class FakePendingDispatch(
+        private val acceptSchedule: Boolean = true
+    ) : AndroidAgentPendingTriggerDispatchRequester {
+        val requested = mutableListOf<Pair<String, Int>>()
+        val cancelled = mutableListOf<String>()
+
+        override fun request(sourceId: String, attempt: Int): Result<Boolean> {
+            requested += sourceId to attempt
+            return Result.success(acceptSchedule)
+        }
+
+        override fun cancel(sourceId: String) {
+            cancelled += sourceId
+        }
+    }
 
     private class FakeScheduler : AndroidAgentTriggerSourceScheduleReconciler {
         var reconcileCalls: Int = 0

@@ -67,6 +67,15 @@ interface AmperAgentPersistentPlanPort {
         userGoal: String
     ): Result<SovereignPlan>
 
+    fun createBound(
+        conversationId: ConversationId,
+        userGoal: String,
+        planId: PlanId
+    ): Result<SovereignPlan> =
+        Result.failure(
+            UnsupportedOperationException("deterministic persistent plan creation is unavailable")
+        )
+
     fun load(planId: PlanId): SovereignPlan?
 
     fun advance(plan: SovereignPlan): Result<PlanAdvanceResult>
@@ -86,6 +95,13 @@ class PersistentSovereignAgentPlanPort(
         userGoal: String
     ): Result<SovereignPlan> =
         coordinator.create(conversationId, userGoal)
+
+    override fun createBound(
+        conversationId: ConversationId,
+        userGoal: String,
+        planId: PlanId
+    ): Result<SovereignPlan> =
+        coordinator.createBound(conversationId, userGoal, planId)
 
     override fun load(planId: PlanId): SovereignPlan? =
         store.load(planId)
@@ -124,6 +140,32 @@ private class AmperAgentPersistentPlanTaskEngine(
             admission = admission,
             plan = plan,
             state = AmperAgentTaskState.READY
+        )
+    }
+
+    fun startBound(
+        admission: AmperAgentTaskAdmission,
+        conversationId: ConversationId,
+        planId: PlanId,
+        expectedOrigin: AmperAgentTaskOrigin
+    ): Result<AmperAgentPlanTaskResult> = runCatching {
+        requireAdmission(admission, expectedOrigin)
+
+        val plan = plans.createBound(
+            conversationId = conversationId,
+            userGoal = admission.request.objective,
+            planId = planId
+        ).getOrThrow()
+
+        require(plan.id == planId) {
+            "deterministic Agent Core plan identity drifted during creation"
+        }
+        requireTaskPlanEnvelope(admission, plan)
+
+        result(
+            admission = admission,
+            plan = plan,
+            state = resumableState(plan)
         )
     }
 
@@ -255,6 +297,19 @@ private class AmperAgentPersistentPlanTaskEngine(
         }
     }
 
+    private fun resumableState(plan: SovereignPlan): AmperAgentTaskState {
+        if (plan.complete) return terminalState(plan)
+        val active = plan.steps.firstOrNull {
+            it.status == PlanStepStatus.PLANNED ||
+                it.status == PlanStepStatus.REQUIRES_CONFIRMATION
+        } ?: error("non-terminal Agent Core plan has no active step")
+        return if (active.status == PlanStepStatus.REQUIRES_CONFIRMATION) {
+            AmperAgentTaskState.WAITING_APPROVAL
+        } else {
+            AmperAgentTaskState.READY
+        }
+    }
+
     private fun result(
         admission: AmperAgentTaskAdmission,
         plan: SovereignPlan,
@@ -344,6 +399,18 @@ class AmperAgentProactiveTaskCoordinator(
         conversationId: ConversationId
     ): Result<AmperAgentPlanTaskResult> =
         engine.start(admission, conversationId, AmperAgentTaskOrigin.PROACTIVE_TRIGGER)
+
+    fun startBound(
+        admission: AmperAgentTaskAdmission,
+        conversationId: ConversationId,
+        planId: PlanId
+    ): Result<AmperAgentPlanTaskResult> =
+        engine.startBound(
+            admission = admission,
+            conversationId = conversationId,
+            planId = planId,
+            expectedOrigin = AmperAgentTaskOrigin.PROACTIVE_TRIGGER
+        )
 
     fun advance(
         admission: AmperAgentTaskAdmission,

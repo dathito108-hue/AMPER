@@ -277,29 +277,44 @@ class AndroidAgentTriggerSourceJobScheduler(
  */
 class AndroidAgentProactiveTriggerSourceController(
     private val registry: AmperAgentProactiveTriggerSourceRegistry,
-    private val scheduler: AndroidAgentTriggerSourceScheduleReconciler
+    private val scheduler: AndroidAgentTriggerSourceScheduleReconciler,
+    private val pendingDispatch: AndroidAgentPendingTriggerDispatchRequester =
+        NoopAndroidAgentPendingTriggerDispatchRequester
 ) {
     constructor(
         context: Context,
         registry: AmperAgentProactiveTriggerSourceRegistry
     ) : this(
         registry = registry,
-        scheduler = AndroidAgentTriggerSourceJobScheduler(context)
+        scheduler = AndroidAgentTriggerSourceJobScheduler(context),
+        pendingDispatch = AndroidAgentPendingTriggerDispatchScheduler(context)
     )
     fun upsert(
         source: AmperAgentProactiveTriggerSource,
         updatedAtEpochMs: Long = System.currentTimeMillis()
     ): Result<AmperAgentPersistedProactiveTriggerSource> = runCatching {
-        if (registry.get(source.sourceId) == null) {
+        val currentStates = registry.list(
+            AndroidAgentScheduledTriggerSourcePolicy.MAX_REGISTERED_SOURCES + 1
+        )
+        require(
+            currentStates.size <= AndroidAgentScheduledTriggerSourcePolicy.MAX_REGISTERED_SOURCES
+        ) {
+            "persisted proactive trigger registration count exceeds Android bound"
+        }
+        if (currentStates.none { it.source.sourceId == source.sourceId }) {
             require(
-                registry.list(
-                    AndroidAgentScheduledTriggerSourcePolicy.MAX_REGISTERED_SOURCES
-                ).size <
+                currentStates.size <
                     AndroidAgentScheduledTriggerSourcePolicy.MAX_REGISTERED_SOURCES
             ) {
                 "proactive trigger registration limit reached"
             }
         }
+        AndroidAgentPendingTriggerDispatchJobIdentity.requireCollisionFree(
+            currentStates
+                .map { it.source.sourceId }
+                .filterNot { it == source.sourceId } +
+                source.sourceId
+        )
 
         val state = registry.upsert(source, updatedAtEpochMs)
         reconcileAll().getOrThrow()
@@ -322,6 +337,7 @@ class AndroidAgentProactiveTriggerSourceController(
         val removed = registry.remove(sourceId)
         if (removed) {
             scheduler.cancelSource(sourceId)
+            pendingDispatch.cancel(sourceId)
             reconcileAll().getOrThrow()
         }
         removed
@@ -336,7 +352,20 @@ class AndroidAgentProactiveTriggerSourceController(
         ) {
             "persisted proactive trigger registration count exceeds Android bound"
         }
-        scheduler.reconcile(states).getOrThrow()
+        AndroidAgentPendingTriggerDispatchJobIdentity.requireCollisionFree(
+            states.map { it.source.sourceId }
+        )
+        val report = scheduler.reconcile(states).getOrThrow()
+        states.forEach { state ->
+            if (state.source.enabled && state.pendingObservations.isNotEmpty()) {
+                require(pendingDispatch.request(state.source.sourceId).getOrThrow()) {
+                    "pending proactive trigger dispatch schedule was rejected"
+                }
+            } else {
+                pendingDispatch.cancel(state.source.sourceId)
+            }
+        }
+        report
     }
 
     fun observeAppLocalEvent(
@@ -352,22 +381,26 @@ class AndroidAgentProactiveTriggerSourceController(
         ) {
             "scheduled-window source cannot be injected through app-local event adapter"
         }
-        registry.accept(
+        val accepted = registry.accept(
             AmperAgentProactiveTriggerObservation(
                 sourceId = sourceId,
                 observedAtEpochMs = observedAtEpochMs,
                 payloadDigest = payloadDigest
             )
         ).getOrThrow()
+        // Acceptance is already durable. A scheduler failure must not make callers replay the same
+        // event as though it were unaccepted; foreground reconciliation can request it again.
+        pendingDispatch.request(sourceId)
+        accepted
     }
 }
 
 /**
  * Periodic source observation host.
  *
- * The job emits only a bounded scheduled-window observation into the Phase659 registry. It does not
- * create a sovereign plan or EVENT_WAKE execution job in Phase660; that durable dispatch binding is
- * the next M5 slice. APP_LOCAL_EVENT has no JobService path.
+ * The job emits only a bounded scheduled-window observation into the Phase659 registry, then asks
+ * the Phase661 one-shot dispatcher to drain already-durable FIFO work. It still owns no planner,
+ * ToolFabric, model, or Agent execution authority. APP_LOCAL_EVENT has no JobService path.
  */
 class AgentTriggerSourceJobService : JobService() {
     private val worker = Executors.newSingleThreadExecutor { runnable ->
@@ -408,8 +441,14 @@ class AgentTriggerSourceJobService : JobService() {
 
             val observation = AndroidAgentScheduledTriggerSourcePolicy
                 .observation(state, System.currentTimeMillis())
-            observation.onSuccess {
-                graph.agent.agentTriggerSources.accept(it)
+            observation.onSuccess { value ->
+                graph.agent.agentTriggerSources.accept(value)
+                // Even when acceptance is rejected by cooldown/dedupe/backpressure, an older FIFO
+                // entry may still need dispatch. Requesting the stable one-shot job is idempotent.
+                if (graph.agent.agentTriggerSources.pending(token.sourceId).isNotEmpty()) {
+                    AndroidAgentPendingTriggerDispatchScheduler(applicationContext)
+                        .request(token.sourceId)
+                }
             }
             finish(params)
         }
