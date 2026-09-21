@@ -50,7 +50,8 @@ fun interface AmperAgentAndroidContinuationExecutionPort {
 object AmperAgentAndroidContinuationHostDispatcher {
     fun dispatch(
         handoff: AmperAgentAndroidContinuationHandoff,
-        execution: AmperAgentAndroidContinuationExecutionPort?
+        execution: AmperAgentAndroidContinuationExecutionPort?,
+        executionFallback: (() -> Result<AmperAgentAndroidContinuationExecutionPort>)? = null
     ): Result<AmperAgentAndroidHostExecutionResult> = runCatching {
         val envelope = AmperAgentAndroidContinuationHandoffPolicy
             .verifyAndDecode(handoff)
@@ -71,6 +72,7 @@ object AmperAgentAndroidContinuationHostDispatcher {
 
             AmperAgentContinuationWakeDisposition.READY_FOR_EXPLICIT_ADVANCE -> {
                 val port = execution
+                    ?: executionFallback?.invoke()?.getOrThrow()
                     ?: return@runCatching AmperAgentAndroidHostExecutionResult(
                         state = AmperAgentAndroidHostExecutionState.RETRY_LATER,
                         detail = "canonical Agent Core execution port is unavailable"
