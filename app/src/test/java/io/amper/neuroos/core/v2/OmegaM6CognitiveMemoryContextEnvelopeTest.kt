@@ -12,13 +12,14 @@ class OmegaM6CognitiveMemoryContextEnvelopeTest {
         "episodic-v1-is-not-duplicated-in-generic-context-memory",
         "working-episodic-semantic-procedural-context-quotas-are-bounded",
         "cognitive-memory-context-envelope-persists-no-state",
+        "cognitive-memory-context-overrequests-clamp-without-expansion",
         "integrated-cognitive-digest-binds-explicit-episodic-evidence"
     )
 
     private val criteria = setOf(
         "canonical planning context applies one bounded envelope across working episodic semantic and procedural memory lanes",
         "runtime context retrieves at most 6 explicit episodic entries and excludes episodic-v1 from generic sovereign-memory projection",
-        "working and generic memory caller limits cannot exceed the canonical context envelope",
+        "working and generic memory caller over-requests are clamped to the canonical context envelope",
         "semantic context exposes at most 6 current semantic entries and 6 epistemic beliefs while procedural strategy evidence exposes at most 4 entries",
         "the cross-domain envelope persists no state and creates no memory database cache or scheduler",
         "integrated cognitive state digest binds episodic id origin importance and fingerprint without copying raw episodic content"

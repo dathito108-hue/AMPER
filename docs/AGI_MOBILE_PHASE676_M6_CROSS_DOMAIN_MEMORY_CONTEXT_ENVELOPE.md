@@ -26,7 +26,9 @@ Legacy kind="episodic" records remain readable through the generic lane for back
 The four cognitive-memory surfaces therefore contribute at most 28 bounded items to the canonical
 snapshot before other world/competence evidence.
 
-Caller-supplied generic-memory or workspace limits above the envelope fail immediately.
+Caller-supplied generic-memory or workspace limits are request ceilings, not authority to expand
+the canonical envelope. Over-requests are clamped to the envelope for backward compatibility with
+older callers that used larger scan limits while still preserving the same mobile output quota.
 
 ## Prompt and digest coherence
 

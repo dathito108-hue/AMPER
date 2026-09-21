@@ -69,9 +69,11 @@ class CanonicalSovereignContextSource(
         workspaceLimit: Int
     ): SovereignContextSnapshot {
         require(query.isNotBlank())
-        require(memoryLimit in 0..memoryEnvelope.maxGenericMemories)
+        require(memoryLimit >= 0)
         require(worldLimit >= 0)
-        require(workspaceLimit in 0..memoryEnvelope.maxWorkingItems)
+        require(workspaceLimit >= 0)
+        val boundedMemoryLimit = minOf(memoryLimit, memoryEnvelope.maxGenericMemories)
+        val boundedWorkspaceLimit = minOf(workspaceLimit, memoryEnvelope.maxWorkingItems)
         val excludedRawKinds = buildSet {
             addAll(setOf(
             MemoryBackedEpistemicState.CLAIM_KIND,
@@ -147,13 +149,16 @@ class CanonicalSovereignContextSource(
                 add(CanonicalEpisodicMemoryStore.KIND)
             }
         }
-        val seedScanLimit = if (memoryLimit == 0) 0 else (memoryLimit * 6).coerceAtLeast(memoryLimit)
+        val seedScanLimit =
+            if (boundedMemoryLimit == 0) 0
+            else (boundedMemoryLimit * 6).coerceAtLeast(boundedMemoryLimit)
         val seeds = memory.recall(query, seedScanLimit)
             .filterNot { it.kind in excludedRawKinds }
-            .take(memoryLimit)
-        val expandedMemories = ProvenanceContextExpander.expand(seeds, memory, memoryLimit)
-            .filterNot { it.kind in excludedRawKinds }
-            .take(memoryLimit)
+            .take(boundedMemoryLimit)
+        val expandedMemories =
+            ProvenanceContextExpander.expand(seeds, memory, boundedMemoryLimit)
+                .filterNot { it.kind in excludedRawKinds }
+                .take(boundedMemoryLimit)
         val episodic = episodicMemoryStore
             ?.recent(query, memoryEnvelope.maxEpisodicItems)
             ?.getOrThrow()
@@ -213,7 +218,7 @@ class CanonicalSovereignContextSource(
             memories = expandedMemories,
             episodicMemories = episodic,
             worldFacts = world.query(query, worldLimit),
-            workspaceEvents = workspace.snapshot().takeLast(workspaceLimit),
+            workspaceEvents = workspace.snapshot().takeLast(boundedWorkspaceLimit),
             capabilityCompetence = competence?.all(8).orEmpty(),
             strategyEvidence = strategies
                 ?.recent(memoryEnvelope.maxProceduralItems)

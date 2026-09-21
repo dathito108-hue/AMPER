@@ -95,32 +95,48 @@ class CognitiveMemoryContextEnvelopeTest {
     }
 
     @Test
-    fun callerCannotExceedEnvelopeWorkingOrGenericMemoryQuota() {
+    fun callerOverRequestsAreClampedToEnvelopeWithoutExpandingContext() {
+        val memory = InMemoryMemoryOs()
+        repeat(12) { index ->
+            memory.remember(
+                MemoryRecord(
+                    kind = "sovereign-note",
+                    content = "quota-marker-" + index,
+                    importance = 0.7,
+                    provenance = Provenance("phase676", "quota-test")
+                )
+            )
+        }
+        val workspace = InMemoryWorkspace().also { ws ->
+            repeat(12) { index ->
+                ws.publish(
+                    CognitiveEvent(
+                        topic = "quota-working-" + index,
+                        payload = "quota",
+                        salience = 0.8
+                    )
+                )
+            }
+        }
+        val envelope = CognitiveMemoryContextEnvelope()
         val source = CanonicalSovereignContextSource(
-            InMemoryWorkspace(),
-            InMemoryMemoryOs(),
+            workspace,
+            memory,
             CanonicalSelfModel(),
             CanonicalGoalSystem(),
-            CanonicalWorldModel()
+            CanonicalWorldModel(),
+            memoryEnvelope = envelope
         )
-        val envelope = CognitiveMemoryContextEnvelope()
 
-        assertTrue(
-            runCatching {
-                source.capture(
-                    query = "quota",
-                    memoryLimit = envelope.maxGenericMemories + 1
-                )
-            }.isFailure
+        val snapshot = source.capture(
+            query = "quota",
+            memoryLimit = envelope.maxGenericMemories + 10,
+            workspaceLimit = envelope.maxWorkingItems + 10
         )
-        assertTrue(
-            runCatching {
-                source.capture(
-                    query = "quota",
-                    workspaceLimit = envelope.maxWorkingItems + 1
-                )
-            }.isFailure
-        )
+
+        assertTrue(snapshot.memories.size <= envelope.maxGenericMemories)
+        assertEquals(envelope.maxWorkingItems, snapshot.workspaceEvents.size)
+        envelope.validate(snapshot)
     }
 
     @Test
