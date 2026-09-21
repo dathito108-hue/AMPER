@@ -42,6 +42,49 @@ object AndroidAgentProactiveAttentionSurfacePolicy {
     }
 }
 
+data class AndroidAgentProactiveAttentionNotificationCopy(
+    val title: String,
+    val text: String
+)
+
+/**
+ * Privacy-preserving notification copy policy.
+ *
+ * The API intentionally accepts only the attention kind and bounded approval-step index. It has no
+ * goal, source, trigger payload, tool input, or plan-content parameter, so Android notification text
+ * cannot accidentally mirror sensitive lifecycle content.
+ */
+object AndroidAgentProactiveAttentionNotificationCopyPolicy {
+    fun copy(
+        kind: AmperAgentProactiveAttentionKind,
+        waitingApprovalStepIndex: Int?
+    ): AndroidAgentProactiveAttentionNotificationCopy = when (kind) {
+        AmperAgentProactiveAttentionKind.APPROVAL_REQUIRED ->
+            AndroidAgentProactiveAttentionNotificationCopy(
+                title = "AMPER needs your approval",
+                text = "A proactive task is waiting at governed approval step " +
+                    requireNotNull(waitingApprovalStepIndex) + "."
+            )
+        AmperAgentProactiveAttentionKind.COMPLETED ->
+            AndroidAgentProactiveAttentionNotificationCopy(
+                title = "AMPER proactive task completed",
+                text = "Open AMPER to review the durable result."
+            )
+        AmperAgentProactiveAttentionKind.FAILED ->
+            AndroidAgentProactiveAttentionNotificationCopy(
+                title = "AMPER proactive task needs review",
+                text = "The durable task reached a non-success terminal state."
+            )
+        AmperAgentProactiveAttentionKind.PLAN_UNAVAILABLE ->
+            AndroidAgentProactiveAttentionNotificationCopy(
+                title = "AMPER proactive task needs review",
+                text = "Canonical plan state is unavailable; execution remains fail-closed."
+            )
+        AmperAgentProactiveAttentionKind.NONE ->
+            error("non-attention state cannot build notification copy")
+    }
+}
+
 data class AndroidAgentProactiveAttentionPermissionStatus(
     val runtimePermissionRequired: Boolean,
     val runtimePermissionGranted: Boolean,
@@ -241,49 +284,28 @@ class AndroidAgentProactiveAttentionController(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val (title, text, category, ongoing, autoCancel) = when (kind) {
+        val copy = AndroidAgentProactiveAttentionNotificationCopyPolicy.copy(
+            kind,
+            waitingApprovalStepIndex
+        )
+        val (category, ongoing, autoCancel) = when (kind) {
             AmperAgentProactiveAttentionKind.APPROVAL_REQUIRED ->
-                Quintuple(
-                    "AMPER needs your approval",
-                    "A proactive task is waiting at governed approval step " +
-                        requireNotNull(waitingApprovalStepIndex) + ".",
-                    Notification.CATEGORY_REMINDER,
-                    false,
-                    false
-                )
+                Triple(Notification.CATEGORY_REMINDER, false, false)
             AmperAgentProactiveAttentionKind.COMPLETED ->
-                Quintuple(
-                    "AMPER proactive task completed",
-                    "Open AMPER to review the durable result.",
-                    Notification.CATEGORY_STATUS,
-                    false,
-                    true
-                )
+                Triple(Notification.CATEGORY_STATUS, false, true)
             AmperAgentProactiveAttentionKind.FAILED ->
-                Quintuple(
-                    "AMPER proactive task needs review",
-                    "The durable task reached a non-success terminal state.",
-                    Notification.CATEGORY_STATUS,
-                    false,
-                    true
-                )
+                Triple(Notification.CATEGORY_STATUS, false, true)
             AmperAgentProactiveAttentionKind.PLAN_UNAVAILABLE ->
-                Quintuple(
-                    "AMPER proactive task needs review",
-                    "Canonical plan state is unavailable; execution remains fail-closed.",
-                    Notification.CATEGORY_ERROR,
-                    false,
-                    false
-                )
+                Triple(Notification.CATEGORY_ERROR, false, false)
             AmperAgentProactiveAttentionKind.NONE ->
                 error("non-attention state cannot build a notification")
         }
 
         return Notification.Builder(appContext, NOTIFICATION_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle(title)
-            .setContentText(text)
-            .setStyle(Notification.BigTextStyle().bigText(text))
+            .setContentTitle(copy.title)
+            .setContentText(copy.text)
+            .setStyle(Notification.BigTextStyle().bigText(copy.text))
             .setCategory(category)
             .setContentIntent(openPending)
             .setOnlyAlertOnce(true)
@@ -306,14 +328,6 @@ class AndroidAgentProactiveAttentionController(
             }
         )
     }
-
-    private data class Quintuple(
-        val first: String,
-        val second: String,
-        val third: String,
-        val fourth: Boolean,
-        val fifth: Boolean
-    )
 
     companion object {
         const val NOTIFICATION_CHANNEL_ID: String = "amper-proactive-attention"

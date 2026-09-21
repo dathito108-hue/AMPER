@@ -87,8 +87,54 @@ class AndroidAgentProactiveAttentionPolicyTest {
         )
         assertEquals(
             null,
+            AndroidAgentProactiveAttentionIdentity.parseRequestedPlanId(
+                "agent-trigger-plan:" + "a".repeat(63)
+            )
+        )
+        assertEquals(
+            null,
+            AndroidAgentProactiveAttentionIdentity.parseRequestedPlanId(
+                valid + "-suffix"
+            )
+        )
+        assertEquals(
+            null,
             AndroidAgentProactiveAttentionIdentity.parseRequestedPlanId(null)
         )
+    }
+
+    @Test
+    fun notificationCopyIsGenericAndCannotMirrorSensitiveLifecycleContent() {
+        val approval = AndroidAgentProactiveAttentionNotificationCopyPolicy.copy(
+            AmperAgentProactiveAttentionKind.APPROVAL_REQUIRED,
+            7
+        )
+        val completed = AndroidAgentProactiveAttentionNotificationCopyPolicy.copy(
+            AmperAgentProactiveAttentionKind.COMPLETED,
+            null
+        )
+        val failed = AndroidAgentProactiveAttentionNotificationCopyPolicy.copy(
+            AmperAgentProactiveAttentionKind.FAILED,
+            null
+        )
+        val unavailable = AndroidAgentProactiveAttentionNotificationCopyPolicy.copy(
+            AmperAgentProactiveAttentionKind.PLAN_UNAVAILABLE,
+            null
+        )
+
+        assertEquals("AMPER needs your approval", approval.title)
+        assertEquals(
+            "A proactive task is waiting at governed approval step 7.",
+            approval.text
+        )
+        val rendered = listOf(approval, completed, failed, unavailable)
+            .joinToString("\n") { it.title + "\n" + it.text }
+            .lowercase()
+        assertFalse(rendered.contains("goal:"))
+        assertFalse(rendered.contains("source:"))
+        assertFalse(rendered.contains("payload"))
+        assertFalse(rendered.contains("tool input"))
+        assertFalse(rendered.contains("agent-trigger-plan:"))
     }
 
     @Test
