@@ -17,7 +17,7 @@ import io.amper.neuroos.core.v2.AmperAgentProactiveTaskLifecycleCoordinator
 import io.amper.neuroos.core.v2.AmperAgentTaskState
 
 /**
- * Phase662 user-visible read-only proactive lifecycle surface.
+ * Phase662 lifecycle surface extended by Phase663 proactive attention discoverability.
  *
  * It never advances, approves, rejects, schedules, or executes a task. Opening a plan delegates to
  * the existing governed plan console, where exact side-effect approval remains unchanged.
