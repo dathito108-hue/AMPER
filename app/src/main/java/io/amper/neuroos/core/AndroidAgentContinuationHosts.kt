@@ -229,6 +229,8 @@ class AgentContinuationForegroundService : Service() {
 
     @Volatile
     private var active: Future<*>? = null
+    @Volatile
+    private var preserveDetachedNotification: Boolean = false
 
     override fun onCreate() {
         super.onCreate()
@@ -249,7 +251,9 @@ class AgentContinuationForegroundService : Service() {
         active?.cancel(true)
         active = null
         worker.shutdownNow()
-        stopForegroundCompat()
+        if (!preserveDetachedNotification) {
+            stopForegroundCompat()
+        }
         super.onDestroy()
     }
 
@@ -328,6 +332,8 @@ class AgentContinuationForegroundService : Service() {
                 ongoing = false
             )
         )
+        preserveDetachedNotification = true
+        preserveDetachedNotification = true
         stopForegroundCompat(removeNotification = false)
         stopSelf()
     }
@@ -367,7 +373,7 @@ class AgentContinuationForegroundService : Service() {
             .addAction(
                 Notification.Action.Builder(
                     android.R.drawable.ic_menu_close_clear_cancel,
-                    "Stop",
+                    "Pause",
                     stopPending
                 ).build()
             )
@@ -391,6 +397,7 @@ class AgentContinuationForegroundService : Service() {
     private fun stopContinuation() {
         active?.cancel(true)
         active = null
+        preserveDetachedNotification = false
         stopForegroundCompat()
         stopSelf()
     }
@@ -427,7 +434,6 @@ class AgentContinuationJobService : JobService() {
         val handoff = AndroidAgentContinuationTransport
             .readFromBundle(params.extras)
             .getOrElse {
-                jobFinished(params, false)
                 return false
             }
 
@@ -435,7 +441,6 @@ class AgentContinuationJobService : JobService() {
             handoff.executionHost !=
             AmperAgentAndroidExecutionHost.PERSISTED_JOB_SCHEDULER
         ) {
-            jobFinished(params, false)
             return false
         }
 
