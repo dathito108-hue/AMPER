@@ -1,7 +1,9 @@
 package io.amper.neuroos.core
 
+import io.amper.neuroos.core.v2.AmperAgentProactiveAttentionAcknowledgementLedger
 import io.amper.neuroos.core.v2.AmperAgentProactiveTaskLifecycleLedger
 import io.amper.neuroos.core.v2.AmperAgentProactiveTriggerSourceRegistry
+import io.amper.neuroos.core.v2.MemoryBackedAmperAgentProactiveAttentionAcknowledgementLedger
 import io.amper.neuroos.core.v2.MemoryBackedAmperAgentProactiveTaskLifecycleLedger
 import io.amper.neuroos.core.v2.MemoryBackedAmperAgentProactiveTriggerSourceRegistry
 import java.io.File
@@ -212,6 +214,7 @@ class AmperRuntime private constructor(
     val plans: SovereignPlanStore,
     val proactiveTriggerSources: AmperAgentProactiveTriggerSourceRegistry,
     val proactiveTaskLifecycle: AmperAgentProactiveTaskLifecycleLedger,
+    val proactiveAttentionAcknowledgements: AmperAgentProactiveAttentionAcknowledgementLedger,
     val persistentGoalExecutiveStore: PersistentGoalExecutiveStore,
     val goalPortfolio: DurableGoalPortfolio,
     val goalOutcomeLearning: GoalOutcomeLearningModel,
@@ -592,6 +595,8 @@ class AmperRuntime private constructor(
                 MemoryBackedAmperAgentProactiveTriggerSourceRegistry(memory)
             val proactiveTaskLifecycle =
                 MemoryBackedAmperAgentProactiveTaskLifecycleLedger(memory)
+            val proactiveAttentionAcknowledgements =
+                MemoryBackedAmperAgentProactiveAttentionAcknowledgementLedger(memory)
             val persistentGoalExecutiveStore = MemoryBackedPersistentGoalExecutiveStore(memory)
             val goalPortfolio = MemoryBackedDurableGoalPortfolio(memory)
             val goalOutcomeLearning = MemoryBackedGoalOutcomeLearningModel(memory)
@@ -664,6 +669,7 @@ class AmperRuntime private constructor(
                 plans = plans,
                 proactiveTriggerSources = proactiveTriggerSources,
                 proactiveTaskLifecycle = proactiveTaskLifecycle,
+                proactiveAttentionAcknowledgements = proactiveAttentionAcknowledgements,
                 persistentGoalExecutiveStore = persistentGoalExecutiveStore,
                 goalPortfolio = goalPortfolio,
                 goalOutcomeLearning = goalOutcomeLearning,

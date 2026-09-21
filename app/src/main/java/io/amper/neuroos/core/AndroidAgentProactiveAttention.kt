@@ -10,7 +10,10 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import io.amper.neuroos.core.v2.AmperAgentProactiveAttentionAcknowledgementLedger
+import io.amper.neuroos.core.v2.AmperAgentProactiveAttentionAcknowledgementPolicy
 import io.amper.neuroos.core.v2.AmperAgentProactiveAttentionKind
+import io.amper.neuroos.core.v2.AmperAgentProactiveAttentionRevision
 import io.amper.neuroos.core.v2.AmperAgentProactiveAttentionPolicy
 import io.amper.neuroos.core.v2.AmperAgentProactiveTaskLifecycleCoordinator
 import io.amper.neuroos.core.v2.AmperAgentProactiveTaskLifecycleView
@@ -25,6 +28,7 @@ enum class AndroidAgentProactiveAttentionDelivery {
     POSTED,
     CANCELLED,
     SUPPRESSED,
+    ACKNOWLEDGED,
     NOT_TRACKED
 }
 
@@ -99,14 +103,16 @@ data class AndroidAgentProactiveAttentionReconcileReport(
     val tracked: Int,
     val posted: Int,
     val cancelled: Int,
-    val suppressed: Int
+    val suppressed: Int,
+    val acknowledged: Int
 ) {
     init {
         require(tracked >= 0)
         require(posted >= 0)
         require(cancelled >= 0)
         require(suppressed >= 0)
-        require(posted + cancelled + suppressed <= tracked)
+        require(acknowledged >= 0)
+        require(posted + cancelled + suppressed + acknowledged <= tracked)
     }
 }
 
@@ -114,6 +120,8 @@ object AndroidAgentProactiveAttentionIdentity {
     const val NOTIFICATION_ID: Int = 663
     const val TAG_PREFIX: String = "amper.proactive.plan:"
     const val EXTRA_PLAN_ID: String = "io.amper.neuroos.extra.PROACTIVE_PLAN_ID"
+    const val EXTRA_ATTENTION_REVISION: String =
+        "io.amper.neuroos.extra.PROACTIVE_ATTENTION_REVISION"
     const val ACTION_OPEN: String = "io.amper.neuroos.agent.proactive.OPEN"
 
     fun tag(planId: PlanId): String = TAG_PREFIX + planId.value
@@ -124,6 +132,9 @@ object AndroidAgentProactiveAttentionIdentity {
                 it.matches(Regex("agent-trigger-plan:[0-9a-f]{64}"))
             }
             ?.let(::PlanId)
+
+    fun parseRequestedRevision(raw: String?): String? =
+        raw?.takeIf { it.matches(Regex("[0-9a-f]{64}")) }
 
     fun navigationData(planId: PlanId): Uri =
         Uri.Builder()
@@ -156,7 +167,7 @@ object AndroidAgentProactiveAttentionPermission {
 }
 
 /**
- * Phase663 attention-only adapter.
+ * Phase663 attention-only adapter with Phase664 revision-scoped acknowledgement.
  *
  * It owns no JobService, scheduler, planner, approval action, ToolFabric, AuthorityGate, or mutable
  * task persistence. It derives attention solely from Phase662 lifecycle views and uses Android's
@@ -164,7 +175,8 @@ object AndroidAgentProactiveAttentionPermission {
  */
 class AndroidAgentProactiveAttentionController(
     context: Context,
-    private val lifecycle: AmperAgentProactiveTaskLifecycleCoordinator
+    private val lifecycle: AmperAgentProactiveTaskLifecycleCoordinator,
+    private val acknowledgements: AmperAgentProactiveAttentionAcknowledgementLedger
 ) {
     private val appContext = context.applicationContext
     private val manager =
@@ -189,6 +201,33 @@ class AndroidAgentProactiveAttentionController(
         syncView(view, mode)
     }
 
+    fun acknowledgePlan(
+        planId: PlanId,
+        expectedRevisionSha256: String
+    ): Result<Boolean> = runCatching {
+        require(expectedRevisionSha256.matches(Regex("[0-9a-f]{64}")))
+        val view = lifecycle.findByPlanId(planId)
+            ?: return@runCatching false
+        val decision = AmperAgentProactiveAttentionPolicy.decide(view)
+        if (decision.kind == AmperAgentProactiveAttentionKind.NONE) {
+            cancel(planId)
+            return@runCatching false
+        }
+        if (
+            !AmperAgentProactiveAttentionAcknowledgementPolicy.matchesCurrentRevision(
+                decision,
+                expectedRevisionSha256
+            )
+        ) {
+            return@runCatching false
+        }
+        acknowledgements
+            .acknowledge(decision)
+            .getOrThrow()
+        cancel(planId)
+        true
+    }
+
     fun reconcileTracked(
         mode: AndroidAgentProactiveAttentionSurfaceMode =
             AndroidAgentProactiveAttentionSurfaceMode.FOREGROUND_RECONCILE,
@@ -199,18 +238,24 @@ class AndroidAgentProactiveAttentionController(
         var posted = 0
         var cancelled = 0
         var suppressed = 0
+        var acknowledged = 0
         views.forEach { view ->
             when (syncView(view, mode)) {
                 AndroidAgentProactiveAttentionDelivery.POSTED -> posted += 1
                 AndroidAgentProactiveAttentionDelivery.CANCELLED -> cancelled += 1
                 AndroidAgentProactiveAttentionDelivery.SUPPRESSED -> suppressed += 1
+                AndroidAgentProactiveAttentionDelivery.ACKNOWLEDGED -> acknowledged += 1
                 AndroidAgentProactiveAttentionDelivery.NOT_TRACKED -> Unit
             }
         }
 
         if (limit == 64) {
-            val trackedTags = views.mapTo(linkedSetOf()) {
-                AndroidAgentProactiveAttentionIdentity.tag(it.binding.planId)
+            val trackedPlanIds = views.mapTo(linkedSetOf()) { it.binding.planId }
+            // Stale acknowledgement cleanup is UI-state maintenance only. Corruption remains
+            // fail-visible because suppression checks below never trust a failed acknowledgement read.
+            acknowledgements.retainPlanIds(trackedPlanIds)
+            val trackedTags = trackedPlanIds.mapTo(linkedSetOf()) {
+                AndroidAgentProactiveAttentionIdentity.tag(it)
             }
             manager.activeNotifications
                 .asSequence()
@@ -231,7 +276,8 @@ class AndroidAgentProactiveAttentionController(
             tracked = views.size,
             posted = posted,
             cancelled = cancelled,
-            suppressed = suppressed
+            suppressed = suppressed,
+            acknowledged = acknowledged
         )
     }
 
@@ -255,6 +301,14 @@ class AndroidAgentProactiveAttentionController(
             return AndroidAgentProactiveAttentionDelivery.CANCELLED
         }
 
+        val acknowledged = acknowledgements
+            .isAcknowledged(decision)
+            .getOrDefault(false)
+        if (acknowledged) {
+            cancel(decision.planId)
+            return AndroidAgentProactiveAttentionDelivery.ACKNOWLEDGED
+        }
+
         if (!permissionStatus().canPost) {
             return AndroidAgentProactiveAttentionDelivery.SUPPRESSED
         }
@@ -262,20 +316,26 @@ class AndroidAgentProactiveAttentionController(
         manager.notify(
             AndroidAgentProactiveAttentionIdentity.tag(decision.planId),
             AndroidAgentProactiveAttentionIdentity.NOTIFICATION_ID,
-            buildNotification(decision.kind, decision.planId, decision.waitingApprovalStepIndex)
+            buildNotification(decision)
         )
         return AndroidAgentProactiveAttentionDelivery.POSTED
     }
 
     private fun buildNotification(
-        kind: AmperAgentProactiveAttentionKind,
-        planId: PlanId,
-        waitingApprovalStepIndex: Int?
+        decision: io.amper.neuroos.core.v2.AmperAgentProactiveAttentionDecision
     ): Notification {
+        val kind = decision.kind
+        val planId = decision.planId
+        val waitingApprovalStepIndex = decision.waitingApprovalStepIndex
+        val revisionSha256 = AmperAgentProactiveAttentionRevision.sha256(decision)
         val navigation = Intent(AndroidAgentProactiveAttentionIdentity.ACTION_OPEN)
             .setClassName(appContext, "io.amper.neuroos.MainActivity")
             .setData(AndroidAgentProactiveAttentionIdentity.navigationData(planId))
             .putExtra(AndroidAgentProactiveAttentionIdentity.EXTRA_PLAN_ID, planId.value)
+            .putExtra(
+                AndroidAgentProactiveAttentionIdentity.EXTRA_ATTENTION_REVISION,
+                revisionSha256
+            )
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         val openPending = PendingIntent.getActivity(
             appContext,

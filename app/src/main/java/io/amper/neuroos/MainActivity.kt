@@ -159,6 +159,14 @@ class MainActivity : ComponentActivity() {
                         io.amper.neuroos.core.AndroidAgentProactiveAttentionIdentity.EXTRA_PLAN_ID
                     )
                 )
+        val requestedProactiveAttentionRevision =
+            io.amper.neuroos.core.AndroidAgentProactiveAttentionIdentity
+                .parseRequestedRevision(
+                    intent?.getStringExtra(
+                        io.amper.neuroos.core.AndroidAgentProactiveAttentionIdentity
+                            .EXTRA_ATTENTION_REVISION
+                    )
+                )
         setContent {
             val canonicalGraph = remember {
                 AndroidCanonicalSovereignRuntimeBootstrap.acquire(applicationContext)
@@ -389,6 +397,19 @@ class MainActivity : ComponentActivity() {
                 )
             }
             DisposableEffect(Unit) {
+                if (
+                    requestedProactivePlanId != null &&
+                    requestedProactiveAttentionRevision != null
+                ) {
+                    runCatching {
+                        agentProactiveAttention
+                            .acknowledgePlan(
+                                requestedProactivePlanId,
+                                requestedProactiveAttentionRevision
+                            )
+                            .getOrThrow()
+                    }
+                }
                 AndroidReflexMaintenanceProcessRegistry.register(
                     reflexMaintenanceCoordinator
                 )

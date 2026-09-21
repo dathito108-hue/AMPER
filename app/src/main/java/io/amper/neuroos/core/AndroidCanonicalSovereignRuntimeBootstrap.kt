@@ -259,7 +259,8 @@ class AndroidCanonicalSovereignRuntimeGraph internal constructor(context: Contex
         )
         val agentProactiveAttention = AndroidAgentProactiveAttentionController(
             context = appContext,
-            lifecycle = agentProactiveLifecycle
+            lifecycle = agentProactiveLifecycle,
+            acknowledgements = runtime.proactiveAttentionAcknowledgements
         )
         val agentPendingTriggerDispatch = AmperAgentPendingTriggerDispatchCoordinator(
             registry = runtime.proactiveTriggerSources,

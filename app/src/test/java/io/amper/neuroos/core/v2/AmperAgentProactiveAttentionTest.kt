@@ -1,5 +1,8 @@
 package io.amper.neuroos.core.v2
 
+import io.amper.neuroos.core.InMemoryMemoryOs
+import io.amper.neuroos.core.MemoryRecord
+import io.amper.neuroos.core.Provenance
 import io.amper.neuroos.core.PlanId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -91,6 +94,209 @@ class AmperAgentProactiveAttentionTest {
         )
         assertTrue(decision.actionable)
         assertEquals(null, decision.goal)
+    }
+
+    @Test
+    fun attentionRevisionChangesOnlyForCanonicalAttentionIdentityInputs() {
+        val first = AmperAgentProactiveAttentionPolicy.decide(
+            view(
+                state = AmperAgentTaskState.WAITING_APPROVAL,
+                completedSteps = 0,
+                totalSteps = 2,
+                waitingStep = 1
+            )
+        )
+        val same = first.copy(
+            sourceId = "different-source",
+            goal = "Different sensitive goal text"
+        )
+        val nextStep = first.copy(waitingApprovalStepIndex = 2)
+        val terminal = first.copy(
+            kind = AmperAgentProactiveAttentionKind.COMPLETED,
+            waitingApprovalStepIndex = null
+        )
+        val laterObservation = first.copy(observedAtEpochMs = first.observedAtEpochMs + 1)
+
+        assertEquals(
+            AmperAgentProactiveAttentionRevision.sha256(first),
+            AmperAgentProactiveAttentionRevision.sha256(same)
+        )
+        assertTrue(
+            AmperAgentProactiveAttentionRevision.sha256(first) !=
+                AmperAgentProactiveAttentionRevision.sha256(nextStep)
+        )
+        assertTrue(
+            AmperAgentProactiveAttentionRevision.sha256(first) !=
+                AmperAgentProactiveAttentionRevision.sha256(terminal)
+        )
+        assertTrue(
+            AmperAgentProactiveAttentionRevision.sha256(first) !=
+                AmperAgentProactiveAttentionRevision.sha256(laterObservation)
+        )
+    }
+
+    @Test
+    fun staleRevisionCannotAcknowledgeNewCanonicalAttentionState() {
+        val approval = AmperAgentProactiveAttentionPolicy.decide(
+            view(
+                state = AmperAgentTaskState.WAITING_APPROVAL,
+                completedSteps = 0,
+                totalSteps = 2,
+                waitingStep = 1
+            )
+        )
+        val revision = AmperAgentProactiveAttentionRevision.sha256(approval)
+        val completed = approval.copy(
+            kind = AmperAgentProactiveAttentionKind.COMPLETED,
+            waitingApprovalStepIndex = null
+        )
+
+        assertTrue(
+            AmperAgentProactiveAttentionAcknowledgementPolicy.matchesCurrentRevision(
+                approval,
+                revision
+            )
+        )
+        assertFalse(
+            AmperAgentProactiveAttentionAcknowledgementPolicy.matchesCurrentRevision(
+                completed,
+                revision
+            )
+        )
+        assertFalse(
+            AmperAgentProactiveAttentionAcknowledgementPolicy.matchesCurrentRevision(
+                approval,
+                revision.uppercase()
+            )
+        )
+    }
+
+    @Test
+    fun durableAcknowledgementIsIdempotentAndRevisionScoped() {
+        val memory = InMemoryMemoryOs()
+        val ledger = MemoryBackedAmperAgentProactiveAttentionAcknowledgementLedger(memory)
+        val approval = AmperAgentProactiveAttentionPolicy.decide(
+            view(
+                state = AmperAgentTaskState.WAITING_APPROVAL,
+                completedSteps = 0,
+                totalSteps = 2,
+                waitingStep = 1
+            )
+        )
+        val completed = approval.copy(
+            kind = AmperAgentProactiveAttentionKind.COMPLETED,
+            waitingApprovalStepIndex = null
+        )
+
+        val first = ledger.acknowledge(approval, acknowledgedAtEpochMs = 20L).getOrThrow()
+        val replay = ledger.acknowledge(approval, acknowledgedAtEpochMs = 30L).getOrThrow()
+
+        assertEquals(first, replay)
+        assertTrue(ledger.isAcknowledged(approval).getOrThrow())
+        assertFalse(ledger.isAcknowledged(completed).getOrThrow())
+
+        ledger.acknowledge(completed, acknowledgedAtEpochMs = 40L).getOrThrow()
+        assertFalse(ledger.isAcknowledged(approval).getOrThrow())
+        assertTrue(ledger.isAcknowledged(completed).getOrThrow())
+        assertEquals(1, ledger.recent(8).getOrThrow().size)
+    }
+
+    @Test
+    fun acknowledgementLedgerPrunesOnlyUntrackedPlanIds() {
+        val memory = InMemoryMemoryOs()
+        val ledger = MemoryBackedAmperAgentProactiveAttentionAcknowledgementLedger(memory)
+        val first = AmperAgentProactiveAttentionPolicy.decide(
+            view(
+                state = AmperAgentTaskState.WAITING_APPROVAL,
+                completedSteps = 0,
+                totalSteps = 2,
+                waitingStep = 1
+            )
+        )
+        val secondPlan = PlanId("agent-trigger-plan:" + "d".repeat(64))
+        val second = first.copy(planId = secondPlan)
+
+        ledger.acknowledge(first, acknowledgedAtEpochMs = 20L).getOrThrow()
+        ledger.acknowledge(second, acknowledgedAtEpochMs = 21L).getOrThrow()
+
+        assertEquals(
+            1,
+            ledger.retainPlanIds(setOf(first.planId)).getOrThrow()
+        )
+        assertTrue(ledger.isAcknowledged(first).getOrThrow())
+        assertFalse(ledger.isAcknowledged(second).getOrThrow())
+    }
+
+    @Test
+    fun acknowledgementLedgerIsBoundedWithoutSilentEviction() {
+        val memory = InMemoryMemoryOs()
+        val ledger = MemoryBackedAmperAgentProactiveAttentionAcknowledgementLedger(memory)
+        val template = AmperAgentProactiveAttentionPolicy.decide(
+            view(
+                state = AmperAgentTaskState.WAITING_APPROVAL,
+                completedSteps = 0,
+                totalSteps = 2,
+                waitingStep = 1
+            )
+        )
+        repeat(MemoryBackedAmperAgentProactiveAttentionAcknowledgementLedger.MAX_ACKNOWLEDGEMENTS) {
+            index ->
+            val planId = PlanId(
+                "agent-trigger-plan:" + index.toString(16).padStart(64, '0')
+            )
+            ledger.acknowledge(
+                template.copy(planId = planId),
+                acknowledgedAtEpochMs = index.toLong()
+            ).getOrThrow()
+        }
+        val overflow = template.copy(
+            planId = PlanId("agent-trigger-plan:" + "f".repeat(64))
+        )
+
+        assertTrue(ledger.acknowledge(overflow, 100L).isFailure)
+        assertEquals(
+            MemoryBackedAmperAgentProactiveAttentionAcknowledgementLedger.MAX_ACKNOWLEDGEMENTS,
+            ledger.recent(128).getOrThrow().size
+        )
+        assertTrue(
+            ledger.isAcknowledged(
+                template.copy(
+                    planId = PlanId("agent-trigger-plan:" + "0".repeat(64))
+                )
+            ).getOrThrow()
+        )
+    }
+
+    @Test
+    fun corruptedAcknowledgementLedgerFailsVisibleInsteadOfSuppressingAttention() {
+        val memory = InMemoryMemoryOs()
+        memory.remember(
+            MemoryRecord(
+                id = MemoryBackedAmperAgentProactiveAttentionAcknowledgementLedger.RECORD_ID,
+                kind = MemoryBackedAmperAgentProactiveAttentionAcknowledgementLedger.KIND,
+                content = "corrupt",
+                importance = 0.72,
+                provenance = Provenance(
+                    source = "test",
+                    producer = "test",
+                    observedAtEpochMs = 1L,
+                    confidence = 1.0
+                ),
+                createdAtEpochMs = 1L
+            )
+        )
+        val ledger = MemoryBackedAmperAgentProactiveAttentionAcknowledgementLedger(memory)
+        val approval = AmperAgentProactiveAttentionPolicy.decide(
+            view(
+                state = AmperAgentTaskState.WAITING_APPROVAL,
+                completedSteps = 0,
+                totalSteps = 2,
+                waitingStep = 1
+            )
+        )
+
+        assertTrue(ledger.isAcknowledged(approval).isFailure)
+        assertFalse(ledger.isAcknowledged(approval).getOrDefault(false))
     }
 
     private fun view(
