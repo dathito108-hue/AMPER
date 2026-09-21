@@ -10,10 +10,17 @@ enum class AmperAgentAndroidHostExecutionState {
 
 data class AmperAgentAndroidHostExecutionResult(
     val state: AmperAgentAndroidHostExecutionState,
-    val detail: String
+    val detail: String,
+    val nextHandoff: AmperAgentAndroidContinuationHandoff? = null
 ) {
     init {
         require(detail.isNotBlank() && detail.length <= 512)
+        require(
+            (state == AmperAgentAndroidHostExecutionState.CHECKPOINTED) ==
+                (nextHandoff != null)
+        ) {
+            "CHECKPOINTED Android host result requires exactly one verified next handoff"
+        }
     }
 
     val shouldReschedule: Boolean
