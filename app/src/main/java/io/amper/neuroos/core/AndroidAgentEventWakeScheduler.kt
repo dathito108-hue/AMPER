@@ -253,6 +253,9 @@ class AgentEventWakeJobService : JobService() {
 
                 outcome.fold(
                     onSuccess = { result ->
+                        if (result.state != AmperAgentEventWakeHostExecutionState.RETRY_LATER) {
+                            surfaceProactiveAttention(handoff.planId)
+                        }
                         when (result.state) {
                             AmperAgentEventWakeHostExecutionState.CHECKPOINTED -> {
                                 val next = requireNotNull(result.nextHandoff)
@@ -288,6 +291,22 @@ class AgentEventWakeJobService : JobService() {
         }
         active.put(params.jobId, future)?.cancel(true)
         return true
+    }
+
+    private fun surfaceProactiveAttention(planId: String) {
+        runCatching {
+            AndroidCanonicalSovereignRuntimeBootstrap
+                .acquire(applicationContext)
+                .agent
+                .agentProactiveAttention
+                .syncPlan(
+                    PlanId(planId),
+                    AndroidAgentProactiveAttentionSurfaceMode.BACKGROUND_TRANSITION
+                )
+                .getOrThrow()
+        }
+        // Attention is discoverability only. Notification permission/settings failures or UI
+        // delivery failures must never alter the canonical EVENT_WAKE execution outcome.
     }
 
     override fun onStopJob(params: JobParameters): Boolean {
