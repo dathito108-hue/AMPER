@@ -89,6 +89,24 @@ class AndroidAgentProactiveTriggerSourceSchedulerTest {
     }
 
     @Test
+    fun pendingDispatchJobIdentityCollisionFailsClosed() {
+        val first = "collision.731"
+        val second = "collision.3505"
+
+        assertEquals(
+            AndroidAgentPendingTriggerDispatchJobIdentity.jobIdFor(first),
+            AndroidAgentPendingTriggerDispatchJobIdentity.jobIdFor(second)
+        )
+        assertTrue(
+            runCatching {
+                AndroidAgentPendingTriggerDispatchJobIdentity.requireCollisionFree(
+                    listOf(first, second)
+                )
+            }.isFailure
+        )
+    }
+
+    @Test
     fun pendingDispatchRetryBudgetIsExplicitAndBounded() {
         assertEquals(1, AndroidAgentPendingTriggerDispatchPolicy.nextAttempt(0))
         assertEquals(2, AndroidAgentPendingTriggerDispatchPolicy.nextAttempt(1))
