@@ -72,6 +72,10 @@ class OmegaCoreV2Test {
             "android-agent-wakes-advance-one-canonical-persistent-step" in
                 OmegaArchitectureLock.invariants
         )
+        assertTrue(
+            "cold-persisted-agent-wakes-rebuild-the-same-canonical-runtime-graph" in
+                OmegaArchitectureLock.invariants
+        )
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
@@ -257,6 +261,14 @@ class OmegaCoreV2Test {
                 .exitCriteria
                 .contains(
                     "warm Android continuation chains one-step checkpoints through the canonical persistent planner"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "persisted JobService cold-starts the same single-foundation runtime graph after process death or reboot"
                 )
         )
     }
