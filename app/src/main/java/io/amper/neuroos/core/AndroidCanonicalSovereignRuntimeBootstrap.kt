@@ -143,6 +143,20 @@ class AndroidCanonicalSovereignRuntimeGraph internal constructor(context: Contex
         governor = governor
     )
 
+    private var nativeAdmissionResult: Result<AmperCoreBootstrapReport>? = null
+
+    /**
+     * Shares AMNE numerical qualification/admission across foreground and cold hosts.
+     *
+     * Failure is cached for this process just like a failed foreground qualification; callers may
+     * continue on the canonical reference path instead of inventing another backend.
+     */
+    @Synchronized
+    fun ensureNativeAdmission(): Result<AmperCoreBootstrapReport> {
+        nativeAdmissionResult?.let { return it }
+        return amperCore.bootstrapNativeAdmission().also { nativeAdmissionResult = it }
+    }
+
     /**
      * Lazily builds exactly one canonical Agent execution graph for this Android process.
      *
