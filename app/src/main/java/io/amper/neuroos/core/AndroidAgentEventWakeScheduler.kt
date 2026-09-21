@@ -65,6 +65,16 @@ object AndroidAgentEventWakeResourcePolicy {
     }
 }
 
+object AndroidAgentEventWakeSchedulingAdmission {
+    fun admit(value: AmperAgentEventWakeHandoff): Result<Boolean> = runCatching {
+        val verified = AmperAgentEventWakeHandoffPolicy
+            .verifyAndDecode(value)
+            .getOrThrow()
+        require(verified.disposition == value.disposition)
+        value.runnable
+    }
+}
+
 object AndroidAgentEventWakeJobIdentity {
     private const val JOB_NAMESPACE_MASK = 0x32000000
     private const val JOB_PAYLOAD_MASK = 0x0fffffff
@@ -140,13 +150,12 @@ class AndroidAgentEventWakeScheduler(
         appContext.getSystemService(Context.JOB_SCHEDULER_SERVICE) as JobScheduler
 
     fun handoff(value: AmperAgentEventWakeHandoff): Result<Boolean> = runCatching {
-        val verified = AmperAgentEventWakeHandoffPolicy
-            .verifyAndDecode(value)
+        val runnable = AndroidAgentEventWakeSchedulingAdmission
+            .admit(value)
             .getOrThrow()
-        require(verified.disposition == value.disposition)
 
         val jobId = AndroidAgentEventWakeJobIdentity.jobIdFor(value)
-        if (!value.runnable) {
+        if (!runnable) {
             jobScheduler.cancel(jobId)
             return@runCatching false
         }
