@@ -1,5 +1,7 @@
 package io.amper.neuroos.core
 
+import io.amper.neuroos.core.v2.AmperAgentProactiveTriggerSourceRegistry
+import io.amper.neuroos.core.v2.MemoryBackedAmperAgentProactiveTriggerSourceRegistry
 import java.io.File
 
 class InMemoryWorkspace : GlobalWorkspace {
@@ -206,6 +208,7 @@ class AmperRuntime private constructor(
     val conversations: SovereignConversationCoordinator,
     val inferenceProfiles: ConversationInferenceProfileStore,
     val plans: SovereignPlanStore,
+    val proactiveTriggerSources: AmperAgentProactiveTriggerSourceRegistry,
     val persistentGoalExecutiveStore: PersistentGoalExecutiveStore,
     val goalPortfolio: DurableGoalPortfolio,
     val goalOutcomeLearning: GoalOutcomeLearningModel,
@@ -582,6 +585,8 @@ class AmperRuntime private constructor(
                 }
             )
             val plans = MemoryBackedSovereignPlanStore(memory)
+            val proactiveTriggerSources =
+                MemoryBackedAmperAgentProactiveTriggerSourceRegistry(memory)
             val persistentGoalExecutiveStore = MemoryBackedPersistentGoalExecutiveStore(memory)
             val goalPortfolio = MemoryBackedDurableGoalPortfolio(memory)
             val goalOutcomeLearning = MemoryBackedGoalOutcomeLearningModel(memory)
@@ -652,6 +657,7 @@ class AmperRuntime private constructor(
                 conversations = conversations,
                 inferenceProfiles = inferenceProfiles,
                 plans = plans,
+                proactiveTriggerSources = proactiveTriggerSources,
                 persistentGoalExecutiveStore = persistentGoalExecutiveStore,
                 goalPortfolio = goalPortfolio,
                 goalOutcomeLearning = goalOutcomeLearning,
