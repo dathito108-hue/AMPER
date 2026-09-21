@@ -76,6 +76,44 @@ class PersistentSovereignPlanCoordinator(
     fun create(conversationId: ConversationId, userGoal: String): Result<SovereignPlan> =
         delegate.create(conversationId, userGoal).map(store::save)
 
+    /**
+     * Idempotent durable creation under a caller-bound plan identity.
+     *
+     * Retry after process death reuses the already-persisted exact plan instead of performing a
+     * second planning inference or creating a second durable plan.
+     */
+    @Synchronized
+    fun createBound(
+        conversationId: ConversationId,
+        userGoal: String,
+        planId: PlanId
+    ): Result<SovereignPlan> = runCatching {
+        store.load(planId)?.let { existing ->
+            require(existing.conversationId == conversationId) {
+                "bound sovereign plan belongs to a different conversation"
+            }
+            require(existing.goal == userGoal) {
+                "bound sovereign plan goal drifted from deterministic task identity"
+            }
+            return@runCatching existing
+        }
+
+        val created = delegate
+            .createBound(conversationId, userGoal, planId)
+            .getOrThrow()
+        require(created.id == planId)
+
+        // A canonical process normally has one coordinator. Re-check before the write anyway so a
+        // racing recovery path cannot silently replace a different deterministic plan.
+        store.load(planId)?.let { raced ->
+            require(raced.conversationId == conversationId && raced.goal == userGoal) {
+                "bound sovereign plan identity was claimed by incompatible durable state"
+            }
+            return@runCatching raced
+        }
+        store.save(created)
+    }
+
     fun advance(plan: SovereignPlan): Result<PlanAdvanceResult> {
         receipts?.verifyCompletedPrefix(plan)?.exceptionOrNull()?.let { return Result.failure(it) }
         recoveryGuard?.verifyAdvance(plan)?.exceptionOrNull()?.let { return Result.failure(it) }
