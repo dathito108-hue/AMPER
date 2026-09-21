@@ -102,6 +102,29 @@ class SovereignRecoveryConsoleTest {
     }
 
     @Test
+    fun exactRecoveryTargetLocatesOnlyCurrentMatchingClaim() {
+        val fx = fixture()
+        val plan = pendingPlan(fx.provider)
+        fx.runtime.plans.save(plan)
+        fx.runtime.plans.receipts!!.claimSideEffect(plan, plan.steps.single()).getOrThrow()
+        val console = SovereignRecoveryConsole(fx.runtime.plans, fx.coordinator)
+        val target = RecoveryClaimTarget(
+            planId = plan.id,
+            stepIndex = 1,
+            requestId = plan.steps.single().requestId
+        )
+
+        val located = console.locate(target).getOrThrow()
+        assertEquals(plan.id, located?.plan?.id)
+        assertEquals(plan.steps.single().requestId, located?.claim?.requestId)
+        assertEquals(0, fx.audit.snapshot().size)
+
+        val stale = target.copy(stepIndex = 2)
+        assertEquals(null, console.locate(stale).getOrThrow())
+        assertEquals(0, fx.audit.snapshot().size)
+    }
+
+    @Test
     fun orphanClaimFailsClosedInsteadOfBeingHidden() {
         val fx = fixture()
         val plan = pendingPlan(fx.provider)

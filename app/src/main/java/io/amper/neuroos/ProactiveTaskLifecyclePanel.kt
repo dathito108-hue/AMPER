@@ -14,12 +14,14 @@ import androidx.compose.ui.unit.dp
 import io.amper.neuroos.core.AndroidAgentProactiveAttentionPermissionStatus
 import io.amper.neuroos.core.SovereignPlan
 import io.amper.neuroos.core.PlanDurabilityEvidence
+import io.amper.neuroos.core.RecoveryClaimTarget
 import io.amper.neuroos.core.v2.AmperAgentProactiveTaskHistoryProjection
 import io.amper.neuroos.core.v2.AmperAgentProactiveTaskLifecycleCoordinator
 import io.amper.neuroos.core.v2.AmperAgentTaskState
 
 /**
- * Phase662 lifecycle surface extended by Phase663/664 attention and Phase665 receipt history.
+ * Phase662 lifecycle surface extended by Phase663/664 attention, Phase665 receipt history, and
+ * Phase666 exact recovery navigation.
  *
  * It never advances, approves, rejects, schedules, or executes a task. Opening a plan delegates to
  * the existing governed plan console, where exact side-effect approval remains unchanged.
@@ -30,7 +32,8 @@ fun ProactiveTaskLifecyclePanel(
     history: AmperAgentProactiveTaskHistoryProjection,
     attentionPermissionStatus: AndroidAgentProactiveAttentionPermissionStatus,
     onRequestNotificationPermission: () -> Unit,
-    onOpen: (SovereignPlan) -> Unit
+    onOpen: (SovereignPlan) -> Unit,
+    onOpenRecovery: (RecoveryClaimTarget) -> Unit
 ) {
     var refreshEpoch by remember(lifecycle) { mutableStateOf(0) }
     val snapshot = remember(lifecycle, history, refreshEpoch) {
@@ -149,6 +152,11 @@ fun ProactiveTaskLifecyclePanel(
                             }
                             receipt.reconciliationDecision?.let { decision ->
                                 Text("Reconciliation: ${decision.name}")
+                            }
+                            receipt.recoveryTarget?.let { target ->
+                                Button(onClick = { onOpenRecovery(target) }) {
+                                    Text("Open exact recovery claim")
+                                }
                             }
                         }
                     }
