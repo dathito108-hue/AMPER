@@ -8,6 +8,7 @@ import io.amper.neuroos.core.v2.AmperAgentExecutionContinuationCoordinator
 import io.amper.neuroos.core.v2.AmperAgentPassiveTaskCoordinator
 import io.amper.neuroos.core.v2.AmperAgentPendingTriggerDispatchCoordinator
 import io.amper.neuroos.core.v2.AmperAgentProactiveTaskCoordinator
+import io.amper.neuroos.core.v2.AmperAgentProactiveTaskLifecycleCoordinator
 import io.amper.neuroos.core.v2.AmperAgentProactiveEventWakeCoordinator
 import io.amper.neuroos.core.v2.AmperAgentProactiveTriggerSourceRegistry
 import io.amper.neuroos.core.v2.AmperAgentTaskAdmissionRegistry
@@ -32,6 +33,8 @@ data class AndroidCanonicalAgentRuntimeGraph(
     val agentTriggerSourceController: AndroidAgentProactiveTriggerSourceController,
     val agentPendingTriggerDispatch: AmperAgentPendingTriggerDispatchCoordinator,
     val agentEventWake: AmperAgentProactiveEventWakeCoordinator,
+    val agentProactiveLifecycle: AmperAgentProactiveTaskLifecycleCoordinator,
+    val agentProactiveLifecycleController: AndroidAgentProactiveTaskLifecycleController,
     val agentContinuation: AmperAgentExecutionContinuationCoordinator,
     val execution: AmperAgentCanonicalContinuationExecutionPort,
     val eventWakeExecution: AmperAgentCanonicalEventWakeExecutionPort
@@ -241,6 +244,18 @@ class AndroidCanonicalSovereignRuntimeGraph internal constructor(context: Contex
             registry = runtime.proactiveTriggerSources
         )
         val agentEventWake = AmperAgentProactiveEventWakeCoordinator(agentPlanPort)
+        val agentProactiveLifecycle = AmperAgentProactiveTaskLifecycleCoordinator(
+            ledger = runtime.proactiveTaskLifecycle,
+            plans = agentPlanPort,
+            admissions = agentAdmissions,
+            proactive = agentProactiveTasks,
+            eventWake = agentEventWake
+        )
+        val agentProactiveLifecycleController = AndroidAgentProactiveTaskLifecycleController(
+            context = appContext,
+            lifecycle = agentProactiveLifecycle,
+            governor = governor
+        )
         val agentPendingTriggerDispatch = AmperAgentPendingTriggerDispatchCoordinator(
             registry = runtime.proactiveTriggerSources,
             admissions = agentAdmissions,
@@ -279,6 +294,8 @@ class AndroidCanonicalSovereignRuntimeGraph internal constructor(context: Contex
             agentTriggerSourceController = agentTriggerSourceController,
             agentPendingTriggerDispatch = agentPendingTriggerDispatch,
             agentEventWake = agentEventWake,
+            agentProactiveLifecycle = agentProactiveLifecycle,
+            agentProactiveLifecycleController = agentProactiveLifecycleController,
             agentContinuation = agentContinuation,
             execution = execution,
             eventWakeExecution = eventWakeExecution
