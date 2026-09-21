@@ -125,11 +125,15 @@ class MemoryBackedAmperAgentProactiveTaskLifecycleLedger(
             }
         }
 
-    private fun MemoryOs.load(): List<AmperAgentProactiveTaskLifecycleBinding> =
-        get(RECORD_ID)
-            ?.takeIf { it.kind == KIND }
-            ?.let { AmperAgentProactiveTaskLifecycleCodec.decode(it.content).getOrNull() }
-            .orEmpty()
+    private fun MemoryOs.load(): List<AmperAgentProactiveTaskLifecycleBinding> {
+        val record = get(RECORD_ID) ?: return emptyList()
+        require(record.kind == KIND) {
+            "proactive lifecycle provenance record kind drifted"
+        }
+        return AmperAgentProactiveTaskLifecycleCodec
+            .decode(record.content)
+            .getOrThrow()
+    }
 
     private fun MemoryOs.save(
         entries: List<AmperAgentProactiveTaskLifecycleBinding>
