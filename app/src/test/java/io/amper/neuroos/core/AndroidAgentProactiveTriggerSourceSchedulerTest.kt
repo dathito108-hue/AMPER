@@ -89,6 +89,19 @@ class AndroidAgentProactiveTriggerSourceSchedulerTest {
     }
 
     @Test
+    fun pendingDispatchRetryBudgetIsExplicitAndBounded() {
+        assertEquals(1, AndroidAgentPendingTriggerDispatchPolicy.nextAttempt(0))
+        assertEquals(2, AndroidAgentPendingTriggerDispatchPolicy.nextAttempt(1))
+        assertEquals(3, AndroidAgentPendingTriggerDispatchPolicy.nextAttempt(2))
+        assertEquals(null, AndroidAgentPendingTriggerDispatchPolicy.nextAttempt(3))
+        assertTrue(
+            runCatching {
+                AndroidAgentPendingTriggerDispatchPolicy.requireAttempt(4)
+            }.isFailure
+        )
+    }
+
+    @Test
     fun controllerReconcilesUpsertDisableAndRemoveWithoutExecutionAuthority() {
         val registry = MemoryBackedAmperAgentProactiveTriggerSourceRegistry(
             InMemoryMemoryOs()
