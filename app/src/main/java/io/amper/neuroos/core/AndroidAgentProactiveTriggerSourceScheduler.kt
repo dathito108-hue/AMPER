@@ -320,8 +320,10 @@ class AndroidAgentProactiveTriggerSourceController(
 
     fun remove(sourceId: String): Result<Boolean> = runCatching {
         val removed = registry.remove(sourceId)
-        scheduler.cancelSource(sourceId)
-        reconcileAll().getOrThrow()
+        if (removed) {
+            scheduler.cancelSource(sourceId)
+            reconcileAll().getOrThrow()
+        }
         removed
     }
 
