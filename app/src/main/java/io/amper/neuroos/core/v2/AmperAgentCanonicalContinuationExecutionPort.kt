@@ -123,63 +123,65 @@ class AmperAgentCanonicalContinuationExecutionPort(
     ): Result<AmperAgentAndroidHostExecutionResult> =
         AmperAgentCanonicalContinuationExecutionGate.exclusive {
             runCatching {
-        require(handoff.taskId == envelope.taskId)
-        require(handoff.planId == envelope.planId.value)
+                require(handoff.taskId == envelope.taskId)
+                require(handoff.planId == envelope.planId.value)
 
-        val admission = admissions.get(envelope.taskId)
-            ?: restoreNarrowAdmission(envelope).also {
-                admissions.register(it)
-            }
+                val admission = admissions.get(envelope.taskId)
+                    ?: restoreNarrowAdmission(envelope).also {
+                        admissions.register(it)
+                    }
 
-        require(admission.backgroundMode == envelope.backgroundMode) {
-            "Agent Core background mode drifted before Android execution"
-        }
+                require(admission.backgroundMode == envelope.backgroundMode) {
+                    "Agent Core background mode drifted before Android execution"
+                }
 
-        val restored = continuation
-            .restore(admission, envelope)
-            .getOrThrow()
-        require(restored.checkpoint.taskState == AmperAgentTaskState.CHECKPOINTED) {
-            "verified Android ready handoff did not restore to CHECKPOINTED"
-        }
-
-        val advanced = passive
-            .advance(admission, restored.checkpoint)
-            .getOrThrow()
-
-        when (advanced.checkpoint.taskState) {
-            AmperAgentTaskState.READY,
-            AmperAgentTaskState.CHECKPOINTED -> {
-                val nextEnvelope = continuation
-                    .checkpoint(admission, advanced.checkpoint)
+                val restored = continuation
+                    .restore(admission, envelope)
                     .getOrThrow()
-                val nextHandoff = AmperAgentAndroidContinuationHandoffPolicy.create(nextEnvelope)
-                AmperAgentAndroidHostExecutionResult(
-                    state = AmperAgentAndroidHostExecutionState.CHECKPOINTED,
-                    detail = "one canonical plan step advanced; next checkpoint is ready",
-                    nextHandoff = nextHandoff
-                )
+                require(restored.checkpoint.taskState == AmperAgentTaskState.CHECKPOINTED) {
+                    "verified Android ready handoff did not restore to CHECKPOINTED"
+                }
+
+                val advanced = passive
+                    .advance(admission, restored.checkpoint)
+                    .getOrThrow()
+
+                when (advanced.checkpoint.taskState) {
+                    AmperAgentTaskState.READY,
+                    AmperAgentTaskState.CHECKPOINTED -> {
+                        val nextEnvelope = continuation
+                            .checkpoint(admission, advanced.checkpoint)
+                            .getOrThrow()
+                        val nextHandoff =
+                            AmperAgentAndroidContinuationHandoffPolicy.create(nextEnvelope)
+                        AmperAgentAndroidHostExecutionResult(
+                            state = AmperAgentAndroidHostExecutionState.CHECKPOINTED,
+                            detail = "one canonical plan step advanced; next checkpoint is ready",
+                            nextHandoff = nextHandoff
+                        )
+                    }
+
+                    AmperAgentTaskState.WAITING_APPROVAL ->
+                        AmperAgentAndroidHostExecutionResult(
+                            state = AmperAgentAndroidHostExecutionState.WAITING_APPROVAL,
+                            detail = "one canonical plan step reached governed approval"
+                        )
+
+                    AmperAgentTaskState.COMPLETED,
+                    AmperAgentTaskState.FAILED,
+                    AmperAgentTaskState.CANCELLED -> {
+                        admissions.remove(envelope.taskId)
+                        AmperAgentAndroidHostExecutionResult(
+                            state = AmperAgentAndroidHostExecutionState.TERMINAL_NOOP,
+                            detail = "canonical Agent Core task reached terminal durable state"
+                        )
+                    }
+
+                    AmperAgentTaskState.ADMITTED,
+                    AmperAgentTaskState.RUNNING ->
+                        error("passive coordinator returned non-checkpointable task state")
+                }
             }
-
-            AmperAgentTaskState.WAITING_APPROVAL ->
-                AmperAgentAndroidHostExecutionResult(
-                    state = AmperAgentAndroidHostExecutionState.WAITING_APPROVAL,
-                    detail = "one canonical plan step reached governed approval"
-                )
-
-            AmperAgentTaskState.COMPLETED,
-            AmperAgentTaskState.FAILED,
-            AmperAgentTaskState.CANCELLED -> {
-                admissions.remove(envelope.taskId)
-                AmperAgentAndroidHostExecutionResult(
-                    state = AmperAgentAndroidHostExecutionState.TERMINAL_NOOP,
-                    detail = "canonical Agent Core task reached terminal durable state"
-                )
-            }
-
-            AmperAgentTaskState.ADMITTED,
-            AmperAgentTaskState.RUNNING ->
-                error("passive coordinator returned non-checkpointable task state")
         }
-            }
-        }
+
 }
