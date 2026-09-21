@@ -213,18 +213,21 @@ class AmperAgentAndroidContinuationDispatchTest {
                 state = AmperAgentTaskState.CHECKPOINTED
             )
         )
-        val tampered = original.copy(
-            encodedEnvelope = original.encodedEnvelope + "\n"
-        )
-
-        val result = AmperAgentAndroidContinuationHostDispatcher.dispatch(
-            handoff = tampered,
-            execution = null,
-            executionFallback = {
-                fallbackCalls += 1
-                error("unverified handoff must not bootstrap canonical execution")
-            }
-        )
+        val result = runCatching {
+            val tampered = original.copy(
+                encodedEnvelope = original.encodedEnvelope + "\n"
+            )
+            AmperAgentAndroidContinuationHostDispatcher
+                .dispatch(
+                    handoff = tampered,
+                    execution = null,
+                    executionFallback = {
+                        fallbackCalls += 1
+                        error("unverified handoff must not bootstrap canonical execution")
+                    }
+                )
+                .getOrThrow()
+        }
 
         assertTrue(result.isFailure)
         assertEquals(0, fallbackCalls)
