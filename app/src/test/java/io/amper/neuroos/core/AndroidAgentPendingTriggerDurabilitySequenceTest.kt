@@ -97,6 +97,37 @@ class AndroidAgentPendingTriggerDurabilitySequenceTest {
     }
 
     @Test
+    fun bestEffortAttentionRunsAfterPhase657AndCannotBlockFifoAck() {
+        val order = mutableListOf<String>()
+
+        val result = AndroidAgentPendingTriggerDurabilitySequence.commit(
+            expectedEventWakeSchedule = true,
+            persistProvenance = {
+                order += "provenance"
+                Result.success(Unit)
+            },
+            installEventWake = {
+                order += "phase657"
+                Result.success(true)
+            },
+            bestEffortBeforeAcknowledge = {
+                order += "attention"
+                error("notification delivery unavailable")
+            },
+            acknowledgeFifo = {
+                order += "fifo-ack"
+                Result.success("acknowledged")
+            }
+        )
+
+        assertEquals("acknowledged", result.getOrThrow())
+        assertEquals(
+            listOf("provenance", "phase657", "attention", "fifo-ack"),
+            order
+        )
+    }
+
+    @Test
     fun verifiedNonRunnableHandoffMayCancelWakeThenAcknowledge() {
         val order = mutableListOf<String>()
 
