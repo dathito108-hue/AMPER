@@ -96,7 +96,7 @@ class AndroidAgentEventWakeSchedulerTest {
     }
 
     @Test
-    fun normalResourcesAllowImmediatePersistedBatteryGuardedWake() {
+    fun normalResourcesUseBoundedPersistedBatteryAndStorageGuardedWake() {
         val plan = AndroidAgentEventWakeResourcePolicy.plan(
             ResourceBudget(
                 maxConcurrentAgents = 2,
@@ -105,9 +105,22 @@ class AndroidAgentEventWakeSchedulerTest {
             )
         )
 
-        assertEquals(0L, plan.minimumLatencyMs)
+        assertEquals(
+            AndroidAgentEventWakeResourcePolicy.BASE_WAKE_DELAY_MS,
+            plan.minimumLatencyMs
+        )
         assertTrue(plan.requiresBatteryNotLow)
+        assertTrue(plan.requiresStorageNotLow)
         assertTrue(plan.persistedAcrossReboot)
+        assertTrue(
+            AndroidAgentEventWakeResourcePolicy.shouldExecuteNow(
+                ResourceBudget(
+                    maxConcurrentAgents = 2,
+                    memoryMb = 1024,
+                    thermalClass = PowerManager.THERMAL_STATUS_LIGHT
+                )
+            )
+        )
     }
 
     @Test
@@ -121,6 +134,15 @@ class AndroidAgentEventWakeSchedulerTest {
         )
 
         assertEquals(2L * 60L * 1000L, plan.minimumLatencyMs)
+        assertTrue(
+            !AndroidAgentEventWakeResourcePolicy.shouldExecuteNow(
+                ResourceBudget(
+                    maxConcurrentAgents = 1,
+                    memoryMb = 320,
+                    thermalClass = PowerManager.THERMAL_STATUS_LIGHT
+                )
+            )
+        )
     }
 
     @Test
@@ -142,6 +164,24 @@ class AndroidAgentEventWakeSchedulerTest {
 
         assertEquals(5L * 60L * 1000L, severe.minimumLatencyMs)
         assertEquals(15L * 60L * 1000L, critical.minimumLatencyMs)
+        assertTrue(
+            !AndroidAgentEventWakeResourcePolicy.shouldExecuteNow(
+                ResourceBudget(
+                    maxConcurrentAgents = 1,
+                    memoryMb = 1024,
+                    thermalClass = PowerManager.THERMAL_STATUS_SEVERE
+                )
+            )
+        )
+        assertTrue(
+            !AndroidAgentEventWakeResourcePolicy.shouldExecuteNow(
+                ResourceBudget(
+                    maxConcurrentAgents = 1,
+                    memoryMb = 1024,
+                    thermalClass = PowerManager.THERMAL_STATUS_CRITICAL
+                )
+            )
+        )
     }
 
     private fun envelope(
