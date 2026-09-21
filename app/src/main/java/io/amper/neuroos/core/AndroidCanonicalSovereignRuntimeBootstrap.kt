@@ -8,6 +8,7 @@ import io.amper.neuroos.core.v2.AmperAgentExecutionContinuationCoordinator
 import io.amper.neuroos.core.v2.AmperAgentPassiveTaskCoordinator
 import io.amper.neuroos.core.v2.AmperAgentProactiveTaskCoordinator
 import io.amper.neuroos.core.v2.AmperAgentProactiveEventWakeCoordinator
+import io.amper.neuroos.core.v2.AmperAgentProactiveTriggerStartCoordinator
 import io.amper.neuroos.core.v2.AmperAgentTaskAdmissionRegistry
 import io.amper.neuroos.core.v2.PersistentSovereignAgentPlanPort
 import java.io.File
@@ -27,6 +28,7 @@ data class AndroidCanonicalAgentRuntimeGraph(
     val agentPassiveTasks: AmperAgentPassiveTaskCoordinator,
     val agentProactiveTasks: AmperAgentProactiveTaskCoordinator,
     val agentEventWake: AmperAgentProactiveEventWakeCoordinator,
+    val agentTriggerStart: AmperAgentProactiveTriggerStartCoordinator,
     val agentContinuation: AmperAgentExecutionContinuationCoordinator,
     val execution: AmperAgentCanonicalContinuationExecutionPort,
     val eventWakeExecution: AmperAgentCanonicalEventWakeExecutionPort
@@ -232,6 +234,10 @@ class AndroidCanonicalSovereignRuntimeGraph internal constructor(context: Contex
         val agentPassiveTasks = AmperAgentPassiveTaskCoordinator(agentPlanPort)
         val agentProactiveTasks = AmperAgentProactiveTaskCoordinator(agentPlanPort)
         val agentEventWake = AmperAgentProactiveEventWakeCoordinator(agentPlanPort)
+        val agentTriggerStart = AmperAgentProactiveTriggerStartCoordinator(
+            proactive = agentProactiveTasks,
+            eventWake = agentEventWake
+        )
         val agentContinuation = AmperAgentExecutionContinuationCoordinator(agentPlanPort)
         val execution = AmperAgentCanonicalContinuationExecutionPort(
             admissions = agentAdmissions,
@@ -261,6 +267,7 @@ class AndroidCanonicalSovereignRuntimeGraph internal constructor(context: Contex
             agentPassiveTasks = agentPassiveTasks,
             agentProactiveTasks = agentProactiveTasks,
             agentEventWake = agentEventWake,
+            agentTriggerStart = agentTriggerStart,
             agentContinuation = agentContinuation,
             execution = execution,
             eventWakeExecution = eventWakeExecution
