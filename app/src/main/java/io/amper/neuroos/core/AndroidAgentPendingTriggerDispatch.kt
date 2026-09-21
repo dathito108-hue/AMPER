@@ -241,6 +241,16 @@ class AgentPendingTriggerDispatchJobService : JobService() {
                 return@submit
             }
 
+            // Persist immutable trigger -> canonical plan provenance before FIFO ACK. Crash after
+            // this write is safe: recordDispatch is idempotent and the accepted observation remains
+            // pending until the existing Phase660 acknowledgement succeeds.
+            graph.agent.agentProactiveLifecycle
+                .recordDispatch(binding)
+                .getOrElse {
+                    retryOrFinish(params, token)
+                    return@submit
+                }
+
             val acknowledged = registry
                 .acknowledgePending(
                     sourceId = token.sourceId,
