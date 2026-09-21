@@ -273,11 +273,16 @@ class AndroidAgentTriggerSourceJobScheduler(
  * into JobScheduler. No source mutation can directly create a plan or invoke a tool.
  */
 class AndroidAgentProactiveTriggerSourceController(
-    context: Context,
     private val registry: AmperAgentProactiveTriggerSourceRegistry,
-    private val scheduler: AndroidAgentTriggerSourceScheduleReconciler =
-        AndroidAgentTriggerSourceJobScheduler(context)
+    private val scheduler: AndroidAgentTriggerSourceScheduleReconciler
 ) {
+    constructor(
+        context: Context,
+        registry: AmperAgentProactiveTriggerSourceRegistry
+    ) : this(
+        registry = registry,
+        scheduler = AndroidAgentTriggerSourceJobScheduler(context)
+    )
     fun upsert(
         source: AmperAgentProactiveTriggerSource,
         updatedAtEpochMs: Long = System.currentTimeMillis()
