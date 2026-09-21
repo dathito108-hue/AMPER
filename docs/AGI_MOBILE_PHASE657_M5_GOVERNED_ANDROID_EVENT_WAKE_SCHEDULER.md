@@ -31,14 +31,20 @@ A different trigger payload digest produces a different job identity.
 
 ## Resource governance
 
-Every proactive job requires Android battery-not-low.
+Every proactive job requires Android battery-not-low and storage-not-low.
 
-The scheduler derives minimum latency from the live canonical ResourceBudget:
+The scheduler derives a bounded minimum latency from the live canonical ResourceBudget:
 
-- normal resources: no added delay;
+- normal resources: 15 second minimum cadence;
 - low AMPER memory budget: 2 minute backoff;
 - severe thermal pressure: 5 minute backoff;
 - critical thermal pressure: 15 minute backoff.
+
+At JobService wake time the canonical Android resource governor is checked again before the
+EVENT_WAKE consumer can acquire the runtime. Low-memory or severe/critical thermal pressure finishes
+that OS wake without Agent execution and reinstalls the same still-current verified checkpoint under
+the newly derived backoff. This closes the gap between scheduling-time and execution-time resource
+conditions.
 
 These constraints affect cadence only. They cannot change capabilities, authority, plan state, or
 approval state.
@@ -69,8 +75,9 @@ Phase656 handoff. It never asks Android to replay the stale old checkpoint after
 
 WAITING_APPROVAL and terminal results finish without another job.
 
-If the consumer explicitly returns RETRY_LATER before execution is available, Android may retry the
-same unchanged checkpoint. Tampered/stale failures fail closed with no retry loop.
+If the consumer explicitly returns RETRY_LATER before any advance is available, the service
+finishes the old OS wake and reinstalls the same still-current verified checkpoint through the same
+bounded resource policy. Tampered/stale failures fail closed with no retry loop.
 
 ## Multi-task isolation
 
@@ -87,8 +94,9 @@ Phase657 adds coverage for:
 - different trigger payloads get different job identity;
 - approval-blocked handoffs are verified but not schedulable;
 - tampered disposition fails scheduling admission;
-- normal resource conditions schedule without added latency;
-- low-memory, severe-thermal, and critical-thermal conditions back off cadence.
+- normal resource conditions use the bounded 15 second cadence with battery/storage guards;
+- low-memory, severe-thermal, and critical-thermal conditions back off cadence;
+- live resource policy refuses execution under low-memory or severe/critical thermal pressure.
 
 ## Architecture lock
 
