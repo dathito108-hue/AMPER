@@ -241,6 +241,36 @@ class AndroidAgentProactiveTriggerSourceSchedulerTest {
     }
 
     @Test
+    fun foregroundReconciliationFailsWhenPendingDispatchScheduleIsRejected() {
+        val registry = MemoryBackedAmperAgentProactiveTriggerSourceRegistry(
+            InMemoryMemoryOs()
+        )
+        val local = source(
+            sourceId = "local.rejected",
+            kind = AmperAgentProactiveTriggerSourceKind.APP_LOCAL_EVENT,
+            minimumIntervalMs =
+                AmperAgentProactiveTriggerSource.APP_LOCAL_EVENT_MIN_INTERVAL_MS
+        )
+        registry.upsert(local, updatedAtEpochMs = 1L)
+        registry.accept(
+            io.amper.neuroos.core.v2.AmperAgentProactiveTriggerObservation(
+                sourceId = local.sourceId,
+                observedAtEpochMs = 1_000_000L,
+                payloadDigest = "8".repeat(64)
+            )
+        ).getOrThrow()
+
+        val controller = AndroidAgentProactiveTriggerSourceController(
+            registry = registry,
+            scheduler = FakeScheduler(),
+            pendingDispatch = FakePendingDispatch(acceptSchedule = false)
+        )
+
+        assertTrue(controller.reconcileAll().isFailure)
+        assertEquals(1, registry.pending(local.sourceId).size)
+    }
+
+    @Test
     fun pendingFifoBlocksRemovalAndSuccessfulRemovalCancelsBothAndroidJobs() {
         val registry = MemoryBackedAmperAgentProactiveTriggerSourceRegistry(
             InMemoryMemoryOs()
@@ -321,13 +351,15 @@ class AndroidAgentProactiveTriggerSourceSchedulerTest {
         enabled = enabled
     )
 
-    private class FakePendingDispatch : AndroidAgentPendingTriggerDispatchRequester {
+    private class FakePendingDispatch(
+        private val acceptSchedule: Boolean = true
+    ) : AndroidAgentPendingTriggerDispatchRequester {
         val requested = mutableListOf<Pair<String, Int>>()
         val cancelled = mutableListOf<String>()
 
         override fun request(sourceId: String, attempt: Int): Result<Boolean> {
             requested += sourceId to attempt
-            return Result.success(true)
+            return Result.success(acceptSchedule)
         }
 
         override fun cancel(sourceId: String) {
