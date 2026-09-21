@@ -75,7 +75,8 @@ class MemoryBackedAmperAgentProactiveTriggerSourceRegistry(
     ): AmperAgentProactiveTriggerSourceState = memory.transaction {
         val existing = loadFrom(this, source.sourceId)
         val sameRevision =
-            existing?.source?.configurationId == source.configurationId &&
+            existing != null &&
+                existing.source.configurationId == source.configurationId &&
                 existing.source.configurationSha256 == source.configurationSha256
         val now = clock().coerceAtLeast(0L)
         val updated = AmperAgentProactiveTriggerSourceState(
