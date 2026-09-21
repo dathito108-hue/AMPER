@@ -578,7 +578,8 @@ class AmperRuntime private constructor(
                 strategies = strategies,
                 epistemic = epistemic,
                 semanticKnowledgeStore = semanticKnowledge,
-                predictiveWorld = predictiveWorld
+                predictiveWorld = predictiveWorld,
+                episodicMemoryStore = episodicMemory
             )
             val perceptualGrounding = WorldBackedPerceptualGroundingSource(world)
             val integratedCognition = CanonicalIntegratedCognitiveStateSource(

@@ -303,6 +303,12 @@ object OmegaArchitectureLock {
         "repair-strategy-support-requires-live-requalification",
         "procedural-memory-remains-advisory-and-non-authority",
         "procedural-memory-reuses-existing-memory-os-stores",
+        "cognitive-memory-context-has-one-cross-domain-mobile-envelope",
+        "runtime-context-has-explicit-episodic-lane",
+        "episodic-v1-is-not-duplicated-in-generic-context-memory",
+        "working-episodic-semantic-procedural-context-quotas-are-bounded",
+        "cognitive-memory-context-envelope-persists-no-state",
+        "integrated-cognitive-digest-binds-explicit-episodic-evidence",
         "3d-avatar-is-embodiment-not-cognition"
     )
 
@@ -476,7 +482,13 @@ object OmegaArchitectureLock {
                 "skill guidance requires an ACTIVE non-authority skill whose capabilities remain allowed and present on the live tool surface",
                 "generalization guidance and chains require a TRANSFERABLE or GENERALIZED profile and rebind the current ACTIVE skill snapshot before use",
                 "repair-strategy support is zero unless live GoalRepairValidation requalification remains positive and structural similarity is at least 0.75",
-                "procedural memory hardening reuses existing skill generalization and repair stores in MemoryOs without a second procedural database"
+                "procedural memory hardening reuses existing skill generalization and repair stores in MemoryOs without a second procedural database",
+                "canonical planning context applies one bounded envelope across working episodic semantic and procedural memory lanes",
+                "runtime context retrieves at most 6 explicit episodic entries and excludes episodic-v1 from generic sovereign-memory projection",
+                "working and generic memory caller limits cannot exceed the canonical context envelope",
+                "semantic context exposes at most 6 current semantic entries and 6 epistemic beliefs while procedural strategy evidence exposes at most 4 entries",
+                "the cross-domain envelope persists no state and creates no memory database cache or scheduler",
+                "integrated cognitive state digest binds episodic id origin importance and fingerprint without copying raw episodic content"
             )
         ),
         OmegaMilestone(

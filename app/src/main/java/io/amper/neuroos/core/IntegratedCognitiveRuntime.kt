@@ -77,6 +77,17 @@ data class IntegratedCognitiveStatePacket(
                         fmt(it.priority)
                 )
             }
+        context.episodicMemories
+            .sortedWith(
+                compareBy<EpisodicMemoryEntry> { it.observedAtEpochMs }
+                    .thenBy { it.id.value }
+            )
+            .forEach {
+                add(
+                    "episode=" + it.id.value + "|" + it.origin.name + "|" +
+                        fmt(it.importance) + "|" + it.fingerprintSha256
+                )
+            }
         context.semanticKnowledge
             .sortedWith(compareBy<SemanticKnowledgeEntry> { it.subject }.thenBy { it.predicate })
             .forEach {
