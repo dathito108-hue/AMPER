@@ -26,6 +26,7 @@ import io.amper.neuroos.core.v2.AmperAgentAndroidHostExecutionResult
 import io.amper.neuroos.core.v2.AmperAgentAndroidHostExecutionState
 import io.amper.neuroos.core.v2.AmperAgentContinuationWakeDisposition
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 
@@ -333,7 +334,6 @@ class AgentContinuationForegroundService : Service() {
             )
         )
         preserveDetachedNotification = true
-        preserveDetachedNotification = true
         stopForegroundCompat(removeNotification = false)
         stopSelf()
     }
@@ -347,6 +347,7 @@ class AgentContinuationForegroundService : Service() {
                 ongoing = false
             )
         )
+        preserveDetachedNotification = true
         stopForegroundCompat(removeNotification = false)
         stopSelf()
     }
@@ -423,12 +424,10 @@ class AgentContinuationForegroundService : Service() {
 }
 
 class AgentContinuationJobService : JobService() {
-    private val worker = Executors.newSingleThreadExecutor { runnable ->
+    private val worker = Executors.newCachedThreadPool { runnable ->
         Thread(runnable, "amper-agent-job").apply { isDaemon = true }
     }
-
-    @Volatile
-    private var active: Future<*>? = null
+    private val active = ConcurrentHashMap<Int, Future<*>>()
 
     override fun onStartJob(params: JobParameters): Boolean {
         val handoff = AndroidAgentContinuationTransport
@@ -444,7 +443,7 @@ class AgentContinuationJobService : JobService() {
             return false
         }
 
-        active = worker.submit {
+        val future = worker.submit {
             val result = AmperAgentAndroidContinuationHostDispatcher.dispatch(
                 handoff = handoff,
                 execution = AndroidAgentContinuationProcessRegistry.current()
@@ -455,21 +454,22 @@ class AgentContinuationJobService : JobService() {
                 )
             }
             Handler(Looper.getMainLooper()).post {
-                active = null
+                active.remove(params.jobId)
                 jobFinished(params, result.shouldReschedule)
             }
         }
+        active.put(params.jobId, future)?.cancel(true)
         return true
     }
 
     override fun onStopJob(params: JobParameters): Boolean {
-        active?.cancel(true)
-        active = null
+        active.remove(params.jobId)?.cancel(true)
         return true
     }
 
     override fun onDestroy() {
-        active?.cancel(true)
+        active.values.forEach { it.cancel(true) }
+        active.clear()
         worker.shutdownNow()
         super.onDestroy()
     }
