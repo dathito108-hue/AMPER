@@ -11,7 +11,6 @@ import io.amper.neuroos.core.PlanStepStatus
 import io.amper.neuroos.core.SovereignPlan
 import io.amper.neuroos.core.SovereignPlanStep
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -38,9 +37,9 @@ class AmperAgentCanonicalContinuationExecutionPortTest {
 
         assertEquals(1, planPort.advanceCalls)
         assertEquals(AmperAgentAndroidHostExecutionState.CHECKPOINTED, result.state)
-        val next = assertNotNull(result.nextHandoff)
+        val next = requireNotNull(result.nextHandoff)
         val decoded = AmperAgentAndroidContinuationHandoffPolicy
-            .verifyAndDecode(next as AmperAgentAndroidContinuationHandoff)
+            .verifyAndDecode(next)
             .getOrThrow()
         assertEquals(1, decoded.completedSteps)
         assertEquals(AmperAgentTaskState.CHECKPOINTED, decoded.taskState)
@@ -72,10 +71,10 @@ class AmperAgentCanonicalContinuationExecutionPortTest {
 
         assertEquals(AmperAgentAndroidHostExecutionState.CHECKPOINTED, result.state)
         assertEquals(1, planPort.advanceCalls)
-        val restoredAdmission = assertNotNull(admissions.get("user-task"))
+        val restoredAdmission = requireNotNull(admissions.get("user-task"))
         assertEquals(
             setOf(CapabilityId("reasoning")),
-            (restoredAdmission as AmperAgentTaskAdmission).request.allowedCapabilities
+            restoredAdmission.request.allowedCapabilities
         )
         assertEquals(envelope.backgroundMode, restoredAdmission.backgroundMode)
     }
