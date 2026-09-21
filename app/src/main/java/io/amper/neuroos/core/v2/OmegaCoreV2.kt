@@ -296,6 +296,13 @@ object OmegaArchitectureLock {
         "semantic-memory-corruption-fails-visible",
         "semantic-memory-uses-existing-memory-os-without-second-index",
         "semantic-memory-remains-non-authority",
+        "procedural-memory-public-recent-reads-are-bounded",
+        "procedural-memory-index-and-snapshot-corruption-fails-visible",
+        "skill-guidance-requires-live-tool-and-world-qualification",
+        "generalization-guidance-requires-active-skill-and-live-context",
+        "repair-strategy-support-requires-live-requalification",
+        "procedural-memory-reuses-existing-memory-os-stores",
+        "procedural-memory-remains-advisory-and-non-authority",
         "3d-avatar-is-embodiment-not-cognition"
     )
 
@@ -464,7 +471,13 @@ object OmegaArchitectureLock {
                 "semantic current and query results require planning-eligible current epistemic evidence with matching value and evidence lineage",
                 "stale contested uncertain or changed evidence hides stored active semantic knowledge until canonical reconcile revises or retracts it",
                 "semantic record corruption fails visible instead of being silently skipped",
-                "semantic freshness hardening reuses MemoryBackedSemanticKnowledgeStore and MemoryOs with no second semantic index or model store"
+                "semantic freshness hardening reuses MemoryBackedSemanticKnowledgeStore and MemoryOs with no second semantic index or model store",
+                "procedural recent reads are bounded to 64 skill contracts 64 generalization profiles and 32 repair patterns",
+                "procedural index entries must resolve to correct-kind decodable signature-matching snapshots or fail visible",
+                "skill guidance remains qualified by current ToolDescriptor capability surface and live world-state preconditions",
+                "generalization guidance remains qualified by transferable evidence active base skill live tools and current preconditions",
+                "repair strategy support remains gated by live GoalRepairValidation requalification",
+                "procedural hardening reuses existing SkillGenesis SkillGeneralization and GoalRepairStrategyMemory stores with no second procedural database"
             )
         ),
         OmegaMilestone(
