@@ -267,7 +267,7 @@ class MemoryBackedSkillGeneralizationModel(
         memory.transaction { snapshotLocked(signature) }
 
     override fun recent(limit: Int): List<SkillGeneralizationProfile> {
-        require(limit >= 0)
+        require(limit in 0..ProceduralMemoryPolicy.MAX_GENERALIZATION_RECENT)
         if (limit == 0) return emptyList()
         return memory.transaction {
             decodeIndex(get(INDEX_ID)?.content)
@@ -300,16 +300,15 @@ class MemoryBackedSkillGeneralizationModel(
 
         return recent(GENERALIZATION_LOOKBACK)
             .asSequence()
-            .filter {
-                it.maturity == SkillGeneralizationMaturity.TRANSFERABLE ||
-                    it.maturity == SkillGeneralizationMaturity.GENERALIZED
-            }
+            .filter(ProceduralMemoryPolicy::generalizationQualified)
             .mapNotNull { profile ->
                 val skill = skills.snapshot(profile.signature) ?: return@mapNotNull null
-                if (skill.maturity != SkillMaturity.ACTIVE) return@mapNotNull null
-                if (!skill.signature.capabilities.all {
-                        it in allowedCapabilities && descriptorByCapability.containsKey(it)
-                    }
+                if (
+                    !ProceduralMemoryPolicy.skillCapabilityQualified(
+                        skill = skill,
+                        allowedCapabilities = allowedCapabilities,
+                        liveCapabilities = descriptorByCapability.keys
+                    )
                 ) return@mapNotNull null
                 if (!conditionsSatisfied(skill.preconditions, current)) return@mapNotNull null
 
@@ -355,18 +354,16 @@ class MemoryBackedSkillGeneralizationModel(
 
         val descriptorByCapability = descriptors.associateBy { it.capability }
         val profiles = recent(GENERALIZATION_LOOKBACK)
-            .filter {
-                it.maturity == SkillGeneralizationMaturity.TRANSFERABLE ||
-                    it.maturity == SkillGeneralizationMaturity.GENERALIZED
-            }
+            .filter(ProceduralMemoryPolicy::generalizationQualified)
             .associateBy { it.signature.digest }
         val eligible = skills.recent(SKILL_LOOKBACK)
-            .filter { it.maturity == SkillMaturity.ACTIVE }
             .filter { profiles.containsKey(it.signature.digest) }
             .filter { skill ->
-                skill.signature.capabilities.all {
-                    it in allowedCapabilities && descriptorByCapability.containsKey(it)
-                }
+                ProceduralMemoryPolicy.skillCapabilityQualified(
+                    skill = skill,
+                    allowedCapabilities = allowedCapabilities,
+                    liveCapabilities = descriptorByCapability.keys
+                )
             }
         if (eligible.size < 2) return emptyList()
 
@@ -644,13 +641,15 @@ class MemoryBackedSkillGeneralizationModel(
         const val OBSERVATION_KIND = "skill-generalization-observation"
         const val SNAPSHOT_KIND = "skill-generalization"
         const val INDEX_KIND = "skill-generalization-index"
-        const val MAX_GUIDANCE = 4
-        const val MAX_CHAINS = 3
+        const val MAX_GUIDANCE = ProceduralMemoryPolicy.MAX_GENERALIZATION_GUIDANCE
+        const val MAX_CHAINS = ProceduralMemoryPolicy.MAX_GENERALIZATION_CHAINS
+        const val MAX_RECENT = ProceduralMemoryPolicy.MAX_GENERALIZATION_RECENT
 
-        private const val GENERALIZATION_LOOKBACK = 24
-        private const val SKILL_LOOKBACK = 24
+        private const val GENERALIZATION_LOOKBACK = ProceduralMemoryPolicy.GENERALIZATION_LOOKBACK
+        private const val SKILL_LOOKBACK = ProceduralMemoryPolicy.GENERALIZATION_SKILL_LOOKBACK
         private const val MAX_CONTEXTS = 16
-        private const val MAX_INDEXED_GENERALIZATIONS = 64
+        private const val MAX_INDEXED_GENERALIZATIONS =
+            ProceduralMemoryPolicy.MAX_GENERALIZATION_RECENT
         private const val MIN_TRANSFER_CONTEXTS = 2
         private const val MIN_TRANSFER_SUCCESSES = 2
         private const val MIN_TRANSFER_SUCCESS_RATE = 0.75

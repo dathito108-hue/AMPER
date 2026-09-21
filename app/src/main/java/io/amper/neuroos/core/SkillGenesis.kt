@@ -312,7 +312,7 @@ class MemoryBackedSkillGenesisModel(
         memory.transaction { snapshotLocked(signature) }
 
     override fun recent(limit: Int): List<SkillContract> {
-        require(limit >= 0)
+        require(limit in 0..ProceduralMemoryPolicy.MAX_SKILL_RECENT)
         if (limit == 0) return emptyList()
         return memory.transaction {
             decodeIndex(get(INDEX_ID)?.content)
@@ -350,11 +350,12 @@ class MemoryBackedSkillGenesisModel(
 
         return recent(SKILL_LOOKBACK)
             .asSequence()
-            .filter { it.maturity == SkillMaturity.ACTIVE }
             .filter { skill ->
-                skill.signature.capabilities.all {
-                    it in allowedCapabilities && it in liveCapabilities
-                }
+                ProceduralMemoryPolicy.skillCapabilityQualified(
+                    skill = skill,
+                    allowedCapabilities = allowedCapabilities,
+                    liveCapabilities = liveCapabilities
+                )
             }
             .map { skill ->
                 val preconditionsSatisfied = skill.preconditions.all { condition ->
@@ -392,11 +393,12 @@ class MemoryBackedSkillGenesisModel(
         val liveCapabilities = descriptors.map { it.capability }.toSet()
         val current = currentConditions(worldStates)
         val active = recent(SKILL_LOOKBACK)
-            .filter { it.maturity == SkillMaturity.ACTIVE }
             .filter { skill ->
-                skill.signature.capabilities.all {
-                    it in allowedCapabilities && it in liveCapabilities
-                }
+                ProceduralMemoryPolicy.skillCapabilityQualified(
+                    skill = skill,
+                    allowedCapabilities = allowedCapabilities,
+                    liveCapabilities = liveCapabilities
+                )
             }
         val firstSkills = active.filter { skill ->
             skill.preconditions.all { condition ->
@@ -602,12 +604,13 @@ class MemoryBackedSkillGenesisModel(
         const val INDEX_KIND = "skill-index"
         const val MIN_SUCCESSFUL_OBSERVATIONS = 2
         const val MIN_ACTIVE_SUCCESS_RATE = 0.75
-        const val MAX_GUIDANCE = 4
-        const val MAX_COMPOSITIONS = 3
+        const val MAX_GUIDANCE = ProceduralMemoryPolicy.MAX_SKILL_GUIDANCE
+        const val MAX_COMPOSITIONS = ProceduralMemoryPolicy.MAX_SKILL_COMPOSITIONS
+        const val MAX_RECENT = ProceduralMemoryPolicy.MAX_SKILL_RECENT
 
         private const val MAX_STATE_CONDITIONS = 8
-        private const val MAX_INDEXED_SKILLS = 64
-        private const val SKILL_LOOKBACK = 16
+        private const val MAX_INDEXED_SKILLS = ProceduralMemoryPolicy.MAX_SKILL_RECENT
+        private const val SKILL_LOOKBACK = ProceduralMemoryPolicy.SKILL_GUIDANCE_LOOKBACK
         private const val MAX_GOAL_TERMS = 24
         private val INDEX_ID = MemoryId("skill:index")
         private val SHA256 = Regex("[0-9a-f]{64}")

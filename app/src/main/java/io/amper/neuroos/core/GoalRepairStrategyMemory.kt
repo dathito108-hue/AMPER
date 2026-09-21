@@ -167,7 +167,7 @@ class MemoryBackedGoalRepairStrategyMemory(
             ?.takeIf { it.strategy == strategy }
 
     override fun recent(limit: Int): List<GoalRepairStrategyPattern> {
-        require(limit >= 0)
+        require(limit in 0..ProceduralMemoryPolicy.MAX_REPAIR_RECENT)
         if (limit == 0) return emptyList()
         return memory.transaction {
             decodeIndex(get(INDEX_ID)?.content)
@@ -188,17 +188,15 @@ class MemoryBackedGoalRepairStrategyMemory(
         if (liveRequalification <= 0.0) return 0.0
         return recent(MAX_INDEXED_PATTERNS)
             .asSequence()
-            .filter { it.active }
-            .mapNotNull { pattern ->
-                val similarity = StrategyStructuralSimilarity.score(
-                    pattern.strategy,
-                    strategy
+            .map { pattern ->
+                ProceduralMemoryPolicy.repairSupport(
+                    pattern = pattern,
+                    structuralSimilarity = StrategyStructuralSimilarity.score(
+                        pattern.strategy,
+                        strategy
+                    ),
+                    liveRequalification = liveRequalification
                 )
-                if (similarity < MIN_PATTERN_SIMILARITY) null else (
-                    pattern.evidenceConfidence *
-                        similarity *
-                        liveRequalification
-                    ).coerceIn(0.0, 1.0)
             }
             .maxOrNull()
             ?: 0.0
@@ -244,8 +242,10 @@ class MemoryBackedGoalRepairStrategyMemory(
         const val OUTCOME_MARKER_KIND = "goal-repair-strategy-memory-outcome-v1"
         const val INDEX_KIND = "goal-repair-strategy-memory-index-v1"
         const val MIN_CONSECUTIVE_VERIFIED_SUCCESSES = 2
-        const val MIN_PATTERN_SIMILARITY = 0.75
-        const val MAX_INDEXED_PATTERNS = 32
+        const val MIN_PATTERN_SIMILARITY =
+            ProceduralMemoryPolicy.MIN_REPAIR_PATTERN_SIMILARITY
+        const val MAX_INDEXED_PATTERNS = ProceduralMemoryPolicy.MAX_REPAIR_RECENT
+        const val MAX_RECENT = ProceduralMemoryPolicy.MAX_REPAIR_RECENT
         private val INDEX_ID = MemoryId("goal-repair-strategy-memory:index")
     }
 }
