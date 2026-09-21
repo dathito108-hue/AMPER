@@ -358,7 +358,9 @@ class AndroidAgentProactiveTriggerSourceController(
         val report = scheduler.reconcile(states).getOrThrow()
         states.forEach { state ->
             if (state.source.enabled && state.pendingObservations.isNotEmpty()) {
-                pendingDispatch.request(state.source.sourceId).getOrThrow()
+                require(pendingDispatch.request(state.source.sourceId).getOrThrow()) {
+                    "pending proactive trigger dispatch schedule was rejected"
+                }
             } else {
                 pendingDispatch.cancel(state.source.sourceId)
             }
