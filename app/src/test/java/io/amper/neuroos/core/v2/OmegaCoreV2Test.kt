@@ -320,6 +320,30 @@ class OmegaCoreV2Test {
             "foreground-lifecycle-reconciliation-invalidates-proactive-read-model" in
                 OmegaArchitectureLock.invariants
         )
+        assertTrue(
+            "proactive-history-snapshot-coherence-uses-bounded-optimistic-reread" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-history-loaded-plan-view-avoids-second-plan-load" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-history-lifecycle-before-after-must-match" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-history-receipt-evidence-must-repeat-stably" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-history-churn-fails-visible-after-bounded-retries" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-history-coherence-adds-no-lock-scheduler-or-snapshot-store" in
+                OmegaArchitectureLock.invariants
+        )
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
@@ -913,6 +937,54 @@ class OmegaCoreV2Test {
                 .exitCriteria
                 .contains(
                     "foreground lifecycle reconciliation invalidates the proactive read model so durable process-death or background changes are re-read on app entry"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "proactive lifecycle history uses bounded optimistic reread instead of holding locks across plan scheduler or receipt operations"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "the exact loaded canonical plan derives its lifecycle view without a second plan load and must equal the lifecycle view captured before projection"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "lifecycle views captured before and after a proactive history projection must match before the snapshot is presented"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "canonical receipt evidence is read twice from the same loaded plan and must match before a proactive history entry is accepted"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "continuous plan or receipt churn fails visible after three bounded attempts instead of presenting a mixed snapshot"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "snapshot coherence persists no cache snapshot task state lock lease or scheduler state"
                 )
         )
     }

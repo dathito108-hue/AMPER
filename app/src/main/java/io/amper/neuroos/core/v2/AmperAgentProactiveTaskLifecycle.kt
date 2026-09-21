@@ -324,7 +324,7 @@ class AmperAgentProactiveTaskLifecycleCoordinator(
      * Derive lifecycle state from the exact canonical plan object already loaded by a read-only
      * projection. This performs no plan write, scheduling, admission registration, or execution.
      */
-    fun inspectLoadedPlan(
+    internal fun inspectLoadedPlan(
         plan: SovereignPlan
     ): AmperAgentProactiveTaskLifecycleView? =
         ledger.findByPlanId(plan.id)?.let { binding ->
