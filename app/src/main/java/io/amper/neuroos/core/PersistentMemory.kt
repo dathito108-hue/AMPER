@@ -194,16 +194,18 @@ class PersistentMemoryOs(
     }
 
     override fun remember(record: MemoryRecord) = synchronized(lock) {
+        val evictions = plannedEvictionsFor(record)
         journal.append(record)
         records[record.id] = record
-        trimIfNeeded()
+        applyEvictions(evictions)
     }
 
     override fun rememberIfAbsent(record: MemoryRecord): Boolean = synchronized(lock) {
         if (records.containsKey(record.id)) return@synchronized false
+        val evictions = plannedEvictionsFor(record)
         journal.append(record)
         records[record.id] = record
-        trimIfNeeded()
+        applyEvictions(evictions)
         true
     }
 
@@ -231,21 +233,70 @@ class PersistentMemoryOs(
     override fun get(id: MemoryId): MemoryRecord? = synchronized(lock) { records[id] }
 
     override fun forget(id: MemoryId): Boolean = synchronized(lock) {
-        val existed = records.remove(id) != null
-        if (existed) journal.tombstone(id)
-        existed
+        if (!records.containsKey(id)) return@synchronized false
+        if (id in referencedIds(records)) return@synchronized false
+        records.remove(id)
+        journal.tombstone(id)
+        true
     }
 
     override fun size(): Int = synchronized(lock) { records.size }
 
-    private fun trimIfNeeded() {
-        val overflow = records.size - maxRecords
-        if (overflow <= 0) return
-        records.values.sortedWith(compareBy<MemoryRecord> { it.importance }.thenBy { it.createdAtEpochMs })
-            .take(overflow).map { it.id }.forEach { id ->
-                records.remove(id)
+    private fun plannedEvictionsFor(record: MemoryRecord): List<MemoryId> {
+        val next = LinkedHashMap(records)
+        next[record.id] = record
+        val overflow = next.size - maxRecords
+        if (overflow <= 0) return emptyList()
+
+        val referenced = referencedIds(next)
+        val candidates = next.values
+            .asSequence()
+            .filterNot { it.id == record.id }
+            .filterNot { it.id in referenced }
+            .sortedWith(
+                compareBy<MemoryRecord> { it.importance }
+                    .thenBy { it.createdAtEpochMs }
+                    .thenBy { it.id.value }
+            )
+            .take(overflow)
+            .map { it.id }
+            .toList()
+
+        require(candidates.size == overflow) {
+            "memory capacity cannot be reduced without deleting referenced lineage"
+        }
+        return candidates
+    }
+
+    private fun applyEvictions(evictions: List<MemoryId>) {
+        evictions.forEach { id ->
+            if (records.remove(id) != null) {
                 journal.tombstone(id)
             }
+        }
+    }
+
+    private fun referencedIds(live: Map<MemoryId, MemoryRecord>): Set<MemoryId> {
+        if (live.isEmpty()) return emptySet()
+        val referenced = linkedSetOf<MemoryId>()
+
+        live.values.forEach { record ->
+            record.provenance.parents
+                .filterTo(referenced) { it in live }
+        }
+
+        val recordsWithContent = live.values.toList()
+        live.keys.forEach { candidateId ->
+            if (
+                recordsWithContent.any { record ->
+                    record.id != candidateId &&
+                        record.content.contains(candidateId.value)
+                }
+            ) {
+                referenced += candidateId
+            }
+        }
+        return referenced
     }
 }
 

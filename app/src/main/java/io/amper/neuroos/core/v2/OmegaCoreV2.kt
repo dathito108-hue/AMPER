@@ -309,6 +309,12 @@ object OmegaArchitectureLock {
         "working-episodic-semantic-procedural-context-quotas-are-bounded",
         "cognitive-memory-context-envelope-persists-no-state",
         "cognitive-memory-context-overrequests-clamp-without-expansion",
+        "memory-forgetting-is-reference-aware",
+        "memory-auto-trim-never-deletes-live-lineage",
+        "memory-capacity-fails-closed-when-only-referenced-records-remain",
+        "memory-compaction-preserves-logical-live-record-graph",
+        "memory-retention-protects-provenance-and-content-lineage",
+        "memory-forgetting-does-not-create-second-compaction-store",
         "integrated-cognitive-digest-binds-explicit-episodic-evidence",
         "3d-avatar-is-embodiment-not-cognition"
     )
@@ -489,7 +495,12 @@ object OmegaArchitectureLock {
                 "working and generic memory caller over-requests are clamped to the canonical context envelope",
                 "semantic context exposes at most 6 current semantic entries and 6 epistemic beliefs while procedural strategy evidence exposes at most 4 entries",
                 "the cross-domain envelope persists no state and creates no memory database cache or scheduler",
-                "integrated cognitive state digest binds episodic id origin importance and fingerprint without copying raw episodic content"
+                "integrated cognitive state digest binds episodic id origin importance and fingerprint without copying raw episodic content",
+                "PersistentMemoryOs automatic retention never tombstones records still referenced by live provenance or encoded lineage",
+                "explicit MemoryOs forget refuses records still referenced by another live record",
+                "memory capacity expansion fails before durable append when the only possible evictions would break referenced lineage",
+                "journal compaction rewrites only the physical mutation log and preserves the complete logical live record graph",
+                "working episodic semantic procedural plan recovery and conversation lineage continue to share the same MemoryOs forgetting boundary"
             )
         ),
         OmegaMilestone(
