@@ -152,10 +152,13 @@ import java.io.File
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val requestedProactivePlanId = intent
-            ?.getStringExtra(
-                io.amper.neuroos.core.AndroidAgentProactiveAttentionIdentity.EXTRA_PLAN_ID
-            )
+        val requestedProactivePlanId =
+            io.amper.neuroos.core.AndroidAgentProactiveAttentionIdentity
+                .parseRequestedPlanId(
+                    intent?.getStringExtra(
+                        io.amper.neuroos.core.AndroidAgentProactiveAttentionIdentity.EXTRA_PLAN_ID
+                    )
+                )
         setContent {
             val canonicalGraph = remember {
                 AndroidCanonicalSovereignRuntimeBootstrap.acquire(applicationContext)
@@ -342,15 +345,11 @@ class MainActivity : ComponentActivity() {
                 requestedProactivePlanId,
                 agentProactiveLifecycle
             ) {
-                requestedProactivePlanId
-                    ?.takeIf { it.startsWith("agent-trigger-plan:") }
-                    ?.let { raw ->
-                        runCatching {
-                            agentProactiveLifecycle.openPlan(
-                                io.amper.neuroos.core.PlanId(raw)
-                            )
-                        }.getOrNull()
-                    }
+                requestedProactivePlanId?.let { planId ->
+                    runCatching {
+                        agentProactiveLifecycle.openPlan(planId)
+                    }.getOrNull()
+                }
             }
             val restoredPlan = remember {
                 requestedProactivePlan ?: planner.latest()
