@@ -6,7 +6,10 @@ import io.amper.neuroos.core.CapabilityId
 import io.amper.neuroos.core.ConversationId
 import io.amper.neuroos.core.FileMemoryJournal
 import io.amper.neuroos.core.InMemoryMemoryOs
+import io.amper.neuroos.core.MemoryId
+import io.amper.neuroos.core.MemoryRecord
 import io.amper.neuroos.core.PersistentMemoryOs
+import io.amper.neuroos.core.Provenance
 import io.amper.neuroos.core.PlanAdvanceResult
 import io.amper.neuroos.core.PlanId
 import io.amper.neuroos.core.PlanStepStatus
@@ -51,6 +54,31 @@ class AmperAgentProactiveTaskLifecycleTest {
         val drifted = binding.copy(configurationSha256 = "d".repeat(64))
         assertTrue(ledger.record(drifted).isFailure)
         assertEquals(binding, ledger.findByPlanId(binding.planId))
+    }
+
+    @Test
+    fun corruptedLifecycleLedgerFailsClosedInsteadOfAppearingEmpty() {
+        val memory = InMemoryMemoryOs()
+        memory.remember(
+            MemoryRecord(
+                id = MemoryId("agent-proactive-task-lifecycle:index"),
+                kind = MemoryBackedAmperAgentProactiveTaskLifecycleLedger.KIND,
+                content = "corrupted",
+                importance = 1.0,
+                provenance = Provenance(
+                    source = "test",
+                    producer = "test",
+                    observedAtEpochMs = 1L,
+                    confidence = 1.0
+                ),
+                createdAtEpochMs = 1L
+            )
+        )
+        val ledger = MemoryBackedAmperAgentProactiveTaskLifecycleLedger(memory)
+
+        assertTrue(runCatching { ledger.recent(8) }.isFailure)
+        assertTrue(runCatching { ledger.findByPlanId(binding().planId) }.isFailure)
+        assertTrue(ledger.record(binding()).isFailure)
     }
 
     @Test
