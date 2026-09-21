@@ -26,7 +26,8 @@ import io.amper.neuroos.core.SovereignPlanHistory
 fun SovereignPlanHistoryPanel(
     history: SovereignPlanHistory,
     activePlanId: PlanId?,
-    onOpen: (SovereignPlan) -> Unit
+    onOpen: (SovereignPlan) -> Unit,
+    onPlanMutated: (SovereignPlan) -> Unit = {}
 ) {
     val entries = history.recent(limit = 8)
     var cancellationArmedPlanId by remember(history) { mutableStateOf<PlanId?>(null) }
@@ -92,6 +93,7 @@ fun SovereignPlanHistoryPanel(
                                         cancellationArmedPlanId = null
                                         lifecycleStatus =
                                             "Cancelled ${result.cancelledStepIndices.size} remaining step(s) in plan ${entry.planId.value.take(8)}"
+                                        onPlanMutated(result.plan)
                                         onOpen(result.plan)
                                     },
                                     onFailure = { error ->
