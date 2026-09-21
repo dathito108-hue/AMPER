@@ -25,11 +25,13 @@ import java.util.concurrent.Future
 data class AndroidAgentEventWakeSchedulePlan(
     val minimumLatencyMs: Long,
     val requiresBatteryNotLow: Boolean,
+    val requiresStorageNotLow: Boolean,
     val persistedAcrossReboot: Boolean
 ) {
     init {
         require(minimumLatencyMs >= 0L)
         require(requiresBatteryNotLow)
+        require(requiresStorageNotLow)
         require(persistedAcrossReboot)
     }
 }
@@ -42,6 +44,7 @@ data class AndroidAgentEventWakeSchedulePlan(
  * authority, capabilities, or plan state.
  */
 object AndroidAgentEventWakeResourcePolicy {
+    const val BASE_WAKE_DELAY_MS: Long = 15_000L
     private const val LOW_MEMORY_BUDGET_MB = 384
     private const val LOW_MEMORY_DELAY_MS = 2L * 60L * 1000L
     private const val SEVERE_THERMAL_DELAY_MS = 5L * 60L * 1000L
@@ -55,14 +58,20 @@ object AndroidAgentEventWakeResourcePolicy {
                 SEVERE_THERMAL_DELAY_MS
             budget.memoryMb < LOW_MEMORY_BUDGET_MB ->
                 LOW_MEMORY_DELAY_MS
-            else -> 0L
+            else -> BASE_WAKE_DELAY_MS
         }
         return AndroidAgentEventWakeSchedulePlan(
             minimumLatencyMs = latency,
             requiresBatteryNotLow = true,
+            requiresStorageNotLow = true,
             persistedAcrossReboot = true
         )
     }
+
+    fun shouldExecuteNow(budget: ResourceBudget): Boolean =
+        budget.maxConcurrentAgents >= 1 &&
+            budget.memoryMb >= LOW_MEMORY_BUDGET_MB &&
+            budget.thermalClass < PowerManager.THERMAL_STATUS_SEVERE
 }
 
 object AndroidAgentEventWakeSchedulingAdmission {
@@ -170,12 +179,9 @@ class AndroidAgentEventWakeScheduler(
         )
             .setPersisted(policy.persistedAcrossReboot)
             .setRequiresBatteryNotLow(policy.requiresBatteryNotLow)
+            .setRequiresStorageNotLow(policy.requiresStorageNotLow)
             .setExtras(extras)
-            .apply {
-                if (policy.minimumLatencyMs > 0L) {
-                    setMinimumLatency(policy.minimumLatencyMs)
-                }
-            }
+            .setMinimumLatency(policy.minimumLatencyMs)
             .build()
 
         jobScheduler.schedule(info) == JobScheduler.RESULT_SUCCESS
@@ -219,6 +225,26 @@ class AgentEventWakeJobService : JobService() {
             .getOrElse { return false }
 
         val future = worker.submit {
+            val governor = AndroidResourceGovernor(applicationContext)
+            val budget = runCatching { governor.currentBudget() }.getOrNull()
+            if (
+                budget == null ||
+                !governor.allows(agentCount = 1) ||
+                !AndroidAgentEventWakeResourcePolicy.shouldExecuteNow(budget)
+            ) {
+                Handler(Looper.getMainLooper()).post {
+                    active.remove(params.jobId)
+                    // No Agent execution occurred. Finish this OS wake, then reinstall the same
+                    // verified checkpoint under a resource-derived bounded delay.
+                    jobFinished(params, false)
+                    Handler(Looper.getMainLooper()).post {
+                        AndroidAgentEventWakeScheduler(applicationContext)
+                            .handoff(handoff)
+                    }
+                }
+                return@submit
+            }
+
             val outcome = AndroidAgentEventWakeConsumer(applicationContext)
                 .consume(handoff)
 
@@ -230,8 +256,8 @@ class AgentEventWakeJobService : JobService() {
                         when (result.state) {
                             AmperAgentEventWakeHostExecutionState.CHECKPOINTED -> {
                                 val next = requireNotNull(result.nextHandoff)
-                                // Finish the old OS wake before installing the fresh checkpoint
-                                // under the same stable dedupe/job identity.
+                                // Finish the old OS wake before installing only the fresh Phase656
+                                // checkpoint under the same stable dedupe/job identity.
                                 jobFinished(params, false)
                                 Handler(Looper.getMainLooper()).post {
                                     AndroidAgentEventWakeScheduler(applicationContext)
@@ -243,8 +269,13 @@ class AgentEventWakeJobService : JobService() {
                             AmperAgentEventWakeHostExecutionState.TERMINAL_NOOP ->
                                 jobFinished(params, false)
 
-                            AmperAgentEventWakeHostExecutionState.RETRY_LATER ->
-                                jobFinished(params, true)
+                            AmperAgentEventWakeHostExecutionState.RETRY_LATER -> {
+                                jobFinished(params, false)
+                                Handler(Looper.getMainLooper()).post {
+                                    AndroidAgentEventWakeScheduler(applicationContext)
+                                        .handoff(handoff)
+                                }
+                            }
                         }
                     },
                     onFailure = {
