@@ -180,6 +180,14 @@ class OmegaCoreV2Test {
             "proactive-lifecycle-ledger-is-bounded-and-terminal-compacted" in
                 OmegaArchitectureLock.invariants
         )
+        assertTrue(
+            "proactive-lifecycle-reconciliation-does-not-register-process-admissions" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-lifecycle-provenance-corruption-fails-closed" in
+                OmegaArchitectureLock.invariants
+        )
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
