@@ -27,8 +27,8 @@ fun ProactiveTaskLifecyclePanel(
     onOpen: (SovereignPlan) -> Unit
 ) {
     var refreshEpoch by remember(lifecycle) { mutableStateOf(0) }
-    val entries = remember(lifecycle, refreshEpoch) {
-        lifecycle.inspect(limit = 8)
+    val snapshot = remember(lifecycle, refreshEpoch) {
+        runCatching { lifecycle.inspect(limit = 8) }
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -39,6 +39,14 @@ fun ProactiveTaskLifecyclePanel(
         )
         Button(onClick = { refreshEpoch += 1 }) {
             Text("Refresh proactive tasks")
+        }
+
+        val entries = snapshot.getOrElse { error ->
+            Text(
+                "Lifecycle provenance unavailable; proactive execution remains fail-closed: " +
+                    (error.message ?: error::class.java.simpleName)
+            )
+            return@Column
         }
 
         if (entries.isEmpty()) {
