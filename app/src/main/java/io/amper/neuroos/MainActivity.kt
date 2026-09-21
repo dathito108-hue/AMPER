@@ -3,6 +3,7 @@ package io.amper.neuroos
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -280,6 +281,15 @@ class MainActivity : ComponentActivity() {
             val agentProactiveLifecycle = agentGraph.agentProactiveLifecycle
             val agentProactiveLifecycleController =
                 agentGraph.agentProactiveLifecycleController
+            val agentProactiveAttentionController =
+                agentGraph.agentProactiveAttentionController
+            var proactiveNotificationPermissionGranted by remember {
+                mutableStateOf(
+                    Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                        checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+                        PackageManager.PERMISSION_GRANTED
+                )
+            }
             val agentContinuation = agentGraph.agentContinuation
             val agentContinuationExecution = agentGraph.execution
             val activePerceptionPort = remember {
@@ -362,6 +372,11 @@ class MainActivity : ComponentActivity() {
                 }
                 runCatching {
                     agentProactiveLifecycleController
+                        .reconcileTracked()
+                        .getOrThrow()
+                }
+                runCatching {
+                    agentProactiveAttentionController
                         .reconcileTracked()
                         .getOrThrow()
                 }
@@ -820,6 +835,21 @@ class MainActivity : ComponentActivity() {
                         "Microphone permission denied; voice session did not start"
                 }
             }
+            val proactiveNotificationPermissionLauncher =
+                rememberLauncherForActivityResult(
+                    ActivityResultContracts.RequestPermission()
+                ) { granted ->
+                    proactiveNotificationPermissionGranted = granted
+                    if (granted) {
+                        executionLanes.executeMaintenance {
+                            runCatching {
+                                agentProactiveAttentionController
+                                    .reconcileTracked()
+                                    .getOrThrow()
+                            }
+                        }
+                    }
+                }
 
             val imageAttachmentPicker = rememberLauncherForActivityResult(
                 ActivityResultContracts.OpenDocument()
@@ -2635,12 +2665,35 @@ class MainActivity : ComponentActivity() {
                             onPlanMutated = { mutated ->
                                 executionLanes.executeInteractive {
                                     agentProactiveLifecycleController.reconcilePlan(mutated.id)
+                                    runCatching {
+                                        agentProactiveAttentionController
+                                            .reconcilePlan(mutated.id)
+                                    }
                                 }
                             }
                         )
 
                         ProactiveTaskLifecyclePanel(
                             lifecycle = agentProactiveLifecycle,
+                            notificationsAllowed =
+                                agentProactiveAttentionController.notificationsAllowed(),
+                            notificationPermissionRequired =
+                                Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                    !proactiveNotificationPermissionGranted,
+                            onRequestNotificationPermission = {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    proactiveNotificationPermissionLauncher
+                                        .launch(Manifest.permission.POST_NOTIFICATIONS)
+                                } else {
+                                    executionLanes.executeMaintenance {
+                                        runCatching {
+                                            agentProactiveAttentionController
+                                                .reconcileTracked()
+                                                .getOrThrow()
+                                        }
+                                    }
+                                }
+                            },
                             onOpen = { opened ->
                                 activePlan = opened
                                 conversationId = opened.conversationId
@@ -2823,6 +2876,12 @@ class MainActivity : ComponentActivity() {
                                             agentProactiveLifecycleController
                                                 .resumeAfterGovernedDecision(processed.plan.id)
                                         }
+                                        result.getOrNull()?.let { processed ->
+                                            runCatching {
+                                                agentProactiveAttentionController
+                                                    .reconcilePlan(processed.plan.id)
+                                            }
+                                        }
                                         runOnUiThread {
                                             result.fold(
                                                 onSuccess = { processed ->
@@ -2862,6 +2921,12 @@ class MainActivity : ComponentActivity() {
                                         val lifecycleResume = rejected.getOrNull()?.let { updated ->
                                             agentProactiveLifecycleController
                                                 .resumeAfterGovernedDecision(updated.id)
+                                        }
+                                        rejected.getOrNull()?.let { updated ->
+                                            runCatching {
+                                                agentProactiveAttentionController
+                                                    .reconcilePlan(updated.id)
+                                            }
                                         }
                                         runOnUiThread {
                                             rejected.fold(
@@ -2906,6 +2971,10 @@ class MainActivity : ComponentActivity() {
                                 pendingApproval = assistant.restorePendingApproval(recovered.conversationId)
                                 executionLanes.executeInteractive {
                                     agentProactiveLifecycleController.reconcilePlan(recovered.id)
+                                    runCatching {
+                                        agentProactiveAttentionController
+                                            .reconcilePlan(recovered.id)
+                                    }
                                 }
                                 planStatus = "Reconciled plan ${recovered.id.value.take(8)}; provider was not replayed"
                             }
