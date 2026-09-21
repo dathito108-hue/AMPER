@@ -92,6 +92,7 @@ class CanonicalCognitiveMemoryTopology private constructor(
                         durability = CognitiveMemoryDurability.DURABLE,
                         canonicalOwners = linkedSetOf(
                             "CanonicalSovereignKernel",
+                            "CanonicalEpisodicMemoryStore",
                             "SovereignConversationCoordinator"
                         )
                     ),

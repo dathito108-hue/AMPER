@@ -97,6 +97,7 @@ class EvidenceMetaCognition(
 class CanonicalSovereignKernel(
     private val workspace: GlobalWorkspace,
     private val memory: MemoryOs,
+    private val episodicMemory: EpisodicMemoryStore,
     private val models: ModelRegistry,
     private val governor: ResourceGovernor,
     private val meta: MetaCognition,
@@ -132,12 +133,14 @@ class CanonicalSovereignKernel(
             salience = fact.confidence
         ))
 
-        memory.remember(MemoryRecord(
-            kind = "episodic",
-            content = intent,
-            importance = 0.8,
-            provenance = provenance
-        ))
+        episodicMemory.admit(
+            EpisodicObservation(
+                origin = EpisodicMemoryOrigin.USER_INTENT,
+                content = intent,
+                importance = 0.8,
+                provenance = provenance
+            )
+        ).getOrThrow()
 
         val leaseResult = agents.spawn(AgentSpec(
             role = "reasoning-specialist",
@@ -176,6 +179,7 @@ class AmperRuntime private constructor(
     private val kernel: SovereignKernel,
     val context: SovereignContextSource,
     val cognitiveMemoryTopology: CanonicalCognitiveMemoryTopology,
+    val episodicMemory: EpisodicMemoryStore,
     val competence: CapabilityCompetenceModel,
     val strategies: StrategyLearningModel,
     val epistemic: EpistemicState,
@@ -430,6 +434,7 @@ class AmperRuntime private constructor(
                 memory = memory,
                 workspace = workspace
             )
+            val episodicMemory = CanonicalEpisodicMemoryStore(memory)
             val competence = MemoryBackedCapabilityCompetenceModel(memory)
             val strategies = MemoryBackedStrategyLearningModel(memory)
             val epistemic = MemoryBackedEpistemicState(memory)
@@ -624,6 +629,7 @@ class AmperRuntime private constructor(
             val kernel = CanonicalSovereignKernel(
                 workspace = workspace,
                 memory = memory,
+                episodicMemory = episodicMemory,
                 models = models,
                 governor = governor,
                 meta = EvidenceMetaCognition(competence, strategies),
@@ -640,6 +646,7 @@ class AmperRuntime private constructor(
                 kernel = kernel,
                 context = context,
                 cognitiveMemoryTopology = cognitiveMemoryTopology,
+                episodicMemory = episodicMemory,
                 competence = competence,
                 strategies = strategies,
                 epistemic = epistemic,
