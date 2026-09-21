@@ -24,6 +24,9 @@ import io.amper.neuroos.core.v2.AmperAgentTaskState
 @Composable
 fun ProactiveTaskLifecyclePanel(
     lifecycle: AmperAgentProactiveTaskLifecycleCoordinator,
+    notificationsAllowed: Boolean,
+    notificationPermissionRequired: Boolean,
+    onRequestNotificationPermission: () -> Unit,
     onOpen: (SovereignPlan) -> Unit
 ) {
     var refreshEpoch by remember(lifecycle) { mutableStateOf(0) }
@@ -39,6 +42,25 @@ fun ProactiveTaskLifecyclePanel(
         )
         Button(onClick = { refreshEpoch += 1 }) {
             Text("Refresh proactive tasks")
+        }
+
+        when {
+            notificationsAllowed ->
+                Text("Proactive attention notifications: enabled")
+            notificationPermissionRequired -> {
+                Text(
+                    "Proactive attention notifications are optional and currently not permitted. " +
+                        "Tasks and governed approval continue to work inside AMPER."
+                )
+                Button(onClick = onRequestNotificationPermission) {
+                    Text("Enable proactive notifications")
+                }
+            }
+            else ->
+                Text(
+                    "Proactive attention notifications are disabled by Android settings. " +
+                        "The lifecycle panel remains the governed attention fallback."
+                )
         }
 
         val entries = snapshot.getOrNull()
