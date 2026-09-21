@@ -41,55 +41,55 @@ fun ProactiveTaskLifecyclePanel(
             Text("Refresh proactive tasks")
         }
 
-        val entries = snapshot.getOrElse { error ->
+        val entries = snapshot.getOrNull()
+        if (entries == null) {
+            val error = snapshot.exceptionOrNull()
             Text(
                 "Lifecycle provenance unavailable; proactive execution remains fail-closed: " +
-                    (error.message ?: error::class.java.simpleName)
+                    (error?.message ?: error?.javaClass?.simpleName ?: "unknown")
             )
-            return@Column
-        }
-
-        if (entries.isEmpty()) {
-            Text("No tracked proactive task")
-        }
-
-        entries.forEach { view ->
-            val binding = view.binding
-            Text(
-                "Source ${binding.sourceId} · plan ${binding.planId.value.takeLast(12)}"
-            )
-            Text(
-                "Trigger ${binding.trigger.observedAtEpochMs} · " +
-                    "payload ${binding.trigger.payloadDigest.take(12)}…"
-            )
-            if (!view.planAvailable) {
-                Text("Fail-closed: canonical persistent plan is unavailable")
-                return@forEach
+        } else {
+            if (entries.isEmpty()) {
+                Text("No tracked proactive task")
             }
 
-            val state = requireNotNull(view.taskState)
-            Text(
-                "State: ${state.name} · ${view.completedSteps}/${view.totalSteps} step(s)"
-            )
-            Text("Goal: ${view.goal}")
-            view.waitingApprovalStepIndex?.let { step ->
+            entries.forEach { view ->
+                val binding = view.binding
                 Text(
-                    "Governed approval required at step $step. Open the canonical plan to inspect " +
-                        "the exact request and approve or reject it."
+                    "Source ${binding.sourceId} · plan ${binding.planId.value.takeLast(12)}"
                 )
-            }
-            if (state == AmperAgentTaskState.CHECKPOINTED) {
-                Text("Ready for governed EVENT_WAKE continuation; manual step advance is disabled.")
-            }
-            if (view.terminal) {
-                Text("Terminal durable plan; no background execution is requested.")
-            }
-            Button(
-                onClick = {
-                    lifecycle.openPlan(binding.planId)?.let(onOpen)
+                Text(
+                    "Trigger ${binding.trigger.observedAtEpochMs} · " +
+                        "payload ${binding.trigger.payloadDigest.take(12)}…"
+                )
+                if (!view.planAvailable) {
+                    Text("Fail-closed: canonical persistent plan is unavailable")
+                } else {
+                    val state = requireNotNull(view.taskState)
+                    Text(
+                        "State: ${state.name} · ${view.completedSteps}/${view.totalSteps} step(s)"
+                    )
+                    Text("Goal: ${view.goal}")
+                    view.waitingApprovalStepIndex?.let { step ->
+                        Text(
+                            "Governed approval required at step $step. Open the canonical plan to inspect " +
+                                "the exact request and approve or reject it."
+                        )
+                    }
+                    if (state == AmperAgentTaskState.CHECKPOINTED) {
+                        Text("Ready for governed EVENT_WAKE continuation; manual step advance is disabled.")
+                    }
+                    if (view.terminal) {
+                        Text("Terminal durable plan; no background execution is requested.")
+                    }
+                    Button(
+                        onClick = {
+                            lifecycle.openPlan(binding.planId)?.let(onOpen)
+                        }
+                    ) {
+                        Text("Open governed plan")
+                    }
                 }
-            ) {
-                Text("Open governed plan")
             }
         }
     }
