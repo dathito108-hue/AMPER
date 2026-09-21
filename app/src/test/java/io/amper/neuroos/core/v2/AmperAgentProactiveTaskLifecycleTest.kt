@@ -63,7 +63,7 @@ class AmperAgentProactiveTaskLifecycleTest {
         )
 
         repeat(MemoryBackedAmperAgentProactiveTaskLifecycleLedger.MAX_BINDINGS) { index ->
-            val identity = index.toString(16).padEnd(64, 'a')
+            val identity = index.toString(16).padStart(2, '0') + "a".repeat(62)
             ledger.record(
                 binding(
                     observationIdentitySha256 = identity,
