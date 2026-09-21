@@ -7,8 +7,11 @@ class AmperAgentTaskAdmissionRegistry {
     private val entries = ConcurrentHashMap<String, AmperAgentTaskAdmission>()
 
     fun register(admission: AmperAgentTaskAdmission): AmperAgentTaskAdmission {
-        require(admission.request.origin == AmperAgentTaskOrigin.USER_REQUEST) {
-            "canonical process admission registry accepts USER_REQUEST tasks only"
+        require(
+            admission.request.origin == AmperAgentTaskOrigin.USER_REQUEST ||
+                admission.request.origin == AmperAgentTaskOrigin.PROACTIVE_TRIGGER
+        ) {
+            "canonical process admission registry accepts canonical Agent task origins only"
         }
         val existing = entries.putIfAbsent(admission.request.taskId, admission)
         require(existing == null || existing == admission) {
