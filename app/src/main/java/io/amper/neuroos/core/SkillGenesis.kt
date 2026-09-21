@@ -312,16 +312,26 @@ class MemoryBackedSkillGenesisModel(
         memory.transaction { snapshotLocked(signature) }
 
     override fun recent(limit: Int): List<SkillContract> {
-        require(limit >= 0)
+        require(limit in 0..ProceduralMemoryReadPolicy.MAX_SKILL_RECENT)
         if (limit == 0) return emptyList()
         return memory.transaction {
-            decodeIndex(get(INDEX_ID)?.content)
+            readIndexLocked()
                 .asReversed()
                 .asSequence()
-                .mapNotNull { digest ->
-                    get(MemoryId("skill-contract:$digest"))
-                        ?.takeIf { it.kind == SNAPSHOT_KIND }
-                        ?.let { SkillGenesisCodec.decodeContract(it.content) }
+                .map { digest ->
+                    val record = requireNotNull(get(MemoryId("skill-contract:$digest"))) {
+                        "skill index references missing snapshot: " + digest
+                    }
+                    require(record.kind == SNAPSHOT_KIND) {
+                        "skill index references wrong record kind: " + digest
+                    }
+                    val contract = requireNotNull(
+                        SkillGenesisCodec.decodeContract(record.content)
+                    ) { "skill snapshot is malformed: " + digest }
+                    require(contract.signature.digest == digest) {
+                        "skill snapshot signature digest mismatch"
+                    }
+                    contract
                 }
                 .take(limit)
                 .toList()
@@ -445,14 +455,18 @@ class MemoryBackedSkillGenesisModel(
             .take(limit)
     }
 
-    private fun MemoryOs.snapshotLocked(signature: StrategySignature): SkillContract? =
-        get(snapshotId(signature))
-            ?.takeIf { it.kind == SNAPSHOT_KIND }
-            ?.let { SkillGenesisCodec.decodeContract(it.content) }
-            ?.takeIf { it.signature == signature }
+    private fun MemoryOs.snapshotLocked(signature: StrategySignature): SkillContract? {
+        val record = get(snapshotId(signature)) ?: return null
+        require(record.kind == SNAPSHOT_KIND) { "skill snapshot kind mismatch" }
+        val contract = requireNotNull(SkillGenesisCodec.decodeContract(record.content)) {
+            "skill snapshot is malformed"
+        }
+        require(contract.signature == signature) { "skill snapshot signature mismatch" }
+        return contract
+    }
 
     private fun MemoryOs.updateIndexLocked(digest: String, now: Long) {
-        val current = decodeIndex(get(INDEX_ID)?.content)
+        val current = readIndexLocked()
         val next = (current.filterNot { it == digest } + digest)
             .takeLast(MAX_INDEXED_SKILLS)
         remember(
@@ -586,13 +600,21 @@ class MemoryBackedSkillGenesisModel(
     private fun skillId(signature: StrategySignature): SkillId =
         SkillId("skill:${signature.digest}")
 
-    private fun decodeIndex(content: String?): List<String> {
-        if (content == null || !content.startsWith("digests=")) return emptyList()
-        return content.removePrefix("digests=")
-            .split(',')
-            .filter { it.matches(SHA256) }
-            .distinct()
-            .takeLast(MAX_INDEXED_SKILLS)
+    private fun MemoryOs.readIndexLocked(): List<String> {
+        val record = get(INDEX_ID) ?: return emptyList()
+        require(record.kind == INDEX_KIND) { "skill index kind mismatch" }
+        return decodeIndex(record.content)
+    }
+
+    private fun decodeIndex(content: String): List<String> {
+        require(content.startsWith("digests=")) { "skill index is malformed" }
+        val raw = content.removePrefix("digests=")
+        if (raw.isBlank()) return emptyList()
+        val values = raw.split(',')
+        require(values.all { it.matches(SHA256) }) { "skill index digest is malformed" }
+        require(values.distinct().size == values.size) { "skill index contains duplicates" }
+        require(values.size <= MAX_INDEXED_SKILLS) { "skill index exceeds bound" }
+        return values
     }
 
     companion object {

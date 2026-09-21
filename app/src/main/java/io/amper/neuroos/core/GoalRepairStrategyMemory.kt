@@ -160,23 +160,37 @@ class MemoryBackedGoalRepairStrategyMemory(
         return updated
     }
 
-    override fun snapshot(strategy: StrategySignature): GoalRepairStrategyPattern? =
-        memory.get(snapshotId(strategy))
-            ?.takeIf { it.kind == SNAPSHOT_KIND }
-            ?.let { GoalRepairStrategyMemoryCodec.decodePattern(it.content) }
-            ?.takeIf { it.strategy == strategy }
+    override fun snapshot(strategy: StrategySignature): GoalRepairStrategyPattern? {
+        val record = memory.get(snapshotId(strategy)) ?: return null
+        require(record.kind == SNAPSHOT_KIND) { "repair strategy snapshot kind mismatch" }
+        val pattern = requireNotNull(GoalRepairStrategyMemoryCodec.decodePattern(record.content)) {
+            "repair strategy snapshot is malformed"
+        }
+        require(pattern.strategy == strategy) { "repair strategy snapshot signature mismatch" }
+        return pattern
+    }
 
     override fun recent(limit: Int): List<GoalRepairStrategyPattern> {
-        require(limit >= 0)
+        require(limit in 0..ProceduralMemoryReadPolicy.MAX_REPAIR_RECENT)
         if (limit == 0) return emptyList()
         return memory.transaction {
-            decodeIndex(get(INDEX_ID)?.content)
+            readIndexLocked()
                 .asReversed()
                 .asSequence()
-                .mapNotNull { digest ->
-                    get(MemoryId("goal-repair-strategy-memory:" + digest))
-                        ?.takeIf { it.kind == SNAPSHOT_KIND }
-                        ?.let { GoalRepairStrategyMemoryCodec.decodePattern(it.content) }
+                .map { digest ->
+                    val record = requireNotNull(
+                        get(MemoryId("goal-repair-strategy-memory:" + digest))
+                    ) { "repair strategy index references missing snapshot: " + digest }
+                    require(record.kind == SNAPSHOT_KIND) {
+                        "repair strategy index references wrong record kind: " + digest
+                    }
+                    val pattern = requireNotNull(
+                        GoalRepairStrategyMemoryCodec.decodePattern(record.content)
+                    ) { "repair strategy snapshot is malformed: " + digest }
+                    require(pattern.strategy.digest == digest) {
+                        "repair strategy snapshot signature digest mismatch"
+                    }
+                    pattern
                 }
                 .take(limit)
                 .toList()
@@ -206,7 +220,7 @@ class MemoryBackedGoalRepairStrategyMemory(
 
     private fun MemoryOs.updateIndexLocked(digest: String, now: Long) {
         val next = (
-            decodeIndex(get(INDEX_ID)?.content).filterNot { it == digest } + digest
+            readIndexLocked().filterNot { it == digest } + digest
             ).takeLast(MAX_INDEXED_PATTERNS)
         remember(
             MemoryRecord(
@@ -224,13 +238,22 @@ class MemoryBackedGoalRepairStrategyMemory(
         )
     }
 
-    private fun decodeIndex(content: String?): List<String> {
-        if (content == null || !content.startsWith("digests=")) return emptyList()
-        return content.removePrefix("digests=")
-            .split(',')
-            .filter { it.matches(Regex("[0-9a-f]{64}")) }
-            .distinct()
-            .takeLast(MAX_INDEXED_PATTERNS)
+    private fun MemoryOs.readIndexLocked(): List<String> {
+        val record = get(INDEX_ID) ?: return emptyList()
+        require(record.kind == INDEX_KIND) { "repair strategy index kind mismatch" }
+        return decodeIndex(record.content)
+    }
+
+    private fun decodeIndex(content: String): List<String> {
+        require(content.startsWith("digests=")) { "repair strategy index is malformed" }
+        val raw = content.removePrefix("digests=")
+        if (raw.isBlank()) return emptyList()
+        val values = raw.split(',')
+        val sha256 = Regex("[0-9a-f]{64}")
+        require(values.all { it.matches(sha256) }) { "repair strategy index digest is malformed" }
+        require(values.distinct().size == values.size) { "repair strategy index contains duplicates" }
+        require(values.size <= MAX_INDEXED_PATTERNS) { "repair strategy index exceeds bound" }
+        return values
     }
 
     private fun snapshotId(strategy: StrategySignature): MemoryId =
