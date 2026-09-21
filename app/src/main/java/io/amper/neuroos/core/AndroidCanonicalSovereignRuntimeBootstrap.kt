@@ -28,6 +28,7 @@ data class AndroidCanonicalAgentRuntimeGraph(
     val agentPassiveTasks: AmperAgentPassiveTaskCoordinator,
     val agentProactiveTasks: AmperAgentProactiveTaskCoordinator,
     val agentTriggerSources: AmperAgentProactiveTriggerSourceRegistry,
+    val agentTriggerSourceController: AndroidAgentProactiveTriggerSourceController,
     val agentEventWake: AmperAgentProactiveEventWakeCoordinator,
     val agentContinuation: AmperAgentExecutionContinuationCoordinator,
     val execution: AmperAgentCanonicalContinuationExecutionPort,
@@ -233,6 +234,10 @@ class AndroidCanonicalSovereignRuntimeGraph internal constructor(context: Contex
         val agentAdmissions = AmperAgentTaskAdmissionRegistry()
         val agentPassiveTasks = AmperAgentPassiveTaskCoordinator(agentPlanPort)
         val agentProactiveTasks = AmperAgentProactiveTaskCoordinator(agentPlanPort)
+        val agentTriggerSourceController = AndroidAgentProactiveTriggerSourceController(
+            context = appContext,
+            registry = runtime.proactiveTriggerSources
+        )
         val agentEventWake = AmperAgentProactiveEventWakeCoordinator(agentPlanPort)
         val agentContinuation = AmperAgentExecutionContinuationCoordinator(agentPlanPort)
         val execution = AmperAgentCanonicalContinuationExecutionPort(
@@ -263,6 +268,7 @@ class AndroidCanonicalSovereignRuntimeGraph internal constructor(context: Contex
             agentPassiveTasks = agentPassiveTasks,
             agentProactiveTasks = agentProactiveTasks,
             agentTriggerSources = runtime.proactiveTriggerSources,
+            agentTriggerSourceController = agentTriggerSourceController,
             agentEventWake = agentEventWake,
             agentContinuation = agentContinuation,
             execution = execution,
