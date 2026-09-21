@@ -112,7 +112,8 @@ object AndroidAgentColdExecutionBootstrap {
             catalog = catalog,
             artifacts = modelArtifacts,
             core = core,
-            governor = governor
+            governor = governor,
+            deviceStatusSource = deviceStatus
         )
         val graph = AndroidSovereignAgentExecutionGraphFactory.build(
             context = appContext,
