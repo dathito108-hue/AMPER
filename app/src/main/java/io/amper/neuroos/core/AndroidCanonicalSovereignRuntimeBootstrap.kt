@@ -16,6 +16,7 @@ data class AndroidCanonicalAgentRuntimeGraph(
     val toolFabric: AuditedToolFabric,
     val actionLoop: SovereignActionLoop,
     val inferencePort: TitanInferencePort,
+    val assistant: SovereignAssistantTurnCoordinator,
     val planningCoordinator: SovereignPlanCoordinator,
     val planner: PersistentSovereignPlanCoordinator,
     val agentPlanPort: PersistentSovereignAgentPlanPort,
@@ -184,6 +185,13 @@ class AndroidCanonicalSovereignRuntimeGraph internal constructor(context: Contex
         )
         val actionLoop = runtime.actionLoop(toolRegistry, toolFabric)
         val inferencePort = TitanInferencePort(titan)
+        val assistant = SovereignAssistantTurnCoordinator(
+            runtime = runtime,
+            inference = inferencePort,
+            actions = actionLoop,
+            advertisedCapabilities = assistantCapabilities,
+            maxOutputTokens = 256
+        )
         val planningCoordinator = SovereignPlanCoordinator(
             runtime = runtime,
             inference = inferencePort,
@@ -217,6 +225,7 @@ class AndroidCanonicalSovereignRuntimeGraph internal constructor(context: Contex
             toolFabric = toolFabric,
             actionLoop = actionLoop,
             inferencePort = inferencePort,
+            assistant = assistant,
             planningCoordinator = planningCoordinator,
             planner = planner,
             agentPlanPort = agentPlanPort,
