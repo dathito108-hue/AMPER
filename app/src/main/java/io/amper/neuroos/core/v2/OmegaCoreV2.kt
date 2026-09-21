@@ -310,6 +310,13 @@ object OmegaArchitectureLock {
         "cognitive-memory-context-envelope-persists-no-state",
         "cognitive-memory-context-overrequests-clamp-without-expansion",
         "integrated-cognitive-digest-binds-explicit-episodic-evidence",
+        "memory-retention-preflights-provenance-safe-leaf-eviction",
+        "memory-retention-never-auto-evicts-incoming-candidate",
+        "memory-forget-rejects-live-parent-evidence",
+        "memory-tombstone-precedes-live-index-removal",
+        "memory-retention-failure-preserves-evidence-and-fails-visible",
+        "memory-replay-overflow-is-reconciled-on-next-mutation",
+        "physical-memory-journal-compaction-remains-logical-state-preserving",
         "3d-avatar-is-embodiment-not-cognition"
     )
 
@@ -489,7 +496,14 @@ object OmegaArchitectureLock {
                 "working and generic memory caller over-requests are clamped to the canonical context envelope",
                 "semantic context exposes at most 6 current semantic entries and 6 epistemic beliefs while procedural strategy evidence exposes at most 4 entries",
                 "the cross-domain envelope persists no state and creates no memory database cache or scheduler",
-                "integrated cognitive state digest binds episodic id origin importance and fingerprint without copying raw episodic content"
+                "integrated cognitive state digest binds episodic id origin importance and fingerprint without copying raw episodic content",
+                "logical MemoryOs retention preflights the projected post-write provenance graph before durable candidate append",
+                "automatic retention removes only provenance leaves and never removes the incoming candidate",
+                "explicit forget refuses to tombstone a record still referenced as provenance parent by another live record",
+                "retention and explicit forgetting durably tombstone before removing a record from the live in-memory index",
+                "tombstone failure preserves live evidence and surfaces retention debt instead of silently deleting memory",
+                "replay may preserve temporary crash-window overflow and the next mutation reconciles it through the same provenance-safe planner",
+                "physical journal compaction remains unchanged and preserves the current logical live record set"
             )
         ),
         OmegaMilestone(

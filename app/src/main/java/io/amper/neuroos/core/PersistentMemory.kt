@@ -190,20 +190,19 @@ class PersistentMemoryOs(
 
     init {
         require(maxRecords > 0)
+        // Replay is read-only. A crash between candidate append and planned tombstones may
+        // temporarily restore more than maxRecords; the next mutation preflights and reconciles
+        // that retention debt without deleting evidence during construction.
         journal.replay().forEach { records[it.id] = it }
     }
 
     override fun remember(record: MemoryRecord) = synchronized(lock) {
-        journal.append(record)
-        records[record.id] = record
-        trimIfNeeded()
+        rememberLocked(record)
     }
 
     override fun rememberIfAbsent(record: MemoryRecord): Boolean = synchronized(lock) {
         if (records.containsKey(record.id)) return@synchronized false
-        journal.append(record)
-        records[record.id] = record
-        trimIfNeeded()
+        rememberLocked(record)
         true
     }
 
@@ -231,21 +230,49 @@ class PersistentMemoryOs(
     override fun get(id: MemoryId): MemoryRecord? = synchronized(lock) { records[id] }
 
     override fun forget(id: MemoryId): Boolean = synchronized(lock) {
-        val existed = records.remove(id) != null
-        if (existed) journal.tombstone(id)
-        existed
+        if (!records.containsKey(id)) return@synchronized false
+
+        val blockers = ProvenanceSafeMemoryRetentionPlanner.blockers(records.values, id)
+        require(blockers.isEmpty()) {
+            "cannot forget memory still referenced by live provenance: " +
+                blockers.take(MAX_BLOCKER_IDS_IN_ERROR).joinToString(",") { it.value }
+        }
+
+        // Durable tombstone first. If journal mutation fails, the in-memory record stays live.
+        journal.tombstone(id)
+        records.remove(id)
+        true
     }
 
     override fun size(): Int = synchronized(lock) { records.size }
 
-    private fun trimIfNeeded() {
-        val overflow = records.size - maxRecords
-        if (overflow <= 0) return
-        records.values.sortedWith(compareBy<MemoryRecord> { it.importance }.thenBy { it.createdAtEpochMs })
-            .take(overflow).map { it.id }.forEach { id ->
-                records.remove(id)
-                journal.tombstone(id)
+    private fun rememberLocked(record: MemoryRecord) {
+        val plan = ProvenanceSafeMemoryRetentionPlanner.plan(
+            existing = records.values,
+            candidate = record,
+            maxRecords = maxRecords
+        )
+
+        // Candidate append precedes eviction tombstones. A crash in this window may restore
+        // temporary capacity overflow, but cannot lose the newly accepted record or its parents.
+        journal.append(record)
+        records[record.id] = record
+
+        plan.evictions.forEach { id ->
+            require(id != record.id) {
+                "incoming memory cannot be selected for automatic retention eviction"
             }
+            if (records.containsKey(id)) {
+                // Durable tombstone first. A failure preserves the record in the live index and
+                // surfaces the retention debt instead of silently losing evidence.
+                journal.tombstone(id)
+                records.remove(id)
+            }
+        }
+    }
+
+    companion object {
+        private const val MAX_BLOCKER_IDS_IN_ERROR = 8
     }
 }
 
