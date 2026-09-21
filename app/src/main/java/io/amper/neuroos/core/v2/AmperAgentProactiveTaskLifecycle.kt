@@ -287,6 +287,9 @@ class AmperAgentProactiveTaskLifecycleCoordinator(
     ): Result<AmperAgentProactiveTaskLifecycleBinding> = runCatching {
         compactTerminal(keepRecentTerminal = 8).getOrThrow()
         val trigger = requireNotNull(dispatch.admission.request.trigger)
+        val plan = requireNotNull(plans.load(dispatch.planId)) {
+            "canonical proactive plan disappeared before lifecycle binding"
+        }
         val binding = AmperAgentProactiveTaskLifecycleBinding(
             sourceId = dispatch.sourceId,
             configurationSha256 = dispatch.configurationSha256,
@@ -294,9 +297,11 @@ class AmperAgentProactiveTaskLifecycleCoordinator(
             taskId = dispatch.admission.request.taskId,
             planId = dispatch.planId,
             trigger = trigger,
+            // Stable across crash/retry: checkpoint timestamps may change, the durable plan
+            // creation time and accepted observation time do not.
             boundAtEpochMs = maxOf(
                 trigger.observedAtEpochMs,
-                dispatch.checkpoint.updatedAtEpochMs
+                plan.createdAtEpochMs
             )
         )
         ledger.record(binding).getOrThrow()
