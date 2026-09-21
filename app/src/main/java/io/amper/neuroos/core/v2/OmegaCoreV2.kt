@@ -204,7 +204,7 @@ object OmegaArchitectureLock {
         "pending-trigger-dispatch-reuses-governed-event-wake-scheduler",
         "pending-trigger-dispatch-adds-no-planner-tool-or-model-path",
         "pending-trigger-dispatch-job-identities-fail-closed-on-collision",
-        "proactive-lifecycle-binding-persists-before-trigger-fifo-ack",
+        "proactive-lifecycle-binding-persists-before-event-wake-and-trigger-fifo-ack",
         "proactive-lifecycle-ledger-stores-provenance-not-task-state",
         "proactive-task-state-is-derived-only-from-canonical-persistent-plan",
         "proactive-governed-decisions-reuse-existing-plan-approval-and-event-wake",
