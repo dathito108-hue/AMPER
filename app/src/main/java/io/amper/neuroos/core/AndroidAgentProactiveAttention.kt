@@ -57,13 +57,6 @@ object AndroidAgentProactiveAttentionIdentity {
         PREF_KEY_PREFIX + digest(planId.value)
             .joinToString("") { "%02x".format(it) }
 
-    fun requireCollisionFree(planIds: Collection<PlanId>) {
-        val ids = planIds.map(::notificationIdFor)
-        require(ids.distinct().size == ids.size) {
-            "proactive attention notification-id collision detected"
-        }
-    }
-
     internal const val PREF_KEY_PREFIX = "signal:"
 
     private fun digest(value: String): ByteArray =
@@ -139,10 +132,6 @@ class AndroidAgentProactiveAttentionDelivery(
         views: List<AmperAgentProactiveTaskLifecycleView>
     ): Result<AndroidAgentProactiveAttentionDeliveryReport> = runCatching {
         require(views.size <= MAX_TRACKED)
-        AndroidAgentProactiveAttentionIdentity.requireCollisionFree(
-            views.map { it.binding.planId }
-        )
-
         var delivered = 0
         var duplicate = 0
         var permission = 0
@@ -210,7 +199,10 @@ class AndroidAgentProactiveAttentionDelivery(
 
         val checkpoint = parseCheckpoint(deliveryState.getString(key, null))
         val currentFingerprint = checkpoint
-            ?.takeIf { it.notificationId == notificationId }
+            ?.takeIf {
+                it.notificationId == notificationId &&
+                    it.notificationTag == notificationTag
+            }
             ?.fingerprintSha256
         val decision = AndroidAgentProactiveAttentionDeliveryPolicy.decide(
             currentFingerprintSha256 = currentFingerprint,
