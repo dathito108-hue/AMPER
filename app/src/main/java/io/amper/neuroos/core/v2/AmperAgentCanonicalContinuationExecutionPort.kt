@@ -8,7 +8,7 @@ class AmperAgentTaskAdmissionRegistry {
 
     fun register(admission: AmperAgentTaskAdmission): AmperAgentTaskAdmission {
         require(admission.request.origin == AmperAgentTaskOrigin.USER_REQUEST) {
-            "Phase652 warm admission registry accepts USER_REQUEST tasks only"
+            "canonical process admission registry accepts USER_REQUEST tasks only"
         }
         val existing = entries.putIfAbsent(admission.request.taskId, admission)
         require(existing == null || existing == admission) {
@@ -75,8 +75,9 @@ class AmperAgentUserTaskRuntime(
 }
 
 /**
- * Canonical warm-process implementation of the Phase651 Android execution port.
+ * Canonical process implementation of the Phase651 Android execution port.
  *
+ * Phase653 shares this exact port between warm foreground wiring and cold persisted-job bootstrap.
  * Each verified host call restores the exact Phase649 checkpoint and calls Phase648 advance exactly
  * once. If work remains, a fresh verified continuation handoff is returned to the Android host.
  */
