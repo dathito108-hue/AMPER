@@ -1,6 +1,7 @@
 package io.amper.neuroos.core.v2
 
 import io.amper.neuroos.core.ActionRequestId
+import io.amper.neuroos.core.AmperRuntime
 import io.amper.neuroos.core.CapabilityId
 import io.amper.neuroos.core.ConversationId
 import io.amper.neuroos.core.FileMemoryJournal
@@ -50,6 +51,44 @@ class AmperAgentProactiveTaskLifecycleTest {
         val drifted = binding.copy(configurationSha256 = "d".repeat(64))
         assertTrue(ledger.record(drifted).isFailure)
         assertEquals(binding, ledger.findByPlanId(binding.planId))
+    }
+
+    @Test
+    fun dispatchRecordRetryUsesStableDurablePlanTimestamp() {
+        val ledger = MemoryBackedAmperAgentProactiveTaskLifecycleLedger(
+            InMemoryMemoryOs()
+        )
+        val planPort = FakePlanPort(plan())
+        val admissions = AmperAgentTaskAdmissionRegistry()
+        val proactive = AmperAgentProactiveTaskCoordinator(planPort) { 100L }
+        val wake = AmperAgentProactiveEventWakeCoordinator(planPort) { 100L }
+        val lifecycle = AmperAgentProactiveTaskLifecycleCoordinator(
+            ledger = ledger,
+            plans = planPort,
+            admissions = admissions,
+            proactive = proactive,
+            eventWake = wake,
+            clock = { 100L }
+        )
+        val first = dispatch(planPort, wake)
+        val retried = first.copy(
+            checkpoint = first.checkpoint.copy(updatedAtEpochMs = 9_999L),
+            handoff = first.handoff
+        )
+
+        val recorded = lifecycle.recordDispatch(first).getOrThrow()
+        val replayed = lifecycle.recordDispatch(retried).getOrThrow()
+
+        assertEquals(recorded, replayed)
+        assertEquals(10L, recorded.boundAtEpochMs)
+        assertEquals(1, ledger.recent(8).size)
+    }
+
+    @Test
+    fun canonicalRuntimeExposesLifecycleLedgerFromTheSameSovereignMemoryGraph() {
+        val runtime = AmperRuntime.reference()
+        assertNotNull(runtime.proactiveTaskLifecycle)
+        assertEquals(0, runtime.proactiveTaskLifecycle.recent(8).size)
     }
 
     @Test
