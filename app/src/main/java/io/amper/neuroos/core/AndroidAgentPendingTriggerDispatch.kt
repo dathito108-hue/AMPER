@@ -77,6 +77,13 @@ object AndroidAgentPendingTriggerDispatchJobIdentity {
 
     fun owns(jobId: Int): Boolean =
         (jobId and JOB_NAMESPACE_MASK) == JOB_NAMESPACE
+
+    fun requireCollisionFree(sourceIds: Collection<String>) {
+        val ids = sourceIds.map(::jobIdFor)
+        require(ids.distinct().size == ids.size) {
+            "pending trigger dispatch job-id collision detected"
+        }
+    }
 }
 
 internal data class AndroidAgentPendingTriggerDispatchJobToken(
