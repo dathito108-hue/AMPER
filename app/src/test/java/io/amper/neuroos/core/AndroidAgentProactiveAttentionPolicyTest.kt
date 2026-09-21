@@ -66,6 +66,32 @@ class AndroidAgentProactiveAttentionPolicyTest {
     }
 
     @Test
+    fun notificationNavigationAcceptsOnlyDeterministicProactivePlanIds() {
+        val valid = "agent-trigger-plan:" + "a".repeat(64)
+
+        assertEquals(
+            PlanId(valid),
+            AndroidAgentProactiveAttentionIdentity.parseRequestedPlanId(valid)
+        )
+        assertEquals(
+            null,
+            AndroidAgentProactiveAttentionIdentity.parseRequestedPlanId(
+                "agent-trigger-plan:" + "A".repeat(64)
+            )
+        )
+        assertEquals(
+            null,
+            AndroidAgentProactiveAttentionIdentity.parseRequestedPlanId(
+                "normal-plan-id"
+            )
+        )
+        assertEquals(
+            null,
+            AndroidAgentProactiveAttentionIdentity.parseRequestedPlanId(null)
+        )
+    }
+
+    @Test
     fun notificationIdentityUsesFullCanonicalPlanIdWithoutHashTruncation() {
         val first = PlanId("agent-trigger-plan:" + "a".repeat(64))
         val second = PlanId("agent-trigger-plan:" + "b".repeat(64))
