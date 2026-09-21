@@ -117,6 +117,99 @@ class SemanticKnowledgeTest {
         assertFalse(memory.recall("battery charging", 16).isEmpty())
     }
 
+    @Test
+    fun staleStoredKnowledgeIsHiddenBeforeDurableReconciliation() {
+        val memory = InMemoryMemoryOs()
+        var now = 150L
+        val epistemic = MemoryBackedEpistemicState(
+            memory,
+            clock = { now },
+            staleAfterMs = 100L
+        )
+        epistemic.observe(claim("service", "region", "local", 0.95, 100L, "probe-a"))
+        val knowledge = MemoryBackedSemanticKnowledgeStore(memory, epistemic, clock = { now })
+        val created = requireNotNull(knowledge.consolidate("service", "region").current)
+
+        assertEquals(created.id, knowledge.current("service", "region")?.id)
+        now = 500L
+
+        assertNull(knowledge.current("service", "region"))
+        assertTrue(knowledge.query("service region", 4).isEmpty())
+        assertEquals(
+            SemanticKnowledgeTransitionKind.RETRACTED,
+            knowledge.consolidate("service", "region").kind
+        )
+    }
+
+    @Test
+    fun changedEvidenceHidesOldSemanticVersionUntilReconcileCreatesNewLineage() {
+        val memory = InMemoryMemoryOs()
+        var now = 200L
+        val epistemic = MemoryBackedEpistemicState(memory, clock = { now }, staleAfterMs = 10_000L)
+        epistemic.observe(claim("device", "class", "mobile", 0.90, 100L, "sensor-a"))
+        val knowledge = MemoryBackedSemanticKnowledgeStore(memory, epistemic, clock = { now })
+        val first = requireNotNull(knowledge.consolidate("device", "class").current)
+
+        now = 300L
+        epistemic.observe(claim("device", "class", "mobile", 0.92, 250L, "sensor-b"))
+
+        assertNull(knowledge.current("device", "class"))
+        assertTrue(knowledge.query("device class", 4).isEmpty())
+
+        val revised = requireNotNull(knowledge.consolidate("device", "class").current)
+        assertEquals(first.id, revised.supersedes)
+        assertEquals(revised.id, knowledge.current("device", "class")?.id)
+    }
+
+    @Test
+    fun semanticQueryAndReconcileHaveHardMobileResultBounds() {
+        val memory = InMemoryMemoryOs()
+        val epistemic = MemoryBackedEpistemicState(memory)
+        val knowledge = MemoryBackedSemanticKnowledgeStore(memory, epistemic)
+
+        assertTrue(
+            runCatching {
+                knowledge.query(
+                    "anything",
+                    SemanticKnowledgePolicy.DEFAULT_MAX_QUERY_RESULTS + 1
+                )
+            }.isFailure
+        )
+        assertTrue(
+            runCatching {
+                knowledge.reconcile(
+                    "anything",
+                    SemanticKnowledgePolicy.DEFAULT_MAX_QUERY_RESULTS + 1
+                )
+            }.isFailure
+        )
+        assertEquals(
+            192,
+            SemanticKnowledgePolicy().candidateScanLimit(
+                SemanticKnowledgePolicy.DEFAULT_MAX_QUERY_RESULTS
+            )
+        )
+    }
+
+    @Test
+    fun corruptSemanticRecordFailsVisibleInsteadOfBeingSilentlySkipped() {
+        val memory = InMemoryMemoryOs()
+        memory.remember(
+            MemoryRecord(
+                kind = MemoryBackedSemanticKnowledgeStore.KNOWLEDGE_KIND,
+                content = "corrupt",
+                importance = 0.8,
+                provenance = Provenance(source = "test", producer = "test")
+            )
+        )
+        val knowledge = MemoryBackedSemanticKnowledgeStore(
+            memory,
+            MemoryBackedEpistemicState(memory)
+        )
+
+        assertTrue(runCatching { knowledge.query("corrupt", 4) }.isFailure)
+    }
+
     private fun claim(
         subject: String,
         predicate: String,

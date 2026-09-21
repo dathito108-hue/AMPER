@@ -289,6 +289,13 @@ object OmegaArchitectureLock {
         "episodic-memory-index-is-read-only-memory-os-projection",
         "episodic-memory-does-not-copy-conversation-semantic-or-procedural-stores",
         "episodic-memory-corruption-and-scan-overflow-fail-visible",
+        "semantic-memory-query-and-reconcile-are-mobile-bounded",
+        "semantic-memory-current-view-requires-fresh-epistemic-lineage",
+        "semantic-memory-stale-evidence-is-hidden-before-reconciliation",
+        "semantic-memory-changed-evidence-requires-new-version",
+        "semantic-memory-corruption-fails-visible",
+        "semantic-memory-uses-existing-memory-os-without-second-index",
+        "semantic-memory-remains-non-authority",
         "3d-avatar-is-embodiment-not-cognition"
     )
 
@@ -452,7 +459,12 @@ object OmegaArchitectureLock {
                 "episodic retention keeps at most 256 episodes and prefers higher importance then newer evidence",
                 "episodic retrieval is a bounded read-only projection over MemoryOs and creates no second index database",
                 "conversation turns semantic knowledge and procedural memory are disallowed episodic origins and are never copied",
-                "episodic corruption or MemoryOs scan-bound overflow fails visible instead of returning partial history"
+                "episodic corruption or MemoryOs scan-bound overflow fails visible instead of returning partial history",
+                "semantic query and reconcile expose at most 16 results with at most 192 candidate semantic records scanned",
+                "semantic current and query results require planning-eligible current epistemic evidence with matching value and evidence lineage",
+                "stale contested uncertain or changed evidence hides stored active semantic knowledge until canonical reconcile revises or retracts it",
+                "semantic record corruption fails visible instead of being silently skipped",
+                "semantic freshness hardening reuses MemoryBackedSemanticKnowledgeStore and MemoryOs with no second semantic index or model store"
             )
         ),
         OmegaMilestone(
