@@ -86,6 +86,7 @@ import io.amper.neuroos.core.AndroidResourceGovernor
 import io.amper.neuroos.core.AndroidReflexLearningJobScheduler
 import io.amper.neuroos.core.AndroidReflexMaintenanceProcessRegistry
 import io.amper.neuroos.core.AndroidScreenVisionSession
+import io.amper.neuroos.core.AndroidSovereignAgentExecutionGraphFactory
 import io.amper.neuroos.core.AndroidVoiceConversationSession
 import io.amper.neuroos.core.AuditedToolFabric
 import io.amper.neuroos.core.ContentUriArtifactResolver
@@ -370,133 +371,30 @@ class MainActivity : ComponentActivity() {
                     projectors = projectorCatalog
                 )
             }
-            val assistantCapabilities = remember { SovereignAssistantToolExposure.capabilities }
-            val androidActionLauncher = remember {
-                AndroidContextDeviceActionLauncher(applicationContext)
-            }
-            val toolRegistry = remember {
-                InMemoryToolRegistry().also { registry ->
-                    registry.register(
-                        DeviceStatusToolProvider(deviceStatusSource)
-                    )
-                    registry.register(
-                        SovereignStatusToolProvider(
-                            AmperCoreSovereignStatusSource(catalog, amperCore, governor)
-                        )
-                    )
-                    registry.register(
-                        SovereignNoteToolProvider(runtime.notes)
-                    )
-                    registry.register(
-                        SovereignNoteSearchToolProvider(runtime.notes)
-                    )
-                    registry.register(
-                        SovereignNoteDeleteToolProvider(runtime.notes)
-                    )
-                    registry.register(
-                        AndroidSettingsOpenToolProvider(androidActionLauncher)
-                    )
-                    registry.register(
-                        AndroidTimerPrepareToolProvider(androidActionLauncher)
-                    )
-                    registry.register(
-                        AndroidShareTextToolProvider(androidActionLauncher)
-                    )
-                    registry.register(
-                        AndroidAppLaunchToolProvider(androidActionLauncher)
-                    )
-                    registry.register(
-                        AndroidWebSearchToolProvider(androidActionLauncher)
-                    )
-                    registry.register(
-                        OmegaInternetReadToolProvider(OmegaInternetGateway())
-                    )
-                    registry.register(
-                        AndroidClipboardWriteToolProvider(androidActionLauncher)
-                    )
-                    registry.register(
-                        AndroidFilesBrowseToolProvider(androidActionLauncher)
-                    )
-                    registry.register(
-                        AndroidContactComposeToolProvider(androidActionLauncher)
-                    )
-                    registry.register(
-                        AndroidCalendarComposeToolProvider(androidActionLauncher)
-                    )
-                    registry.register(
-                        AndroidAlarmPrepareToolProvider(androidActionLauncher)
-                    )
-                    registry.register(
-                        AndroidMediaOpenToolProvider(androidActionLauncher)
-                    )
-                    registry.register(
-                        AndroidNotificationSettingsToolProvider(androidActionLauncher)
-                    )
-                    registry.register(
-                        AndroidHomeOpenToolProvider(androidActionLauncher)
-                    )
-                }
-            }
-            val toolAudit = remember { InMemoryToolAuditLog() }
-            val toolFabric = remember {
-                AuditedToolFabric(
-                    gate = DenyByDefaultAuthorityGate(assistantCapabilities),
-                    registry = toolRegistry,
-                    audit = toolAudit
-                )
-            }
-            val actionLoop = remember { runtime.actionLoop(toolRegistry, toolFabric) }
-            val inferencePort = remember {
-                TitanInferencePort(titan)
-            }
-            val assistant = remember {
-                SovereignAssistantTurnCoordinator(
+            val agentExecutionGraph = remember {
+                AndroidSovereignAgentExecutionGraphFactory.build(
+                    context = applicationContext,
                     runtime = runtime,
-                    inference = inferencePort,
-                    actions = actionLoop,
-                    advertisedCapabilities = assistantCapabilities,
-                    maxOutputTokens = 256
+                    titan = titan,
+                    catalog = catalog,
+                    core = amperCore,
+                    governor = governor
                 )
             }
-            val planningCoordinator = remember {
-                SovereignPlanCoordinator(
-                    runtime = runtime,
-                    inference = inferencePort,
-                    actions = actionLoop,
-                    advertisedCapabilities = assistantCapabilities,
-                    maxOutputTokens = 256,
-                    criticInference = inferencePort
-                )
-            }
-            val planner = remember {
-                PersistentSovereignPlanCoordinator(
-                    delegate = planningCoordinator,
-                    store = runtime.plans
-                )
-            }
-            val agentPlanPort = remember {
-                PersistentSovereignAgentPlanPort(
-                    coordinator = planner,
-                    store = runtime.plans
-                )
-            }
-            val agentAdmissions = remember {
-                AmperAgentTaskAdmissionRegistry()
-            }
-            val agentPassiveTasks = remember {
-                AmperAgentPassiveTaskCoordinator(agentPlanPort)
-            }
-            val agentContinuation = remember {
-                AmperAgentExecutionContinuationCoordinator(agentPlanPort)
-            }
-            val agentContinuationExecution = remember {
-                AmperAgentCanonicalContinuationExecutionPort(
-                    admissions = agentAdmissions,
-                    plans = agentPlanPort,
-                    passive = agentPassiveTasks,
-                    continuation = agentContinuation
-                )
-            }
+            val assistantCapabilities = agentExecutionGraph.capabilities
+            val toolRegistry = agentExecutionGraph.toolRegistry
+            val toolAudit = agentExecutionGraph.toolAudit
+            val toolFabric = agentExecutionGraph.toolFabric
+            val actionLoop = agentExecutionGraph.actionLoop
+            val inferencePort = agentExecutionGraph.inferencePort
+            val assistant = agentExecutionGraph.assistant
+            val planningCoordinator = agentExecutionGraph.planningCoordinator
+            val planner = agentExecutionGraph.planner
+            val agentPlanPort = agentExecutionGraph.agentPlanPort
+            val agentAdmissions = agentExecutionGraph.agentAdmissions
+            val agentPassiveTasks = agentExecutionGraph.agentPassiveTasks
+            val agentContinuation = agentExecutionGraph.agentContinuation
+            val agentContinuationExecution = agentExecutionGraph.agentContinuationExecution
             val activePerceptionPort = remember {
                 AndroidActivePerceptionPort(applicationContext, runtime.perception)
             }
