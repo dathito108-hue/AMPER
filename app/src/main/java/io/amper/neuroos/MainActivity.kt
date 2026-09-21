@@ -2743,7 +2743,7 @@ class MainActivity : ComponentActivity() {
                                     Manifest.permission.POST_NOTIFICATIONS
                                 )
                             },
-                            onRefresh = ::refreshProactiveSurface,
+                            onRefresh = { refreshProactiveSurface() },
                             onOpen = { opened ->
                                 activePlan = opened
                                 conversationId = opened.conversationId
