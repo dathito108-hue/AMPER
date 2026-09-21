@@ -223,6 +223,25 @@ internal object AndroidAgentContinuationTransport {
     }
 }
 
+private object AndroidAgentContinuationExecutionResolver {
+    fun dispatch(
+        context: Context,
+        handoff: AmperAgentAndroidContinuationHandoff
+    ): Result<AmperAgentAndroidHostExecutionResult> {
+        val warm = AndroidAgentContinuationProcessRegistry.current()
+        if (warm != null) {
+            return AmperAgentAndroidContinuationHostDispatcher.dispatch(handoff, warm)
+        }
+        if (
+            handoff.wakeDisposition !=
+            AmperAgentContinuationWakeDisposition.READY_FOR_EXPLICIT_ADVANCE
+        ) {
+            return AmperAgentAndroidContinuationHostDispatcher.dispatch(handoff, null)
+        }
+        return AndroidAgentColdExecutionBootstrap.dispatch(context, handoff)
+    }
+}
+
 class AgentContinuationForegroundService : Service() {
     private val worker = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "amper-agent-foreground").apply { isDaemon = true }
@@ -278,10 +297,9 @@ class AgentContinuationForegroundService : Service() {
         startContinuationForeground(handoff)
 
         active = worker.submit {
-            val result = AmperAgentAndroidContinuationHostDispatcher.dispatch(
-                handoff = handoff,
-                execution = AndroidAgentContinuationProcessRegistry.current()
-            ).getOrElse { error ->
+            val result = AndroidAgentContinuationExecutionResolver
+                .dispatch(applicationContext, handoff)
+                .getOrElse { error ->
                 AmperAgentAndroidHostExecutionResult(
                     state = AmperAgentAndroidHostExecutionState.RETRY_LATER,
                     detail = error.message ?: error::class.java.simpleName
@@ -456,10 +474,9 @@ class AgentContinuationJobService : JobService() {
         }
 
         val future = worker.submit {
-            val result = AmperAgentAndroidContinuationHostDispatcher.dispatch(
-                handoff = handoff,
-                execution = AndroidAgentContinuationProcessRegistry.current()
-            ).getOrElse { error ->
+            val result = AndroidAgentContinuationExecutionResolver
+                .dispatch(applicationContext, handoff)
+                .getOrElse { error ->
                 AmperAgentAndroidHostExecutionResult(
                     state = AmperAgentAndroidHostExecutionState.RETRY_LATER,
                     detail = error.message ?: error::class.java.simpleName
