@@ -45,6 +45,16 @@ object AmperAgentProactiveAttentionRevision {
     }
 }
 
+object AmperAgentProactiveAttentionAcknowledgementPolicy {
+    fun matchesCurrentRevision(
+        decision: AmperAgentProactiveAttentionDecision,
+        expectedRevisionSha256: String
+    ): Boolean =
+        decision.kind != AmperAgentProactiveAttentionKind.NONE &&
+            expectedRevisionSha256.matches(Regex("[0-9a-f]{64}")) &&
+            AmperAgentProactiveAttentionRevision.sha256(decision) == expectedRevisionSha256
+}
+
 interface AmperAgentProactiveAttentionAcknowledgementLedger {
     val capacity: Int
 

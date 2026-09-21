@@ -212,6 +212,34 @@ class OmegaCoreV2Test {
             "proactive-terminal-attention-surfaces-only-on-background-transition" in
                 OmegaArchitectureLock.invariants
         )
+        assertTrue(
+            "proactive-attention-ack-is-revision-scoped-ui-state-only" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-attention-ack-lives-in-existing-encrypted-sovereign-memory" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "stale-attention-revision-cannot-ack-new-canonical-state" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "acknowledged-attention-never-mutates-plan-approval-scheduler-or-fifo" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "attention-ack-corruption-fails-visible" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "attention-ack-ledger-is-bounded-without-silent-eviction" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "attention-ack-pruning-follows-lifecycle-membership-only" in
+                OmegaArchitectureLock.invariants
+        )
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
@@ -637,6 +665,46 @@ class OmegaCoreV2Test {
                 .exitCriteria
                 .contains(
                     "notification permission settings or delivery failure never gate Phase657 EVENT_WAKE outcomes or Phase660 FIFO acknowledgement"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "proactive attention acknowledgement stores only PlanId revision fingerprint and acknowledgement time as UI state in existing encrypted sovereign memory"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "notification taps acknowledge only when their embedded attention revision still matches the current lifecycle-derived canonical attention state"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "acknowledging attention suppresses only that exact discoverability revision and never mutates plan approval scheduler EVENT_WAKE or trigger FIFO state"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "acknowledgement read or decode failure defaults to surfacing attention instead of silently suppressing it"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "the acknowledgement ledger is bounded without silent eviction and full reconciliation prunes only entries whose PlanIds are no longer lifecycle-tracked"
                 )
         )
     }

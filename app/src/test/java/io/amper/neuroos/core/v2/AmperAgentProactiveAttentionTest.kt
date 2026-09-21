@@ -136,6 +136,42 @@ class AmperAgentProactiveAttentionTest {
     }
 
     @Test
+    fun staleRevisionCannotAcknowledgeNewCanonicalAttentionState() {
+        val approval = AmperAgentProactiveAttentionPolicy.decide(
+            view(
+                state = AmperAgentTaskState.WAITING_APPROVAL,
+                completedSteps = 0,
+                totalSteps = 2,
+                waitingStep = 1
+            )
+        )
+        val revision = AmperAgentProactiveAttentionRevision.sha256(approval)
+        val completed = approval.copy(
+            kind = AmperAgentProactiveAttentionKind.COMPLETED,
+            waitingApprovalStepIndex = null
+        )
+
+        assertTrue(
+            AmperAgentProactiveAttentionAcknowledgementPolicy.matchesCurrentRevision(
+                approval,
+                revision
+            )
+        )
+        assertFalse(
+            AmperAgentProactiveAttentionAcknowledgementPolicy.matchesCurrentRevision(
+                completed,
+                revision
+            )
+        )
+        assertFalse(
+            AmperAgentProactiveAttentionAcknowledgementPolicy.matchesCurrentRevision(
+                approval,
+                revision.uppercase()
+            )
+        )
+    }
+
+    @Test
     fun durableAcknowledgementIsIdempotentAndRevisionScoped() {
         val memory = InMemoryMemoryOs()
         val ledger = MemoryBackedAmperAgentProactiveAttentionAcknowledgementLedger(memory)
@@ -189,6 +225,46 @@ class AmperAgentProactiveAttentionTest {
         )
         assertTrue(ledger.isAcknowledged(first).getOrThrow())
         assertFalse(ledger.isAcknowledged(second).getOrThrow())
+    }
+
+    @Test
+    fun acknowledgementLedgerIsBoundedWithoutSilentEviction() {
+        val memory = InMemoryMemoryOs()
+        val ledger = MemoryBackedAmperAgentProactiveAttentionAcknowledgementLedger(memory)
+        val template = AmperAgentProactiveAttentionPolicy.decide(
+            view(
+                state = AmperAgentTaskState.WAITING_APPROVAL,
+                completedSteps = 0,
+                totalSteps = 2,
+                waitingStep = 1
+            )
+        )
+        repeat(MemoryBackedAmperAgentProactiveAttentionAcknowledgementLedger.MAX_ACKNOWLEDGEMENTS) {
+            index ->
+            val planId = PlanId(
+                "agent-trigger-plan:" + index.toString(16).padStart(64, '0')
+            )
+            ledger.acknowledge(
+                template.copy(planId = planId),
+                acknowledgedAtEpochMs = index.toLong()
+            ).getOrThrow()
+        }
+        val overflow = template.copy(
+            planId = PlanId("agent-trigger-plan:" + "f".repeat(64))
+        )
+
+        assertTrue(ledger.acknowledge(overflow, 100L).isFailure)
+        assertEquals(
+            MemoryBackedAmperAgentProactiveAttentionAcknowledgementLedger.MAX_ACKNOWLEDGEMENTS,
+            ledger.recent(128).getOrThrow().size
+        )
+        assertTrue(
+            ledger.isAcknowledged(
+                template.copy(
+                    planId = PlanId("agent-trigger-plan:" + "0".repeat(64))
+                )
+            ).getOrThrow()
+        )
     }
 
     @Test

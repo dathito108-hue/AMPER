@@ -11,6 +11,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import io.amper.neuroos.core.v2.AmperAgentProactiveAttentionAcknowledgementLedger
+import io.amper.neuroos.core.v2.AmperAgentProactiveAttentionAcknowledgementPolicy
 import io.amper.neuroos.core.v2.AmperAgentProactiveAttentionKind
 import io.amper.neuroos.core.v2.AmperAgentProactiveAttentionRevision
 import io.amper.neuroos.core.v2.AmperAgentProactiveAttentionPolicy
@@ -166,7 +167,7 @@ object AndroidAgentProactiveAttentionPermission {
 }
 
 /**
- * Phase663 attention-only adapter.
+ * Phase663 attention-only adapter with Phase664 revision-scoped acknowledgement.
  *
  * It owns no JobService, scheduler, planner, approval action, ToolFabric, AuthorityGate, or mutable
  * task persistence. It derives attention solely from Phase662 lifecycle views and uses Android's
@@ -212,8 +213,12 @@ class AndroidAgentProactiveAttentionController(
             cancel(planId)
             return@runCatching false
         }
-        val currentRevision = AmperAgentProactiveAttentionRevision.sha256(decision)
-        if (currentRevision != expectedRevisionSha256) {
+        if (
+            !AmperAgentProactiveAttentionAcknowledgementPolicy.matchesCurrentRevision(
+                decision,
+                expectedRevisionSha256
+            )
+        ) {
             return@runCatching false
         }
         acknowledgements
