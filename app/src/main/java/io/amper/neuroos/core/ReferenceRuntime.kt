@@ -421,7 +421,11 @@ class AmperRuntime private constructor(
             agentRoutePlanner: TitanInferenceRoutePlanner? = null,
             deviceStatusSource: DeviceStatusSource? = null
         ): AmperRuntime {
-            val workspace = InMemoryWorkspace()
+            val workingMemoryContinuity =
+                MemoryBackedWorkingMemoryContinuityStore(memory)
+            val workspace = CanonicalWorkingMemoryWorkspace(
+                continuity = workingMemoryContinuity
+            )
             val cognitiveMemoryTopology = CanonicalCognitiveMemoryTopology.bind(
                 memory = memory,
                 workspace = workspace
