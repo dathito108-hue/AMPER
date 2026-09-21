@@ -36,15 +36,16 @@ object AndroidSovereignAgentExecutionGraphFactory {
         titan: TitanCortexRuntime,
         catalog: InstalledModelCatalog,
         core: AmperCoreInferencePort,
-        governor: ResourceGovernor
+        governor: ResourceGovernor,
+        deviceStatusSource: DeviceStatusSource? = null
     ): AndroidSovereignAgentExecutionGraph {
         val appContext = context.applicationContext
         val capabilities = SovereignAssistantToolExposure.capabilities
         val launcher = AndroidContextDeviceActionLauncher(appContext)
-        val deviceStatusSource = AndroidDeviceStatusSource(appContext)
+        val statusSource = deviceStatusSource ?: AndroidDeviceStatusSource(appContext)
 
         val registry = InMemoryToolRegistry().also { tools ->
-            tools.register(DeviceStatusToolProvider(deviceStatusSource))
+            tools.register(DeviceStatusToolProvider(statusSource))
             tools.register(
                 SovereignStatusToolProvider(
                     AmperCoreSovereignStatusSource(catalog, core, governor)
