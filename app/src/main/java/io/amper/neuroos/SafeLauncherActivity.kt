@@ -30,6 +30,12 @@ class SafeLauncherActivity : Activity() {
         render()
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        render()
+    }
+
     private fun installCrashCapture() {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         if (previous is AmperCrashHandler) return
@@ -57,6 +63,15 @@ class SafeLauncherActivity : Activity() {
             textSize = 16f
             setPadding(0, pad / 2, 0, pad / 2)
         })
+
+        if (intent.getBooleanExtra(EXTRA_PROACTIVE_ATTENTION, false)) {
+            root.addView(TextView(this).apply {
+                text =
+                    "AMPER có một tác vụ chủ động cần bạn xem lại. Thông báo này không phê duyệt hoặc thực thi bất kỳ hành động nào."
+                textSize = 16f
+                setPadding(0, 0, 0, pad / 2)
+            })
+        }
 
         root.addView(Button(this).apply {
             text = "Mở full AMPER"
@@ -131,6 +146,8 @@ class SafeLauncherActivity : Activity() {
     }
 
     companion object {
+        const val EXTRA_PROACTIVE_ATTENTION =
+            "io.amper.neuroos.extra.PROACTIVE_ATTENTION"
         private const val MAX_REPORT_CHARS = 12_000
     }
 }
