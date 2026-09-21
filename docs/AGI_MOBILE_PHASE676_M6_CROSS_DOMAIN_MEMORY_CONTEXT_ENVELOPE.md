@@ -7,9 +7,10 @@ surfaces. It creates no new memory store.
 
 Canonical runtime now passes its existing EpisodicMemoryStore into CanonicalSovereignContextSource.
 
-SovereignContextSnapshot gains an explicit episodicMemories list. When that store is present,
-episodic-v1 records are excluded from the generic MemoryOs projection, preventing the same episode
-from appearing twice in planning context.
+SovereignContextSnapshot gains an explicit episodicMemories list. The new snapshot field is appended
+with a default value so existing positional and named construction remains source-compatible. When
+the episodic store is present, episodic-v1 records are excluded from the generic MemoryOs projection,
+preventing the same episode from appearing twice in planning context.
 
 Legacy kind="episodic" records remain readable through the generic lane for backward compatibility.
 

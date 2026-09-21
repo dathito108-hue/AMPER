@@ -4,7 +4,6 @@ data class SovereignContextSnapshot(
     val self: SelfSnapshot,
     val goals: List<GoalState>,
     val memories: List<MemoryRecord>,
-    val episodicMemories: List<EpisodicMemoryEntry> = emptyList(),
     val worldFacts: List<WorldFact>,
     val workspaceEvents: List<CognitiveEvent>,
     val capabilityCompetence: List<CapabilityCompetenceSnapshot> = emptyList(),
@@ -13,7 +12,8 @@ data class SovereignContextSnapshot(
     val semanticKnowledge: List<SemanticKnowledgeEntry> = emptyList(),
     val structuredWorldStates: List<StructuredWorldState> = emptyList(),
     val worldPredictions: List<WorldPrediction> = emptyList(),
-    val causalHypotheses: List<CausalWorldHypothesis> = emptyList()
+    val causalHypotheses: List<CausalWorldHypothesis> = emptyList(),
+    val episodicMemories: List<EpisodicMemoryEntry> = emptyList()
 )
 
 interface SovereignContextSource {

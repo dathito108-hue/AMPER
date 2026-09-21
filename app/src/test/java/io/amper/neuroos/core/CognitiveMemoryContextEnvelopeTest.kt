@@ -66,7 +66,7 @@ class CognitiveMemoryContextEnvelopeTest {
         episodic.admit(
             EpisodicObservation(
                 origin = EpisodicMemoryOrigin.USER_INTENT,
-                content = "unique-phase676-episode",
+                content = "unique phase676 episode",
                 importance = 0.9,
                 provenance = Provenance(
                     source = "phase676",
@@ -85,12 +85,12 @@ class CognitiveMemoryContextEnvelopeTest {
             episodicMemoryStore = episodic
         )
 
-        val prompt = source.groundedPrompt("unique-phase676-episode", 2400)
+        val prompt = source.groundedPrompt("phase676", 2400)
 
         assertTrue(prompt.contains("episodic_memory:"))
         assertEquals(
             1,
-            Regex("unique-phase676-episode").findAll(prompt).count()
+            Regex("unique phase676 episode").findAll(prompt).count()
         )
     }
 
