@@ -88,6 +88,10 @@ advancing the source's last-accepted checkpoint. This creates backpressure inste
 Acknowledgement is FIFO-only and updates the same encrypted source record. The V2 codec remains
 backward-compatible with Phase659 V1 source records.
 
+While the FIFO is non-empty, the source configuration may not change and the source may not be
+removed. Enabled/disabled state may still change to pause/resume delivery. This preserves the exact
+configuration provenance under which every pending observation was accepted.
+
 ## Canonical graph
 
 The shared Android Agent graph now exposes one
@@ -109,6 +113,7 @@ Phase660 adds:
 - scheduled-trigger-sources-use-bounded-persisted-jobs-not-polling
 - app-local-trigger-sources-remain-event-driven
 - accepted-trigger-observations-queue-inside-the-same-source-record
+- pending-trigger-observations-lock-source-revision-and-removal
 
 ## Next M5 slice
 
