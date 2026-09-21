@@ -344,6 +344,34 @@ class OmegaCoreV2Test {
             "proactive-history-coherence-adds-no-lock-scheduler-or-snapshot-store" in
                 OmegaArchitectureLock.invariants
         )
+        assertTrue(
+            "proactive-foreground-visibility-is-on-resume-event-driven" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-foreground-visibility-reuses-phase662-and-phase663-reconcile" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-foreground-visibility-adds-no-polling-loop-service-or-scheduler" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "foreground-lifecycle-reconcile-gates-read-model-refresh" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "foreground-attention-failure-never-gates-lifecycle-refresh" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "foreground-terminal-attention-is-not-reposted" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "main-activity-owns-one-proactive-lifecycle-observer" in
+                OmegaArchitectureLock.invariants
+        )
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
@@ -985,6 +1013,54 @@ class OmegaCoreV2Test {
                 .exitCriteria
                 .contains(
                     "snapshot coherence persists no cache snapshot task state lock lease or scheduler state"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "foreground proactive visibility reconciliation is driven only by MainActivity ON_RESUME lifecycle events and has no polling cadence"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "foreground visibility reuses the existing Phase662 lifecycle controller and Phase663 attention controller without a second observer service worker or scheduler"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "successful foreground lifecycle reconciliation invalidates the Phase667 proactive read model while lifecycle failure remains fail-closed"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "foreground attention reconciliation failure cannot block a successful canonical lifecycle refresh"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "completed and failed proactive terminal notifications are cancelled rather than reposted during FOREGROUND_RECONCILE while approval and missing-plan attention keep existing Phase663 policy"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "the proactive lifecycle observer is registered and removed inside the existing MainActivity DisposableEffect lifecycle"
                 )
         )
     }

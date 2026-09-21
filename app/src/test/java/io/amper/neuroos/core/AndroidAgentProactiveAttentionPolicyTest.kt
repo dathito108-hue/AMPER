@@ -48,6 +48,12 @@ class AndroidAgentProactiveAttentionPolicyTest {
         assertFalse(
             AndroidAgentProactiveAttentionSurfacePolicy.shouldPost(
                 AmperAgentProactiveAttentionKind.FAILED,
+                AndroidAgentProactiveAttentionSurfaceMode.FOREGROUND_RECONCILE
+            )
+        )
+        assertFalse(
+            AndroidAgentProactiveAttentionSurfacePolicy.shouldPost(
+                AmperAgentProactiveAttentionKind.FAILED,
                 AndroidAgentProactiveAttentionSurfaceMode.USER_INTERACTION
             )
         )
