@@ -220,31 +220,18 @@ class AgentPendingTriggerDispatchJobService : JobService() {
                     return@submit
                 }
 
-            if (binding.requiresEventWakeSchedule) {
-                val scheduled = AndroidAgentEventWakeScheduler(
-                    applicationContext,
-                    graph.governor
-                )
-                    .handoff(binding.handoff)
-                    .getOrElse {
-                        retryOrFinish(params, token)
-                        return@submit
-                    }
-                if (!scheduled) {
+            val scheduled = AndroidAgentEventWakeScheduler(
+                applicationContext,
+                graph.governor
+            )
+                .handoff(binding.handoff)
+                .getOrElse {
                     retryOrFinish(params, token)
                     return@submit
                 }
-            } else {
-                val runnable = AndroidAgentEventWakeSchedulingAdmission
-                    .admit(binding.handoff)
-                    .getOrElse {
-                        retryOrFinish(params, token)
-                        return@submit
-                    }
-                if (runnable) {
-                    retryOrFinish(params, token)
-                    return@submit
-                }
+            if (scheduled != binding.requiresEventWakeSchedule) {
+                retryOrFinish(params, token)
+                return@submit
             }
 
             val acknowledged = registry
