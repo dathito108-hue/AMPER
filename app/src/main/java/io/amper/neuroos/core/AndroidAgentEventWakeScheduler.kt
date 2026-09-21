@@ -222,16 +222,12 @@ class AgentEventWakeJobService : JobService() {
                         when (result.state) {
                             AmperAgentEventWakeHostExecutionState.CHECKPOINTED -> {
                                 val next = requireNotNull(result.nextHandoff)
-                                val scheduled = AndroidAgentEventWakeScheduler(applicationContext)
-                                    .handoff(next)
-                                    .getOrDefault(false)
-                                // Never ask Android to replay the stale old checkpoint. A failed
-                                // fresh schedule stops here and can be re-emitted by the trigger
-                                // source later.
+                                // Finish the old OS wake before installing the fresh checkpoint
+                                // under the same stable dedupe/job identity.
                                 jobFinished(params, false)
-                                if (!scheduled) {
+                                Handler(Looper.getMainLooper()).post {
                                     AndroidAgentEventWakeScheduler(applicationContext)
-                                        .cancel(next)
+                                        .handoff(next)
                                 }
                             }
 
