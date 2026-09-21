@@ -156,6 +156,38 @@ class OmegaCoreV2Test {
             "pending-trigger-dispatch-job-identities-fail-closed-on-collision" in
                 OmegaArchitectureLock.invariants
         )
+        assertTrue(
+            "proactive-lifecycle-binding-persists-before-event-wake-and-trigger-fifo-ack" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-lifecycle-ledger-stores-provenance-not-task-state" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-task-state-is-derived-only-from-canonical-persistent-plan" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-governed-decisions-reuse-existing-plan-approval-and-event-wake" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-event-wake-plans-disable-manual-ui-advance" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-lifecycle-ledger-is-bounded-and-terminal-compacted" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-lifecycle-reconciliation-does-not-register-process-admissions" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-lifecycle-provenance-corruption-fails-closed" in
+                OmegaArchitectureLock.invariants
+        )
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
@@ -493,6 +525,54 @@ class OmegaCoreV2Test {
                 .exitCriteria
                 .contains(
                     "foreground reconciliation re-enable and new source observations recover durable pending trigger dispatch"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "proactive trigger-to-task-to-plan provenance is durably bound before accepted-observation FIFO acknowledgement"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "proactive lifecycle metadata stores immutable provenance only while live task state remains canonical persistent-plan state"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "foreground proactive lifecycle reconciliation reuses Phase657 to schedule ready plans and cancel approval-blocked or terminal wakes"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "governed proactive approve/reject remains the existing plan surface and re-arms only a verified Phase655 handoff afterward"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "proactive EVENT_WAKE-owned plans cannot be manually advanced from the UI execution console"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "proactive lifecycle provenance is bounded and compacts only canonically terminal plans"
                 )
         )
     }

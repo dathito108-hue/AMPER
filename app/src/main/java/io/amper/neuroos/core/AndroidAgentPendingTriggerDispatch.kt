@@ -163,6 +163,22 @@ class AndroidAgentPendingTriggerDispatchScheduler(
     }
 }
 
+internal object AndroidAgentPendingTriggerDurabilitySequence {
+    fun <T> commit(
+        expectedEventWakeSchedule: Boolean,
+        persistProvenance: () -> Result<Unit>,
+        installEventWake: () -> Result<Boolean>,
+        acknowledgeFifo: () -> Result<T>
+    ): Result<T> = runCatching {
+        persistProvenance().getOrThrow()
+        val scheduled = installEventWake().getOrThrow()
+        require(scheduled == expectedEventWakeSchedule) {
+            "Phase657 scheduler result drifted from proactive dispatch disposition"
+        }
+        acknowledgeFifo().getOrThrow()
+    }
+}
+
 /**
  * Durable Phase661 consumer of the Phase660 pending-observation FIFO.
  *
@@ -227,28 +243,35 @@ class AgentPendingTriggerDispatchJobService : JobService() {
                     return@submit
                 }
 
-            val scheduled = AndroidAgentEventWakeScheduler(
-                applicationContext,
-                graph.governor
-            )
-                .handoff(binding.handoff)
-                .getOrElse {
-                    retryOrFinish(params, token)
-                    return@submit
-                }
-            if (scheduled != binding.requiresEventWakeSchedule) {
-                retryOrFinish(params, token)
-                return@submit
-            }
-
-            val acknowledged = registry
-                .acknowledgePending(
-                    sourceId = token.sourceId,
-                    observationIdentitySha256 = binding.observationIdentitySha256
+            // Phase662 crash-safe ordering is locked by a pure tested sequence:
+            // canonical binding -> durable immutable provenance -> Phase657 install/cancel -> FIFO ACK.
+            // If scheduling fails after provenance is durable, foreground reconciliation can
+            // rediscover the exact canonical plan and re-arm the same stable EVENT_WAKE identity.
+            val acknowledged = AndroidAgentPendingTriggerDurabilitySequence
+                .commit(
+                    expectedEventWakeSchedule = binding.requiresEventWakeSchedule,
+                    persistProvenance = {
+                        graph.agent.agentProactiveLifecycle
+                            .recordDispatch(binding)
+                            .map { Unit }
+                    },
+                    installEventWake = {
+                        AndroidAgentEventWakeScheduler(
+                            applicationContext,
+                            graph.governor
+                        ).handoff(binding.handoff)
+                    },
+                    acknowledgeFifo = {
+                        registry.acknowledgePending(
+                            sourceId = token.sourceId,
+                            observationIdentitySha256 = binding.observationIdentitySha256
+                        )
+                    }
                 )
                 .getOrElse {
-                    // A runnable handoff may already be installed. Retrying is safe because both
-                    // deterministic plan identity and Phase657 wake identity are stable.
+                    // A runnable handoff may already be installed or provenance may already exist.
+                    // Retry is safe because plan, lifecycle binding, and Phase657 wake identities are
+                    // deterministic/idempotent while FIFO remains the final acknowledgement gate.
                     retryOrFinish(params, token)
                     return@submit
                 }

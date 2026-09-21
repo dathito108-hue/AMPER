@@ -24,6 +24,8 @@ import io.amper.neuroos.core.SovereignPlanReceiptLedger
 fun GovernedPlanExecutionConsolePanel(
     plan: SovereignPlan,
     receiptLedger: SovereignPlanReceiptLedger?,
+    manualAdvanceEnabled: Boolean = true,
+    manualAdvanceDisabledReason: String? = null,
     onAdvance: () -> Unit,
     onApprove: (Int) -> Unit,
     onReject: (Int) -> Unit
@@ -67,10 +69,13 @@ fun GovernedPlanExecutionConsolePanel(
         }
 
         Button(
-            enabled = !view.complete && pending == null,
+            enabled = manualAdvanceEnabled && !view.complete && pending == null,
             onClick = onAdvance
         ) {
             Text("Advance one step")
+        }
+        if (!manualAdvanceEnabled && !view.complete) {
+            manualAdvanceDisabledReason?.let { Text(it) }
         }
 
         pending?.let { step ->

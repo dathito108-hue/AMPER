@@ -1,6 +1,8 @@
 package io.amper.neuroos.core
 
+import io.amper.neuroos.core.v2.AmperAgentProactiveTaskLifecycleLedger
 import io.amper.neuroos.core.v2.AmperAgentProactiveTriggerSourceRegistry
+import io.amper.neuroos.core.v2.MemoryBackedAmperAgentProactiveTaskLifecycleLedger
 import io.amper.neuroos.core.v2.MemoryBackedAmperAgentProactiveTriggerSourceRegistry
 import java.io.File
 
@@ -209,6 +211,7 @@ class AmperRuntime private constructor(
     val inferenceProfiles: ConversationInferenceProfileStore,
     val plans: SovereignPlanStore,
     val proactiveTriggerSources: AmperAgentProactiveTriggerSourceRegistry,
+    val proactiveTaskLifecycle: AmperAgentProactiveTaskLifecycleLedger,
     val persistentGoalExecutiveStore: PersistentGoalExecutiveStore,
     val goalPortfolio: DurableGoalPortfolio,
     val goalOutcomeLearning: GoalOutcomeLearningModel,
@@ -587,6 +590,8 @@ class AmperRuntime private constructor(
             val plans = MemoryBackedSovereignPlanStore(memory)
             val proactiveTriggerSources =
                 MemoryBackedAmperAgentProactiveTriggerSourceRegistry(memory)
+            val proactiveTaskLifecycle =
+                MemoryBackedAmperAgentProactiveTaskLifecycleLedger(memory)
             val persistentGoalExecutiveStore = MemoryBackedPersistentGoalExecutiveStore(memory)
             val goalPortfolio = MemoryBackedDurableGoalPortfolio(memory)
             val goalOutcomeLearning = MemoryBackedGoalOutcomeLearningModel(memory)
@@ -658,6 +663,7 @@ class AmperRuntime private constructor(
                 inferenceProfiles = inferenceProfiles,
                 plans = plans,
                 proactiveTriggerSources = proactiveTriggerSources,
+                proactiveTaskLifecycle = proactiveTaskLifecycle,
                 persistentGoalExecutiveStore = persistentGoalExecutiveStore,
                 goalPortfolio = goalPortfolio,
                 goalOutcomeLearning = goalOutcomeLearning,
