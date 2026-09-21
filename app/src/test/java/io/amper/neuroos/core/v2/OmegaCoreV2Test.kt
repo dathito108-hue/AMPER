@@ -88,6 +88,14 @@ class OmegaCoreV2Test {
             "canonical-agent-wake-execution-is-serialized-against-duplicate-replay" in
                 OmegaArchitectureLock.invariants
         )
+        assertTrue(
+            "verified-event-wake-consumption-advances-one-canonical-persistent-step" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "event-wake-consumer-acquires-canonical-runtime-only-after-verification" in
+                OmegaArchitectureLock.invariants
+        )
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
@@ -305,6 +313,22 @@ class OmegaCoreV2Test {
                 .exitCriteria
                 .contains(
                     "duplicate concurrent Agent wakes cannot race exact restore into repeated plan execution"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "verified EVENT_WAKE consumption advances at most one proactive persistent-plan step and returns a fresh checkpoint"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "Android EVENT_WAKE consumption verifies approval/terminal state before acquiring the canonical runtime graph"
                 )
         )
     }
