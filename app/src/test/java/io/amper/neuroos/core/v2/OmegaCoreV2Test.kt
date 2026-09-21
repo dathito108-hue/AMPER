@@ -268,6 +268,30 @@ class OmegaCoreV2Test {
             "proactive-history-recovery-state-comes-from-canonical-receipt-evidence" in
                 OmegaArchitectureLock.invariants
         )
+        assertTrue(
+            "proactive-recovery-target-exists-only-for-unresolved-canonical-claim" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-recovery-target-binds-plan-step-and-request-identity" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-recovery-navigation-revalidates-current-canonical-recovery-state" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "stale-proactive-recovery-target-never-falls-through-to-another-claim" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-recovery-navigation-reuses-existing-sovereign-recovery-console" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-recovery-navigation-never-reconciles-or-replays-provider" in
+                OmegaArchitectureLock.invariants
+        )
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
@@ -773,6 +797,46 @@ class OmegaCoreV2Test {
                 .exitCriteria
                 .contains(
                     "proactive recovery presentation is derived only from existing unresolved claim and reconciliation evidence and cannot mutate or replay providers"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "proactive recovery navigation targets exist only for CLAIMED_UNRESOLVED canonical receipt evidence"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "each proactive recovery target binds exact PlanId step index and request id and is revalidated by the existing SovereignRecoveryConsole"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "stale resolved or mismatched proactive recovery targets select no claim and never fall through to a different unresolved claim"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "proactive recovery navigation is focus-only and cannot reconcile approve execute or replay a provider"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "proactive recovery handling continues to use the existing canonical Recovery Console and receipt ledger with no second recovery authority"
                 )
         )
     }

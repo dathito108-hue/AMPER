@@ -121,6 +121,12 @@ class SovereignRecoveryConsoleTest {
 
         val stale = target.copy(stepIndex = 2)
         assertEquals(null, console.locate(stale).getOrThrow())
+
+        val wrongRequest = target.copy(requestId = ActionRequestId("other-request"))
+        assertEquals(null, console.locate(wrongRequest).getOrThrow())
+
+        val wrongPlan = target.copy(planId = PlanId("other-plan"))
+        assertEquals(null, console.locate(wrongPlan).getOrThrow())
         assertEquals(0, fx.audit.snapshot().size)
     }
 
