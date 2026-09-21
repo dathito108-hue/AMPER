@@ -49,6 +49,10 @@ object AndroidAgentProactiveAttentionIdentity {
         return NOTIFICATION_NAMESPACE or (raw and PAYLOAD_MASK)
     }
 
+    fun notificationTagFor(planId: PlanId): String =
+        "amper-proactive:" + digest(planId.value)
+            .joinToString("") { "%02x".format(it) }
+
     fun preferenceKeyFor(planId: PlanId): String =
         PREF_KEY_PREFIX + digest(planId.value)
             .joinToString("") { "%02x".format(it) }
@@ -169,7 +173,10 @@ class AndroidAgentProactiveAttentionDelivery(
                 key !in currentKeys
             ) {
                 parseCheckpoint(rawValue as? String)?.let { checkpoint ->
-                    notifications.cancel(checkpoint.notificationId)
+                    notifications.cancel(
+                        checkpoint.notificationTag,
+                        checkpoint.notificationId
+                    )
                 }
                 editor.remove(key)
                 stalePruned += 1
@@ -197,6 +204,8 @@ class AndroidAgentProactiveAttentionDelivery(
     ): AndroidAgentProactiveAttentionDeliveryReport {
         val notificationId =
             AndroidAgentProactiveAttentionIdentity.notificationIdFor(planId)
+        val notificationTag =
+            AndroidAgentProactiveAttentionIdentity.notificationTagFor(planId)
         val key = AndroidAgentProactiveAttentionIdentity.preferenceKeyFor(planId)
 
         val checkpoint = parseCheckpoint(deliveryState.getString(key, null))
@@ -211,7 +220,7 @@ class AndroidAgentProactiveAttentionDelivery(
 
         when (decision) {
             AndroidAgentProactiveAttentionDeliveryDecision.CANCEL -> {
-                notifications.cancel(notificationId)
+                notifications.cancel(notificationTag, notificationId)
                 val existed = deliveryState.contains(key)
                 if (existed) {
                     require(deliveryState.edit().remove(key).commit()) {
@@ -256,13 +265,18 @@ class AndroidAgentProactiveAttentionDelivery(
         }
 
         val requiredSignal = requireNotNull(signal)
-        notifications.notify(notificationId, notification(requiredSignal))
+        notifications.notify(
+            notificationTag,
+            notificationId,
+            notification(requiredSignal)
+        )
         require(
             deliveryState.edit()
                 .putString(
                     key,
                     AttentionCheckpoint(
                         notificationId = notificationId,
+                        notificationTag = notificationTag,
                         fingerprintSha256 = requiredSignal.fingerprintSha256
                     ).encode()
                 )
@@ -327,23 +341,27 @@ class AndroidAgentProactiveAttentionDelivery(
 
     private data class AttentionCheckpoint(
         val notificationId: Int,
+        val notificationTag: String,
         val fingerprintSha256: String
     ) {
         init {
+            require(notificationTag.matches(Regex("amper-proactive:[0-9a-f]{64}")))
             require(fingerprintSha256.matches(Regex("[0-9a-f]{64}")))
         }
 
-        fun encode(): String = "$notificationId|$fingerprintSha256"
+        fun encode(): String =
+            "$notificationId|$notificationTag|$fingerprintSha256"
     }
 
     private fun parseCheckpoint(raw: String?): AttentionCheckpoint? =
         raw?.split('|')
-            ?.takeIf { it.size == 2 }
+            ?.takeIf { it.size == 3 }
             ?.let { parts ->
                 runCatching {
                     AttentionCheckpoint(
                         notificationId = parts[0].toInt(),
-                        fingerprintSha256 = parts[1]
+                        notificationTag = parts[1],
+                        fingerprintSha256 = parts[2]
                     )
                 }.getOrNull()
             }
