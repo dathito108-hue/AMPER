@@ -256,6 +256,10 @@ class AgentEventWakeJobService : JobService() {
                         when (result.state) {
                             AmperAgentEventWakeHostExecutionState.CHECKPOINTED -> {
                                 val next = requireNotNull(result.nextHandoff)
+                                // Attention is read-only and isolated from execution outcome. A
+                                // CHECKPOINTED plan has no user-attention signal, so this also
+                                // cancels a stale approval notification if one somehow remains.
+                                reconcileProactiveAttention(handoff)
                                 // Finish the old OS wake before installing only the fresh Phase656
                                 // checkpoint under the same stable dedupe/job identity.
                                 jobFinished(params, false)
@@ -266,8 +270,10 @@ class AgentEventWakeJobService : JobService() {
                             }
 
                             AmperAgentEventWakeHostExecutionState.WAITING_APPROVAL,
-                            AmperAgentEventWakeHostExecutionState.TERMINAL_NOOP ->
+                            AmperAgentEventWakeHostExecutionState.TERMINAL_NOOP -> {
+                                reconcileProactiveAttention(handoff)
                                 jobFinished(params, false)
+                            }
 
                             AmperAgentEventWakeHostExecutionState.RETRY_LATER -> {
                                 jobFinished(params, false)
@@ -288,6 +294,20 @@ class AgentEventWakeJobService : JobService() {
         }
         active.put(params.jobId, future)?.cancel(true)
         return true
+    }
+
+    private fun reconcileProactiveAttention(
+        handoff: AmperAgentEventWakeHandoff
+    ) {
+        runCatching {
+            AndroidCanonicalSovereignRuntimeBootstrap
+                .acquire(applicationContext)
+                .agent
+                .agentProactiveAttentionController
+                .reconcilePlan(PlanId(handoff.planId))
+        }
+        // Attention delivery is intentionally best-effort. Notification permission, channel, or
+        // transport failures cannot alter the canonical task/job result.
     }
 
     override fun onStopJob(params: JobParameters): Boolean {
