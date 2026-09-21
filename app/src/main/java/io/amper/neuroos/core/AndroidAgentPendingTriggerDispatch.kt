@@ -276,6 +276,14 @@ class AgentPendingTriggerDispatchJobService : JobService() {
                     return@submit
                 }
 
+            // Attention delivery is downstream of the durable Phase662 transaction and never part
+            // of its success criteria. Initial approval-blocked/terminal plans can surface now;
+            // runnable plans produce no signal.
+            runCatching {
+                graph.agent.agentProactiveAttentionController
+                    .reconcilePlan(binding.planId)
+            }
+
             val hasMore = acknowledged.source.enabled &&
                 acknowledged.pendingObservations.isNotEmpty()
             finish(params) {
