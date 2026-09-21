@@ -77,7 +77,31 @@ class AmperAgentProactiveTaskHistoryProjection(
         require(limit in 0..MAX_HISTORY_ENTRIES)
         if (limit == 0) return@runCatching emptyList()
 
-        lifecycle.inspect(limit).map { lifecycleView ->
+        var lastProjectionFailure: Throwable? = null
+        repeat(MAX_SNAPSHOT_ATTEMPTS) {
+            val before = lifecycle.inspect(limit)
+            val projected = runCatching {
+                project(before)
+            }
+            val after = lifecycle.inspect(limit)
+
+            if (projected.isSuccess && before == after) {
+                return@runCatching projected.getOrThrow()
+            }
+            lastProjectionFailure = projected.exceptionOrNull()
+        }
+
+        throw IllegalStateException(
+            "coherent proactive history snapshot unavailable after " +
+                "$MAX_SNAPSHOT_ATTEMPTS bounded attempts",
+            lastProjectionFailure
+        )
+    }
+
+    private fun project(
+        lifecycleViews: List<AmperAgentProactiveTaskLifecycleView>
+    ): List<AmperAgentProactiveTaskHistoryEntry> =
+        lifecycleViews.map { lifecycleView ->
             if (!lifecycleView.planAvailable) {
                 return@map AmperAgentProactiveTaskHistoryEntry(
                     lifecycle = lifecycleView,
@@ -90,9 +114,22 @@ class AmperAgentProactiveTaskHistoryProjection(
             val plan = requireNotNull(
                 lifecycle.openPlan(lifecycleView.binding.planId)
             ) {
-                "proactive history canonical plan disappeared after lifecycle inspection"
+                "proactive history canonical plan disappeared during snapshot read"
             }
+            val loadedLifecycle = requireNotNull(
+                lifecycle.inspectLoadedPlan(plan)
+            ) {
+                "proactive history lifecycle binding disappeared during snapshot read"
+            }
+            require(loadedLifecycle == lifecycleView) {
+                "proactive history lifecycle changed while reading canonical plan"
+            }
+
             val execution = inspector.inspect(plan)
+            val executionVerification = inspector.inspect(plan)
+            require(execution == executionVerification) {
+                "proactive history receipt evidence changed during snapshot read"
+            }
             require(execution.planId == lifecycleView.binding.planId) {
                 "proactive history plan identity drifted from lifecycle provenance"
             }
@@ -129,9 +166,9 @@ class AmperAgentProactiveTaskHistoryProjection(
                 }
             )
         }
-    }
 
     companion object {
         const val MAX_HISTORY_ENTRIES: Int = 64
+        const val MAX_SNAPSHOT_ATTEMPTS: Int = 3
     }
 }
