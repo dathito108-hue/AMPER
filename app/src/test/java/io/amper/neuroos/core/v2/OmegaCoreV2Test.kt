@@ -104,6 +104,14 @@ class OmegaCoreV2Test {
             "event-wake-jobs-chain-only-fresh-checkpoints" in
                 OmegaArchitectureLock.invariants
         )
+        assertTrue(
+            "proactive-trigger-sources-are-user-configured-finite-and-non-polling" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "trigger-observations-only-narrow-into-canonical-event-wake-admission" in
+                OmegaArchitectureLock.invariants
+        )
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
@@ -353,6 +361,22 @@ class OmegaCoreV2Test {
                 .exitCriteria
                 .contains(
                     "EVENT_WAKE jobs chain only from fresh verified checkpoints and never schedule approval-blocked or terminal work"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "proactive trigger sources are finite user-configured windows or app-local observations with bounded cadence and firing count"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "one qualified trigger observation can only become the canonical PROACTIVE_TRIGGER EVENT_WAKE admission and verified handoff"
                 )
         )
     }
