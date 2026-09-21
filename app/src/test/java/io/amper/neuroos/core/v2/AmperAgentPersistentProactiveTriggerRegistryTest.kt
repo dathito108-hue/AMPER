@@ -154,6 +154,12 @@ class AmperAgentPersistentProactiveTriggerRegistryTest {
             acceptedAtEpochMs = 1_000_000L
         ).getOrThrow()
 
+        registry.acknowledgePending(
+            firstSource.sourceId,
+            first.qualified.observationIdentitySha256,
+            updatedAtEpochMs = 1_005_000L
+        ).getOrThrow()
+
         val revisedSource = source(configurationSha256 = "b".repeat(64))
         val revised = registry.upsert(revisedSource, updatedAtEpochMs = 1_010_000L)
 
@@ -259,6 +265,36 @@ class AmperAgentPersistentProactiveTriggerRegistryTest {
         assertEquals(2, results.size)
         assertEquals(1, results.count { it.isSuccess })
         assertEquals(1, results.count { it.isFailure })
+    }
+
+    @Test
+    fun pendingObservationBlocksConfigurationMutationAndRemoval() {
+        val registry = MemoryBackedAmperAgentProactiveTriggerSourceRegistry(
+            InMemoryMemoryOs()
+        )
+        val source = source()
+        registry.upsert(source, updatedAtEpochMs = 1L)
+        val accepted = registry.accept(
+            observation(observedAtEpochMs = 1_000_000L)
+        ).getOrThrow()
+
+        val revision = runCatching {
+            registry.upsert(
+                source(configurationSha256 = "b".repeat(64)),
+                updatedAtEpochMs = 2L
+            )
+        }
+
+        assertTrue(revision.isFailure)
+        assertFalse(registry.remove(source.sourceId))
+        assertNotNull(registry.get(source.sourceId))
+
+        registry.acknowledgePending(
+            source.sourceId,
+            accepted.qualified.observationIdentitySha256
+        ).getOrThrow()
+
+        assertTrue(registry.remove(source.sourceId))
     }
 
     @Test
