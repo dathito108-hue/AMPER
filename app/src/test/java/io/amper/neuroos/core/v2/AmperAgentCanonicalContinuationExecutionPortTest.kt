@@ -13,6 +13,9 @@ import io.amper.neuroos.core.SovereignPlanStep
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.Collections
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class AmperAgentCanonicalContinuationExecutionPortTest {
     @Test
@@ -106,6 +109,47 @@ class AmperAgentCanonicalContinuationExecutionPortTest {
 
         assertTrue(result.isFailure)
         assertEquals(0, planPort.advanceCalls)
+    }
+
+    @Test
+    fun concurrentDuplicateWakeAdvancesDurablePlanOnlyOnce() {
+        val planPort = FakePlanPort(plan(stepCount = 2))
+        val passive = AmperAgentPassiveTaskCoordinator(planPort) { 100L }
+        val continuation = AmperAgentExecutionContinuationCoordinator(planPort) { 100L }
+        val admission = admission()
+        val started = passive.start(admission, ConversationId("conversation-1")).getOrThrow()
+        val envelope = continuation.checkpoint(admission, started.checkpoint).getOrThrow()
+        val handoff = AmperAgentAndroidContinuationHandoffPolicy.create(envelope)
+        val admissions = AmperAgentTaskAdmissionRegistry().also { it.register(admission) }
+        val execution = AmperAgentCanonicalContinuationExecutionPort(
+            admissions = admissions,
+            plans = planPort,
+            passive = passive,
+            continuation = continuation
+        )
+
+        val start = CountDownLatch(1)
+        val done = CountDownLatch(2)
+        val results = Collections.synchronizedList(
+            mutableListOf<Result<AmperAgentAndroidHostExecutionResult>>()
+        )
+        repeat(2) {
+            Thread {
+                try {
+                    start.await()
+                    results += execution.advanceOnceVerified(handoff, envelope)
+                } finally {
+                    done.countDown()
+                }
+            }.start()
+        }
+        start.countDown()
+
+        assertTrue(done.await(3, TimeUnit.SECONDS))
+        assertEquals(2, results.size)
+        assertEquals(1, results.count { it.isSuccess })
+        assertEquals(1, results.count { it.isFailure })
+        assertEquals(1, planPort.advanceCalls)
     }
 
     @Test
