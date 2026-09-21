@@ -5,6 +5,7 @@ import io.amper.neuroos.core.PlanId
 
 data class AmperAgentPendingTriggerDispatchBinding(
     val sourceId: String,
+    val configurationSha256: String,
     val observationIdentitySha256: String,
     val planId: PlanId,
     val admission: AmperAgentTaskAdmission,
@@ -13,6 +14,7 @@ data class AmperAgentPendingTriggerDispatchBinding(
 ) {
     init {
         require(sourceId == admission.request.trigger?.triggerId)
+        require(configurationSha256.matches(Regex("[0-9a-f]{64}")))
         require(planId == checkpoint.planId)
         require(checkpoint.taskId == admission.request.taskId)
         require(handoff.taskId == admission.request.taskId)
@@ -92,6 +94,7 @@ class AmperAgentPendingTriggerDispatchCoordinator(
 
         AmperAgentPendingTriggerDispatchBinding(
             sourceId = sourceId,
+            configurationSha256 = state.source.configurationSha256,
             observationIdentitySha256 = pending.observationIdentitySha256,
             planId = planId,
             admission = admission,
