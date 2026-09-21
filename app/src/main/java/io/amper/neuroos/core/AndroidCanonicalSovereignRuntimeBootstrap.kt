@@ -6,6 +6,7 @@ import io.amper.neuroos.core.v2.AmperAgentCanonicalContinuationExecutionPort
 import io.amper.neuroos.core.v2.AmperAgentExecutionContinuationCoordinator
 import io.amper.neuroos.core.v2.AmperAgentPassiveTaskCoordinator
 import io.amper.neuroos.core.v2.AmperAgentProactiveTaskCoordinator
+import io.amper.neuroos.core.v2.AmperAgentProactiveEventWakeCoordinator
 import io.amper.neuroos.core.v2.AmperAgentTaskAdmissionRegistry
 import io.amper.neuroos.core.v2.PersistentSovereignAgentPlanPort
 import java.io.File
@@ -24,6 +25,7 @@ data class AndroidCanonicalAgentRuntimeGraph(
     val agentAdmissions: AmperAgentTaskAdmissionRegistry,
     val agentPassiveTasks: AmperAgentPassiveTaskCoordinator,
     val agentProactiveTasks: AmperAgentProactiveTaskCoordinator,
+    val agentEventWake: AmperAgentProactiveEventWakeCoordinator,
     val agentContinuation: AmperAgentExecutionContinuationCoordinator,
     val execution: AmperAgentCanonicalContinuationExecutionPort
 )
@@ -227,6 +229,7 @@ class AndroidCanonicalSovereignRuntimeGraph internal constructor(context: Contex
         val agentAdmissions = AmperAgentTaskAdmissionRegistry()
         val agentPassiveTasks = AmperAgentPassiveTaskCoordinator(agentPlanPort)
         val agentProactiveTasks = AmperAgentProactiveTaskCoordinator(agentPlanPort)
+        val agentEventWake = AmperAgentProactiveEventWakeCoordinator(agentPlanPort)
         val agentContinuation = AmperAgentExecutionContinuationCoordinator(agentPlanPort)
         val execution = AmperAgentCanonicalContinuationExecutionPort(
             admissions = agentAdmissions,
@@ -249,6 +252,7 @@ class AndroidCanonicalSovereignRuntimeGraph internal constructor(context: Contex
             agentAdmissions = agentAdmissions,
             agentPassiveTasks = agentPassiveTasks,
             agentProactiveTasks = agentProactiveTasks,
+            agentEventWake = agentEventWake,
             agentContinuation = agentContinuation,
             execution = execution
         )
