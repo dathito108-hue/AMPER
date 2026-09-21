@@ -32,7 +32,7 @@ import java.util.concurrent.Future
 
 /**
  * Process-local bridge only. It owns no planner, ToolFabric, AuthorityGate, or task persistence.
- * Phase652 may provide cold-process canonical Agent Core restoration when no live port is registered.
+ * Phase653 cold jobs fall back to the shared canonical bootstrap only after verified READY dispatch.
  */
 object AndroidAgentContinuationProcessRegistry {
     @Volatile
@@ -458,7 +458,17 @@ class AgentContinuationJobService : JobService() {
         val future = worker.submit {
             val result = AmperAgentAndroidContinuationHostDispatcher.dispatch(
                 handoff = handoff,
-                execution = AndroidAgentContinuationProcessRegistry.current()
+                execution = AndroidAgentContinuationProcessRegistry.current(),
+                executionFallback = {
+                    runCatching {
+                        val graph = AndroidCanonicalSovereignRuntimeBootstrap
+                            .acquire(applicationContext)
+                        if (graph.amperCore.nativeRuntimePackaged()) {
+                            graph.ensureNativeAdmission()
+                        }
+                        graph.agent.execution
+                    }
+                }
             ).getOrElse { error ->
                 AmperAgentAndroidHostExecutionResult(
                     state = AmperAgentAndroidHostExecutionState.RETRY_LATER,
