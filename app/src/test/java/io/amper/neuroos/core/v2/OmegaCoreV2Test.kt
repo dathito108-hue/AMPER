@@ -157,7 +157,7 @@ class OmegaCoreV2Test {
                 OmegaArchitectureLock.invariants
         )
         assertTrue(
-            "proactive-lifecycle-binding-persists-before-trigger-fifo-ack" in
+            "proactive-lifecycle-binding-persists-before-event-wake-and-trigger-fifo-ack" in
                 OmegaArchitectureLock.invariants
         )
         assertTrue(
