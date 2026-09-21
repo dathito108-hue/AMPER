@@ -282,6 +282,13 @@ object OmegaArchitectureLock {
         "working-memory-checkpoint-write-cadence-is-bounded",
         "working-memory-continuity-is-non-authority",
         "working-memory-continuity-failure-does-not-block-transient-cognition",
+        "episodic-memory-uses-canonical-memory-os-only",
+        "episodic-memory-admission-is-importance-bounded",
+        "episodic-memory-duplicate-suppression-is-window-bounded",
+        "episodic-memory-retention-is-importance-and-recency-bounded",
+        "episodic-memory-index-is-read-only-memory-os-projection",
+        "episodic-memory-does-not-copy-conversation-semantic-or-procedural-stores",
+        "episodic-memory-corruption-and-scan-overflow-fail-visible",
         "3d-avatar-is-embodiment-not-cognition"
     )
 
@@ -439,7 +446,13 @@ object OmegaArchitectureLock {
                 "working-memory continuity checkpoint chaining verifies sequence and previous checkpoint digest before overwrite",
                 "working-memory continuity persists no CognitiveEvent topic payload or raw hidden reasoning",
                 "working-memory checkpoint write cadence is bounded to reduce mobile journal write amplification",
-                "working-memory continuity failure is fail-visible but does not block bounded transient cognition"
+                "working-memory continuity failure is fail-visible but does not block bounded transient cognition",
+                "canonical episodic admission writes only episodic-v1 records into the existing MemoryOs",
+                "episodic admission applies importance threshold bounded content and duplicate-window suppression",
+                "episodic retention keeps at most 256 episodes and prefers higher importance then newer evidence",
+                "episodic retrieval is a bounded read-only projection over MemoryOs and creates no second index database",
+                "conversation turns semantic knowledge and procedural memory are disallowed episodic origins and are never copied",
+                "episodic corruption or MemoryOs scan-bound overflow fails visible instead of returning partial history"
             )
         ),
         OmegaMilestone(
