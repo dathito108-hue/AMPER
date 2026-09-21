@@ -117,7 +117,9 @@ class AmperAgentCanonicalContinuationExecutionPort(
         require(handoff.planId == envelope.planId.value)
 
         val admission = admissions.get(envelope.taskId)
-            ?: restoreNarrowAdmission(envelope).also(admissions::register)
+            ?: restoreNarrowAdmission(envelope).also {
+                admissions.register(it)
+            }
 
         require(admission.backgroundMode == envelope.backgroundMode) {
             "Agent Core background mode drifted before Android execution"
