@@ -203,6 +203,7 @@ object OmegaArchitectureLock {
         "pending-trigger-fifo-acks-only-after-durable-verified-dispatch-binding",
         "pending-trigger-dispatch-reuses-governed-event-wake-scheduler",
         "pending-trigger-dispatch-adds-no-planner-tool-or-model-path",
+        "pending-trigger-dispatch-job-identities-fail-closed-on-collision",
         "gguf-is-import-source-only",
         "adaptive-compute-fast-to-deep",
         "verification-before-confidence",
