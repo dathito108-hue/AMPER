@@ -344,6 +344,30 @@ class OmegaCoreV2Test {
             "proactive-history-coherence-adds-no-lock-scheduler-or-snapshot-store" in
                 OmegaArchitectureLock.invariants
         )
+        assertTrue(
+            "background-proactive-transition-invalidates-foreground-read-model" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-surface-invalidation-reuses-attention-transition-not-polling" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-surface-invalidation-is-process-local-and-unpersisted" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-surface-invalidation-listener-is-identity-unregistered" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-surface-invalidation-failure-never-gates-event-wake" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "foreground-and-user-attention-sync-do-not-duplicate-background-invalidation" in
+                OmegaArchitectureLock.invariants
+        )
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
@@ -985,6 +1009,54 @@ class OmegaCoreV2Test {
                 .exitCriteria
                 .contains(
                     "snapshot coherence persists no cache snapshot task state lock lease or scheduler state"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "background transition attention sync emits best-effort process-local invalidation so a live foreground surface rereads the Phase667 projection"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "only BACKGROUND_TRANSITION attention sync emits proactive foreground invalidation and no polling or second lifecycle observer is introduced"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "cold processes with no foreground listener treat proactive surface invalidation as an unpersisted no-op"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "foreground proactive invalidation registration uses identity-safe unregister so disposal of an older activity cannot clear a newer listener"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "foreground invalidation listener failure is swallowed and never changes Phase656 execution or Phase657 EVENT_WAKE outcomes"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "foreground and user-interaction attention sync rely on existing Phase667 refresh points and do not emit duplicate background invalidation"
                 )
         )
     }
