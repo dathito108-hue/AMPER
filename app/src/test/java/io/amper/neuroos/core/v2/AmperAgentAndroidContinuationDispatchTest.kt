@@ -138,6 +138,72 @@ class AmperAgentAndroidContinuationDispatchTest {
         assertEquals(0, calls)
     }
 
+    @Test
+    fun readyWakeMayAcquireCanonicalColdExecutionOnlyAfterVerification() {
+        var fallbackCalls = 0
+        var executionCalls = 0
+        val handoff = AmperAgentAndroidContinuationHandoffPolicy.create(
+            envelope(
+                mode = OmegaBackgroundMode.PERSISTED_JOB,
+                state = AmperAgentTaskState.CHECKPOINTED
+            )
+        )
+        val coldPort = AmperAgentAndroidContinuationExecutionPort { _, decoded ->
+            executionCalls += 1
+            assertEquals("user-task", decoded.taskId)
+            Result.success(
+                AmperAgentAndroidHostExecutionResult(
+                    state = AmperAgentAndroidHostExecutionState.ADVANCED,
+                    detail = "cold canonical graph advanced one step"
+                )
+            )
+        }
+
+        val result = AmperAgentAndroidContinuationHostDispatcher
+            .dispatch(
+                handoff = handoff,
+                execution = null,
+                executionFallback = {
+                    fallbackCalls += 1
+                    Result.success(coldPort)
+                }
+            )
+            .getOrThrow()
+
+        assertEquals(1, fallbackCalls)
+        assertEquals(1, executionCalls)
+        assertEquals(AmperAgentAndroidHostExecutionState.ADVANCED, result.state)
+    }
+
+    @Test
+    fun waitingApprovalNeverAcquiresColdExecutionFallback() {
+        var fallbackCalls = 0
+        val handoff = AmperAgentAndroidContinuationHandoffPolicy.create(
+            envelope(
+                mode = OmegaBackgroundMode.PERSISTED_JOB,
+                state = AmperAgentTaskState.WAITING_APPROVAL,
+                waitingApprovalStepIndex = 1
+            )
+        )
+
+        val result = AmperAgentAndroidContinuationHostDispatcher
+            .dispatch(
+                handoff = handoff,
+                execution = null,
+                executionFallback = {
+                    fallbackCalls += 1
+                    error("WAITING_APPROVAL must not bootstrap canonical execution")
+                }
+            )
+            .getOrThrow()
+
+        assertEquals(0, fallbackCalls)
+        assertEquals(
+            AmperAgentAndroidHostExecutionState.WAITING_APPROVAL,
+            result.state
+        )
+    }
+
     private fun envelope(
         mode: OmegaBackgroundMode,
         state: AmperAgentTaskState,
