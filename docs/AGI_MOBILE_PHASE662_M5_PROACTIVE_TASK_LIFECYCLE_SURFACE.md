@@ -94,7 +94,12 @@ It:
 - can compact old terminal provenance within the bounded ledger.
 
 If a tracked plan is missing, the entry remains visible as unavailable and execution/reconciliation
-fails closed.
+fails closed. Corrupt lifecycle provenance also fails closed instead of being treated as an empty
+ledger.
+
+Lifecycle inspection/reconciliation may validate an already-present process admission, but it does
+not register a new process admission. Only the canonical EVENT_WAKE execution port restores process
+admission state when a runnable wake actually executes.
 
 ## Governed approval remains canonical
 
@@ -161,6 +166,8 @@ Phase662 adds:
 - `proactive-governed-decisions-reuse-existing-plan-approval-and-event-wake`
 - `proactive-event-wake-plans-disable-manual-ui-advance`
 - `proactive-lifecycle-ledger-is-bounded-and-terminal-compacted`
+- `proactive-lifecycle-reconciliation-does-not-register-process-admissions`
+- `proactive-lifecycle-provenance-corruption-fails-closed`
 
 The M5 exit criteria now require durable trigger-to-task-to-plan provenance, foreground lifecycle
 reconciliation, canonical governed approval reuse, UI ownership separation, and bounded provenance
@@ -180,6 +187,8 @@ Phase662 covers:
 - terminal provenance compaction is bounded;
 - missing canonical plans remain visible and fail closed;
 - canonical runtime exposes the lifecycle ledger from the same sovereign graph;
+- lifecycle reconciliation leaves the process admission registry untouched;
+- corrupt provenance is not silently interpreted as an empty ledger;
 - provenance → Phase657 → FIFO ACK ordering;
 - provenance failure prevents scheduling and ACK;
 - scheduler failure/disposition drift prevents ACK;
