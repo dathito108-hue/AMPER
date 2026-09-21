@@ -8,10 +8,20 @@ import io.amper.neuroos.core.Provenance
 import java.nio.charset.StandardCharsets
 import java.util.Base64
 
+data class AmperAgentPendingProactiveTriggerObservation(
+    val observation: AmperAgentProactiveTriggerObservation,
+    val observationIdentitySha256: String
+) {
+    init {
+        require(observationIdentitySha256.matches(Regex("[0-9a-f]{64}")))
+    }
+}
+
 data class AmperAgentPersistedProactiveTriggerSource(
     val source: AmperAgentProactiveTriggerSource,
     val lastAcceptedObservationAtEpochMs: Long? = null,
     val lastAcceptedObservationIdentitySha256: String? = null,
+    val pendingObservations: List<AmperAgentPendingProactiveTriggerObservation> = emptyList(),
     val updatedAtEpochMs: Long
 ) {
     init {
@@ -28,6 +38,34 @@ data class AmperAgentPersistedProactiveTriggerSource(
                 "proactive trigger observation identity must use lowercase SHA-256"
             }
         }
+        require(pendingObservations.size <= MAX_PENDING_OBSERVATIONS) {
+            "proactive trigger pending observation queue exceeds bounded capacity"
+        }
+        require(pendingObservations.all { it.observation.sourceId == source.sourceId }) {
+            "pending proactive observation belongs to a different source"
+        }
+        require(
+            pendingObservations.map { it.observationIdentitySha256 }.distinct().size ==
+                pendingObservations.size
+        ) {
+            "duplicate proactive observation identity in pending queue"
+        }
+        require(
+            pendingObservations.zipWithNext().all { (left, right) ->
+                left.observation.observedAtEpochMs <= right.observation.observedAtEpochMs
+            }
+        ) {
+            "pending proactive observations must preserve acceptance order"
+        }
+        if (pendingObservations.isNotEmpty()) {
+            val last = pendingObservations.last()
+            require(lastAcceptedObservationAtEpochMs == last.observation.observedAtEpochMs)
+            require(lastAcceptedObservationIdentitySha256 == last.observationIdentitySha256)
+        }
+    }
+
+    companion object {
+        const val MAX_PENDING_OBSERVATIONS: Int = 4
     }
 }
 
@@ -62,6 +100,14 @@ interface AmperAgentProactiveTriggerSourceRegistry {
     ): Result<AmperAgentPersistedProactiveTriggerSource>
 
     fun remove(sourceId: String): Boolean
+
+    fun pending(sourceId: String): List<AmperAgentPendingProactiveTriggerObservation>
+
+    fun acknowledgePending(
+        sourceId: String,
+        observationIdentitySha256: String,
+        updatedAtEpochMs: Long = System.currentTimeMillis()
+    ): Result<AmperAgentPersistedProactiveTriggerSource>
 
     fun accept(
         observation: AmperAgentProactiveTriggerObservation,
@@ -105,6 +151,7 @@ class MemoryBackedAmperAgentProactiveTriggerSourceRegistry(
                     existing?.lastAcceptedObservationAtEpochMs,
                 lastAcceptedObservationIdentitySha256 =
                     existing?.lastAcceptedObservationIdentitySha256,
+                pendingObservations = existing?.pendingObservations.orEmpty(),
                 updatedAtEpochMs =
                     updatedAtEpochMs.coerceAtLeast(existing?.updatedAtEpochMs ?: 0L)
             )
@@ -153,6 +200,37 @@ class MemoryBackedAmperAgentProactiveTriggerSourceRegistry(
     override fun remove(sourceId: String): Boolean =
         memory.transaction { forget(recordId(sourceId)) }
 
+    override fun pending(
+        sourceId: String
+    ): List<AmperAgentPendingProactiveTriggerObservation> =
+        memory.transaction { load(sourceId)?.pendingObservations.orEmpty() }
+
+    override fun acknowledgePending(
+        sourceId: String,
+        observationIdentitySha256: String,
+        updatedAtEpochMs: Long
+    ): Result<AmperAgentPersistedProactiveTriggerSource> = runCatching {
+        memory.transaction {
+            require(observationIdentitySha256.matches(Regex("[0-9a-f]{64}")))
+            require(updatedAtEpochMs >= 0L)
+            val current = requireNotNull(load(sourceId)) {
+                "proactive trigger source is not registered"
+            }
+            val first = requireNotNull(current.pendingObservations.firstOrNull()) {
+                "proactive trigger source has no pending observation"
+            }
+            require(first.observationIdentitySha256 == observationIdentitySha256) {
+                "proactive trigger pending observations must be acknowledged in FIFO order"
+            }
+            val next = current.copy(
+                pendingObservations = current.pendingObservations.drop(1),
+                updatedAtEpochMs = updatedAtEpochMs.coerceAtLeast(current.updatedAtEpochMs)
+            )
+            remember(record(next))
+            next
+        }
+    }
+
     override fun accept(
         observation: AmperAgentProactiveTriggerObservation,
         acceptedAtEpochMs: Long
@@ -178,11 +256,22 @@ class MemoryBackedAmperAgentProactiveTriggerSourceRegistry(
             ) {
                 "proactive trigger observation was already accepted"
             }
+            require(
+                current.pendingObservations.size <
+                    AmperAgentPersistedProactiveTriggerSource.MAX_PENDING_OBSERVATIONS
+            ) {
+                "proactive trigger pending observation queue is full"
+            }
+            val pending = AmperAgentPendingProactiveTriggerObservation(
+                observation = observation,
+                observationIdentitySha256 = qualified.observationIdentitySha256
+            )
 
             val next = current.copy(
                 lastAcceptedObservationAtEpochMs = observation.observedAtEpochMs,
                 lastAcceptedObservationIdentitySha256 =
                     qualified.observationIdentitySha256,
+                pendingObservations = current.pendingObservations + pending,
                 updatedAtEpochMs = maxOf(
                     current.updatedAtEpochMs,
                     acceptedAtEpochMs,
@@ -230,7 +319,8 @@ class MemoryBackedAmperAgentProactiveTriggerSourceRegistry(
 }
 
 internal object TriggerSourceStateCodec {
-    private const val VERSION = "AMPER_AGENT_TRIGGER_SOURCE_STATE_V1"
+    private const val VERSION_V1 = "AMPER_AGENT_TRIGGER_SOURCE_STATE_V1"
+    private const val VERSION = "AMPER_AGENT_TRIGGER_SOURCE_STATE_V2"
 
     fun encode(state: AmperAgentPersistedProactiveTriggerSource): String {
         val source = state.source
@@ -257,23 +347,46 @@ internal object TriggerSourceStateCodec {
                     (state.lastAcceptedObservationIdentitySha256 ?: "~")
             )
             appendLine("UPDATED_AT\t${state.updatedAtEpochMs}")
+            state.pendingObservations.forEach { pending ->
+                appendLine(
+                    listOf(
+                        "PENDING",
+                        pending.observation.observedAtEpochMs.toString(),
+                        pending.observation.payloadDigest,
+                        pending.observationIdentitySha256
+                    ).joinToString("\t")
+                )
+            }
         }.trimEnd()
     }
 
     fun decode(content: String): Result<AmperAgentPersistedProactiveTriggerSource> =
         runCatching {
             val lines = content.lineSequence().filter { it.isNotBlank() }.toList()
-            require(lines.firstOrNull() == VERSION) {
+            val version = lines.firstOrNull()
+            require(version == VERSION || version == VERSION_V1) {
                 "unsupported proactive trigger-source state"
             }
             val scalars = linkedMapOf<String, String>()
             val capabilities = linkedSetOf<CapabilityId>()
+            val pending = mutableListOf<Triple<Long, String, String>>()
             lines.drop(1).forEach { line ->
                 val parts = line.split('\t')
                 when (parts.firstOrNull()) {
                     "CAPABILITY" -> {
                         require(parts.size == 2)
                         capabilities += CapabilityId(dec(parts[1]))
+                    }
+                    "PENDING" -> {
+                        require(version == VERSION) {
+                            "legacy proactive trigger-source state cannot contain pending observations"
+                        }
+                        require(parts.size == 4)
+                        pending += Triple(
+                            parts[1].toLong(),
+                            parts[2],
+                            parts[3]
+                        )
                     }
                     "SOURCE_ID", "CONFIG_ID", "KIND", "OBJECTIVE",
                     "EXPECTED_RUNTIME_MS", "MINIMUM_INTERVAL_MS", "CONFIG_SHA256",
@@ -304,25 +417,26 @@ internal object TriggerSourceStateCodec {
             require(scalars.keys == required)
             require(capabilities.isNotEmpty())
 
-            AmperAgentPersistedProactiveTriggerSource(
-                source = AmperAgentProactiveTriggerSource(
-                    sourceId = dec(scalars.getValue("SOURCE_ID")),
-                    configurationId = dec(scalars.getValue("CONFIG_ID")),
-                    kind = AmperAgentProactiveTriggerSourceKind.valueOf(
-                        scalars.getValue("KIND")
-                    ),
-                    objective = dec(scalars.getValue("OBJECTIVE")),
-                    allowedCapabilities = capabilities,
-                    expectedRuntimeMs =
-                        scalars.getValue("EXPECTED_RUNTIME_MS").toLong(),
-                    minimumIntervalMs =
-                        scalars.getValue("MINIMUM_INTERVAL_MS").toLong(),
-                    configurationSha256 =
-                        scalars.getValue("CONFIG_SHA256"),
-                    userConfigured =
-                        scalars.getValue("USER_CONFIGURED").toBooleanStrict(),
-                    enabled = scalars.getValue("ENABLED").toBooleanStrict()
+            val source = AmperAgentProactiveTriggerSource(
+                sourceId = dec(scalars.getValue("SOURCE_ID")),
+                configurationId = dec(scalars.getValue("CONFIG_ID")),
+                kind = AmperAgentProactiveTriggerSourceKind.valueOf(
+                    scalars.getValue("KIND")
                 ),
+                objective = dec(scalars.getValue("OBJECTIVE")),
+                allowedCapabilities = capabilities,
+                expectedRuntimeMs =
+                    scalars.getValue("EXPECTED_RUNTIME_MS").toLong(),
+                minimumIntervalMs =
+                    scalars.getValue("MINIMUM_INTERVAL_MS").toLong(),
+                configurationSha256 =
+                    scalars.getValue("CONFIG_SHA256"),
+                userConfigured =
+                    scalars.getValue("USER_CONFIGURED").toBooleanStrict(),
+                enabled = scalars.getValue("ENABLED").toBooleanStrict()
+            )
+            AmperAgentPersistedProactiveTriggerSource(
+                source = source,
                 lastAcceptedObservationAtEpochMs =
                     scalars.getValue("LAST_ACCEPTED_AT")
                         .takeUnless { it == "~" }
@@ -330,6 +444,16 @@ internal object TriggerSourceStateCodec {
                 lastAcceptedObservationIdentitySha256 =
                     scalars.getValue("LAST_ACCEPTED_IDENTITY")
                         .takeUnless { it == "~" },
+                pendingObservations = pending.map { (observedAt, payloadDigest, identity) ->
+                    AmperAgentPendingProactiveTriggerObservation(
+                        observation = AmperAgentProactiveTriggerObservation(
+                            sourceId = source.sourceId,
+                            observedAtEpochMs = observedAt,
+                            payloadDigest = payloadDigest
+                        ),
+                        observationIdentitySha256 = identity
+                    )
+                },
                 updatedAtEpochMs = scalars.getValue("UPDATED_AT").toLong()
             )
         }
