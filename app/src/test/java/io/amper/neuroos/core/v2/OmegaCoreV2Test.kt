@@ -132,6 +132,10 @@ class OmegaCoreV2Test {
             "accepted-trigger-observations-queue-inside-the-same-source-record" in
                 OmegaArchitectureLock.invariants
         )
+        assertTrue(
+            "pending-trigger-observations-lock-source-revision-and-removal" in
+                OmegaArchitectureLock.invariants
+        )
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
@@ -429,6 +433,14 @@ class OmegaCoreV2Test {
                 .exitCriteria
                 .contains(
                     "accepted trigger observations remain in a bounded FIFO inside the same encrypted source record until canonical dispatch acknowledges them"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "pending trigger observations prevent source revision or removal until their provenance is acknowledged"
                 )
         )
     }
