@@ -5,6 +5,7 @@ import io.amper.neuroos.core.CapabilityId
 import io.amper.neuroos.core.PlanClaimDecision
 import io.amper.neuroos.core.PlanDurabilityEvidence
 import io.amper.neuroos.core.PlanStepStatus
+import io.amper.neuroos.core.RecoveryClaimTarget
 import io.amper.neuroos.core.SovereignPlanExecutionInspector
 import io.amper.neuroos.core.SovereignPlanReceiptLedger
 
@@ -15,11 +16,19 @@ data class AmperAgentProactiveTaskReceiptView(
     val actionStatus: ActionStatus?,
     val durabilityEvidence: PlanDurabilityEvidence,
     val receiptSha256: String?,
-    val reconciliationDecision: PlanClaimDecision?
+    val reconciliationDecision: PlanClaimDecision?,
+    val recoveryTarget: RecoveryClaimTarget?
 ) {
     init {
         require(stepIndex > 0)
         receiptSha256?.let { require(it.matches(Regex("[0-9a-f]{64}"))) }
+        require(
+            (durabilityEvidence == PlanDurabilityEvidence.CLAIMED_UNRESOLVED) ==
+                (recoveryTarget != null)
+        )
+        recoveryTarget?.let { target ->
+            require(target.stepIndex == stepIndex)
+        }
     }
 }
 
@@ -103,7 +112,19 @@ class AmperAgentProactiveTaskHistoryProjection(
                         actionStatus = step.actionStatus,
                         durabilityEvidence = step.durabilityEvidence,
                         receiptSha256 = step.receiptSha256,
-                        reconciliationDecision = step.reconciliationDecision
+                        reconciliationDecision = step.reconciliationDecision,
+                        recoveryTarget = if (
+                            step.durabilityEvidence ==
+                            PlanDurabilityEvidence.CLAIMED_UNRESOLVED
+                        ) {
+                            RecoveryClaimTarget(
+                                planId = lifecycleView.binding.planId,
+                                stepIndex = step.index,
+                                requestId = step.requestId
+                            )
+                        } else {
+                            null
+                        }
                     )
                 }
             )

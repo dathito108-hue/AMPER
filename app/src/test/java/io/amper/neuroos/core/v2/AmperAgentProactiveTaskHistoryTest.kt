@@ -45,6 +45,7 @@ class AmperAgentProactiveTaskHistoryTest {
         assertEquals(PlanStepStatus.EXECUTED, receipt.stepStatus)
         assertEquals(ActionStatus.EXECUTED, receipt.actionStatus)
         assertNotNull(receipt.receiptSha256)
+        assertEquals(null, receipt.recoveryTarget)
     }
 
     @Test
@@ -64,6 +65,10 @@ class AmperAgentProactiveTaskHistoryTest {
             PlanDurabilityEvidence.CLAIMED_UNRESOLVED,
             entry.receipts.single().durabilityEvidence
         )
+        val target = requireNotNull(entry.receipts.single().recoveryTarget)
+        assertEquals(plan.id, target.planId)
+        assertEquals(plan.steps.single().index, target.stepIndex)
+        assertEquals(plan.steps.single().requestId, target.requestId)
     }
 
     @Test

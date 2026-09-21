@@ -14,6 +14,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.dp
 import io.amper.neuroos.core.PlanClaimDecision
 import io.amper.neuroos.core.RecoveryClaimItem
+import io.amper.neuroos.core.RecoveryClaimTarget
 import io.amper.neuroos.core.SovereignPlan
 import io.amper.neuroos.core.SovereignRecoveryConsole
 
@@ -24,30 +25,65 @@ import io.amper.neuroos.core.SovereignRecoveryConsole
 @Composable
 fun SovereignRecoveryConsolePanel(
     console: SovereignRecoveryConsole,
+    focusTarget: RecoveryClaimTarget? = null,
     onPlanUpdated: (SovereignPlan) -> Unit
 ) {
-    val initial = remember(console) { console.pending() }
-    var items by remember(console) { mutableStateOf(initial.getOrElse { emptyList() }) }
-    var selectedRequestId by remember(console) {
-        mutableStateOf(items.firstOrNull()?.claim?.requestId?.value)
+    val initial = remember(console, focusTarget) { console.pending() }
+    val initialFocus = remember(console, focusTarget) {
+        focusTarget?.let(console::locate)
+    }
+    var items by remember(console, focusTarget) {
+        mutableStateOf(initial.getOrElse { emptyList() })
+    }
+    var selectedRequestId by remember(console, focusTarget) {
+        mutableStateOf(
+            if (focusTarget == null) {
+                items.firstOrNull()?.claim?.requestId?.value
+            } else {
+                initialFocus
+                    ?.getOrNull()
+                    ?.claim
+                    ?.requestId
+                    ?.value
+            }
+        )
     }
     var note by remember(console) { mutableStateOf("") }
-    var status by remember(console) {
+    var status by remember(console, focusTarget) {
         mutableStateOf(
             initial.exceptionOrNull()?.let { "Recovery console blocked: ${it.message}" }
-                ?: if (items.isEmpty()) "No unresolved side-effect claims"
-                else "${items.size} unresolved side-effect claim(s) require manual verification"
+                ?: initialFocus
+                    ?.exceptionOrNull()
+                    ?.let { "Recovery target validation blocked: ${it.message}" }
+                ?: if (focusTarget != null && initialFocus?.getOrNull() == null) {
+                    "Requested recovery claim is stale or no longer unresolved."
+                } else if (items.isEmpty()) {
+                    "No unresolved side-effect claims"
+                } else if (focusTarget != null) {
+                    "Exact proactive recovery claim selected; verify real-world/device state."
+                } else {
+                    "${items.size} unresolved side-effect claim(s) require manual verification"
+                }
         )
     }
 
-    val selected = items.firstOrNull { it.claim.requestId.value == selectedRequestId }
-        ?: items.firstOrNull()
+    val selected = selectedRequestId?.let { selectedId ->
+        items.firstOrNull { it.claim.requestId.value == selectedId }
+    }
 
     fun refreshClaims(message: String? = null) {
         console.pending().fold(
             onSuccess = { refreshed ->
                 items = refreshed
-                selectedRequestId = refreshed.firstOrNull()?.claim?.requestId?.value
+                selectedRequestId = if (focusTarget == null) {
+                    refreshed.firstOrNull()?.claim?.requestId?.value
+                } else {
+                    console.locate(focusTarget)
+                        .getOrNull()
+                        ?.claim
+                        ?.requestId
+                        ?.value
+                }
                 if (message != null) {
                     status = message
                 } else {

@@ -6,6 +6,17 @@ data class RecoveryClaimItem(
     val step: SovereignPlanStep
 )
 
+data class RecoveryClaimTarget(
+    val planId: PlanId,
+    val stepIndex: Int,
+    val requestId: ActionRequestId
+) {
+    init {
+        require(stepIndex > 0)
+    }
+}
+
+
 /**
  * Read/resolve facade for Android recovery UI. It never invokes a tool provider.
  * Every displayed claim must still bind to the persisted plan snapshot before it
@@ -33,6 +44,26 @@ class SovereignRecoveryConsole(
             require(step.outcome?.toolId == claim.toolId) { "pending claim tool id mismatch" }
             RecoveryClaimItem(claim = claim, plan = plan, step = step)
         }
+    }
+
+    /**
+     * Resolve an exact read-only navigation target against current canonical recovery evidence.
+     *
+     * A stale or already-resolved target returns null. Any corrupted/orphan recovery evidence keeps
+     * the result failed closed through pending().
+     */
+    fun locate(target: RecoveryClaimTarget): Result<RecoveryClaimItem?> = runCatching {
+        val matches = pending(limit = 64)
+            .getOrThrow()
+            .filter { item ->
+                item.plan.id == target.planId &&
+                    item.step.index == target.stepIndex &&
+                    item.claim.requestId == target.requestId
+            }
+        require(matches.size <= 1) {
+            "duplicate recovery claim target for " + target.requestId.value
+        }
+        matches.singleOrNull()
     }
 
     fun reconcile(

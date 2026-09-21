@@ -127,6 +127,7 @@ import io.amper.neuroos.core.PerceptionModality
 import io.amper.neuroos.core.PersistentGoalExecutiveResult
 import io.amper.neuroos.core.PlanAdvanceResult
 import io.amper.neuroos.core.PlanStepStatus
+import io.amper.neuroos.core.RecoveryClaimTarget
 import io.amper.neuroos.core.PreferredModelInferencePort
 import io.amper.neuroos.core.ProcessResidentAutonomyLoop
 import io.amper.neuroos.core.ProcessResidentReflexMaintenanceLoop
@@ -348,6 +349,9 @@ class MainActivity : ComponentActivity() {
             val planHistory = remember { SovereignPlanHistory(runtime.plans) }
             val recoveryConsole = remember {
                 io.amper.neuroos.core.SovereignRecoveryConsole(runtime.plans, planner)
+            }
+            var proactiveRecoveryTarget by remember {
+                mutableStateOf<RecoveryClaimTarget?>(null)
             }
             val restoredApproval = remember { assistant.restorePendingApproval() }
             val requestedProactivePlan = remember(
@@ -2731,6 +2735,38 @@ class MainActivity : ComponentActivity() {
                                 pendingApproval = assistant.restorePendingApproval(opened.conversationId)
                                 planStatus =
                                     "Opened proactive canonical plan ${opened.id.value.takeLast(12)}; no step executed"
+                            },
+                            onOpenRecovery = { target ->
+                                recoveryConsole.locate(target).fold(
+                                    onSuccess = { item ->
+                                        if (item == null) {
+                                            proactiveRecoveryTarget = target
+                                            planStatus =
+                                                "Recovery target is stale or already resolved; no claim selected"
+                                        } else {
+                                            proactiveRecoveryTarget = target
+                                            activePlan = item.plan
+                                            conversationId = item.plan.conversationId
+                                            pendingApproval =
+                                                assistant.restorePendingApproval(
+                                                    item.plan.conversationId
+                                                )
+                                            planStatus =
+                                                "Focused exact recovery claim for proactive plan " +
+                                                    item.plan.id.value.takeLast(12) +
+                                                    "; no provider invoked"
+                                        }
+                                    },
+                                    onFailure = { error ->
+                                        proactiveRecoveryTarget = target
+                                        planStatus =
+                                            "Recovery navigation blocked fail-closed: " +
+                                                (
+                                                    error.message
+                                                        ?: error::class.java.simpleName
+                                                    )
+                                    }
+                                )
                             }
                         )
 
@@ -3006,6 +3042,7 @@ class MainActivity : ComponentActivity() {
 
                         SovereignRecoveryConsolePanel(
                             console = recoveryConsole,
+                            focusTarget = proactiveRecoveryTarget,
                             onPlanUpdated = { recovered ->
                                 activePlan = recovered
                                 conversationId = recovered.conversationId
