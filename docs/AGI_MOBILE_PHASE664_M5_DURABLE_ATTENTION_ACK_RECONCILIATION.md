@@ -69,7 +69,8 @@ On notification open:
    canonical attention revision.
 5. The notification is cancelled only after the acknowledgement record is durable.
 
-A stale notification can therefore open the plan but cannot acknowledge a newer state.
+A stale notification can therefore open the plan but cannot acknowledge a newer state. The revision
+extra is internal navigation metadata and is never rendered into notification copy.
 
 Acknowledgement never approves or rejects a governed step. Approval remains exclusively on the
 existing governed plan surface.
