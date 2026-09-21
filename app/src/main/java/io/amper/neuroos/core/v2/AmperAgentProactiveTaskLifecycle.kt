@@ -423,7 +423,10 @@ class AmperAgentProactiveTaskLifecycleCoordinator(
             require(plan.steps.all { it.capability in existing.request.allowedCapabilities })
             return existing
         }
-        val reconstructed = AmperAgentTaskAdmissionPolicy.admit(
+        // Lifecycle inspection/reconciliation is not an execution host. Reconstruct the narrow
+        // admission as a value only; do not mutate the process registry. The canonical EVENT_WAKE
+        // execution port restores/registers admission context when an actual runnable wake executes.
+        return AmperAgentTaskAdmissionPolicy.admit(
             AmperAgentTaskRequest(
                 taskId = binding.taskId,
                 origin = AmperAgentTaskOrigin.PROACTIVE_TRIGGER,
@@ -436,7 +439,6 @@ class AmperAgentProactiveTaskLifecycleCoordinator(
                 trigger = binding.trigger
             )
         )
-        return admissions.register(reconstructed)
     }
 
     private fun checkpoint(
