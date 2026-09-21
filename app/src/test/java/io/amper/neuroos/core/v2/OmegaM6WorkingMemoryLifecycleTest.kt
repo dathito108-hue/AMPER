@@ -12,7 +12,8 @@ class OmegaM6WorkingMemoryLifecycleTest {
         "working-memory-checkpoints-store-digest-metadata-only",
         "working-memory-continuity-chain-is-verified",
         "working-memory-checkpoint-write-cadence-is-bounded",
-        "working-memory-continuity-is-non-authority"
+        "working-memory-continuity-is-non-authority",
+        "working-memory-continuity-failure-does-not-block-transient-cognition"
     )
 
     private val criteria = setOf(
@@ -21,7 +22,8 @@ class OmegaM6WorkingMemoryLifecycleTest {
         "working-memory continuity uses one periodically updated digest-only checkpoint in the same MemoryOs",
         "working-memory continuity checkpoint chaining verifies sequence and previous checkpoint digest before overwrite",
         "working-memory continuity persists no CognitiveEvent topic payload or raw hidden reasoning",
-        "working-memory checkpoint write cadence is bounded to reduce mobile journal write amplification"
+        "working-memory checkpoint write cadence is bounded to reduce mobile journal write amplification",
+        "working-memory continuity failure is fail-visible but does not block bounded transient cognition"
     )
 
     @Test

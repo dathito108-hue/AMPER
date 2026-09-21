@@ -74,16 +74,22 @@ class MemoryBackedWorkingMemoryContinuityStore(
     private val memory: MemoryOs
 ) : WorkingMemoryContinuityStore {
     override fun latest(): Result<WorkingMemoryContinuityCheckpoint?> = runCatching {
-        memory.get(RECORD_ID)
-            ?.takeIf { it.kind == KIND }
-            ?.let { WorkingMemoryContinuityCodec.decode(it.content) }
+        memory.get(RECORD_ID)?.let { record ->
+            require(record.kind == KIND) {
+                "working-memory continuity record kind mismatch"
+            }
+            WorkingMemoryContinuityCodec.decode(record.content)
+        }
     }
 
     override fun save(checkpoint: WorkingMemoryContinuityCheckpoint): Result<Unit> = runCatching {
         memory.transaction {
-            val current = get(RECORD_ID)
-                ?.takeIf { it.kind == KIND }
-                ?.let { WorkingMemoryContinuityCodec.decode(it.content) }
+            val current = get(RECORD_ID)?.let { record ->
+                require(record.kind == KIND) {
+                    "working-memory continuity record kind mismatch"
+                }
+                WorkingMemoryContinuityCodec.decode(record.content)
+            }
             require(checkpoint.sequence == (current?.sequence ?: 0L) + 1L) {
                 "working-memory continuity sequence drift"
             }
@@ -325,4 +331,4 @@ internal object WorkingMemoryContinuityCodec {
 private fun sha256(value: String): String =
     MessageDigest.getInstance("SHA-256")
         .digest(value.toByteArray(StandardCharsets.UTF_8))
-        .joinToString("") { "%02x".format(it) }
+        .joinToString("") { "%02x".format(it.toInt() and 0xff) }

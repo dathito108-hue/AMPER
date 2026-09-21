@@ -139,6 +139,63 @@ class CanonicalWorkingMemoryWorkspaceTest {
     }
 
     @Test
+    fun continuityFailureDoesNotBlockTransientWorkingMemory() {
+        val failure = IllegalStateException("continuity unavailable")
+        val workspace = CanonicalWorkingMemoryWorkspace(
+            continuity = object : WorkingMemoryContinuityStore {
+                override fun latest(): Result<WorkingMemoryContinuityCheckpoint?> =
+                    Result.failure(failure)
+
+                override fun save(
+                    checkpoint: WorkingMemoryContinuityCheckpoint
+                ): Result<Unit> =
+                    Result.failure(failure)
+            },
+            policy = WorkingMemoryLifecyclePolicy(
+                maxEvents = 4,
+                maxAgeMs = 1_000L,
+                minSalience = 0.0,
+                checkpointEveryMutations = 1
+            ),
+            clock = { 10L }
+        )
+
+        workspace.publish(event("still-visible", 0.8))
+
+        assertEquals(listOf("still-visible"), workspace.snapshot().map { it.topic })
+        assertTrue(workspace.continuityStatus().isFailure)
+    }
+
+    @Test
+    fun wrongKindAtContinuityRecordIdFailsClosedWithoutOverwrite() {
+        val memory = InMemoryMemoryOs()
+        memory.remember(
+            MemoryRecord(
+                id = MemoryBackedWorkingMemoryContinuityStore.RECORD_ID,
+                kind = "unexpected-kind",
+                content = "do-not-overwrite",
+                importance = 0.5,
+                provenance = Provenance(source = "test", producer = "test")
+            )
+        )
+        val store = MemoryBackedWorkingMemoryContinuityStore(memory)
+
+        assertTrue(store.latest().isFailure)
+
+        val checkpoint = WorkingMemoryContinuityCodec.create(
+            sequence = 1L,
+            previousCheckpointSha256 = null,
+            workspaceStateSha256 = "d".repeat(64),
+            retainedEvents = 0,
+            capturedAtEpochMs = 1L
+        )
+        assertTrue(store.save(checkpoint).isFailure)
+        assertEquals("unexpected-kind", memory.get(
+            MemoryBackedWorkingMemoryContinuityStore.RECORD_ID
+        )?.kind)
+    }
+
+    @Test
     fun defaultCheckpointCadenceAvoidsFirstTickWriteAmplification() {
         assertTrue(WorkingMemoryLifecyclePolicy.DEFAULT_CHECKPOINT_EVERY_MUTATIONS > 6)
     }

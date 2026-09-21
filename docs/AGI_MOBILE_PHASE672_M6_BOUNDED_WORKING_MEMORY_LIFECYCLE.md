@@ -64,6 +64,9 @@ Before overwrite, the store requires:
 
 A broken chain fails without overwriting the current checkpoint.
 
+A wrong-kind record at the reserved continuity id is treated as corruption and is never silently
+overwritten.
+
 A recreated workspace reads the last verified checkpoint and chains the next checkpoint from it; it
 does not reconstruct raw transient events from durable storage.
 
@@ -72,7 +75,8 @@ does not reconstruct raw transient events from durable storage.
 Working-memory cognition remains transient. The continuity path is non-authority-bearing and cannot
 approve, schedule, execute, or invoke tools.
 
-The workspace tracks continuity failure rather than inventing a successful checkpoint.
+The workspace tracks continuity failure rather than inventing a successful checkpoint. Transient
+bounded cognition remains available even when the continuity metadata path is unavailable.
 
 ## Write amplification
 
