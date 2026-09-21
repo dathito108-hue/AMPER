@@ -372,6 +372,10 @@ class OmegaCoreV2Test {
             "main-activity-owns-one-proactive-lifecycle-observer" in
                 OmegaArchitectureLock.invariants
         )
+        assertTrue(
+            "m5-always-on-canonical-chain-has-closure-audit" in
+                OmegaArchitectureLock.invariants
+        )
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
@@ -1061,6 +1065,14 @@ class OmegaCoreV2Test {
                 .exitCriteria
                 .contains(
                     "the proactive lifecycle observer is registered and removed inside the existing MainActivity DisposableEffect lifecycle"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "M5 canonical closure audit covers every Phase647 through Phase669 slice plus foundational single-foundation authority background and internet constraints"
                 )
         )
     }
