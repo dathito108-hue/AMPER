@@ -8,6 +8,7 @@ import io.amper.neuroos.core.v2.AmperAgentExecutionContinuationCoordinator
 import io.amper.neuroos.core.v2.AmperAgentPassiveTaskCoordinator
 import io.amper.neuroos.core.v2.AmperAgentPendingTriggerDispatchCoordinator
 import io.amper.neuroos.core.v2.AmperAgentProactiveTaskCoordinator
+import io.amper.neuroos.core.v2.AmperAgentProactiveTaskHistoryProjection
 import io.amper.neuroos.core.v2.AmperAgentProactiveTaskLifecycleCoordinator
 import io.amper.neuroos.core.v2.AmperAgentProactiveEventWakeCoordinator
 import io.amper.neuroos.core.v2.AmperAgentProactiveTriggerSourceRegistry
@@ -34,6 +35,7 @@ data class AndroidCanonicalAgentRuntimeGraph(
     val agentPendingTriggerDispatch: AmperAgentPendingTriggerDispatchCoordinator,
     val agentEventWake: AmperAgentProactiveEventWakeCoordinator,
     val agentProactiveLifecycle: AmperAgentProactiveTaskLifecycleCoordinator,
+    val agentProactiveHistory: AmperAgentProactiveTaskHistoryProjection,
     val agentProactiveLifecycleController: AndroidAgentProactiveTaskLifecycleController,
     val agentProactiveAttention: AndroidAgentProactiveAttentionController,
     val agentContinuation: AmperAgentExecutionContinuationCoordinator,
@@ -252,6 +254,10 @@ class AndroidCanonicalSovereignRuntimeGraph internal constructor(context: Contex
             proactive = agentProactiveTasks,
             eventWake = agentEventWake
         )
+        val agentProactiveHistory = AmperAgentProactiveTaskHistoryProjection(
+            lifecycle = agentProactiveLifecycle,
+            receipts = runtime.plans.receipts
+        )
         val agentProactiveLifecycleController = AndroidAgentProactiveTaskLifecycleController(
             context = appContext,
             lifecycle = agentProactiveLifecycle,
@@ -301,6 +307,7 @@ class AndroidCanonicalSovereignRuntimeGraph internal constructor(context: Contex
             agentPendingTriggerDispatch = agentPendingTriggerDispatch,
             agentEventWake = agentEventWake,
             agentProactiveLifecycle = agentProactiveLifecycle,
+            agentProactiveHistory = agentProactiveHistory,
             agentProactiveLifecycleController = agentProactiveLifecycleController,
             agentProactiveAttention = agentProactiveAttention,
             agentContinuation = agentContinuation,
