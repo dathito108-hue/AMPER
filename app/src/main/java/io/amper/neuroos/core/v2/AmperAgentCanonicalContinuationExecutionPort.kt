@@ -2,6 +2,8 @@ package io.amper.neuroos.core.v2
 
 import io.amper.neuroos.core.ConversationId
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 class AmperAgentTaskAdmissionRegistry {
     private val entries = ConcurrentHashMap<String, AmperAgentTaskAdmission>()
@@ -80,6 +82,12 @@ class AmperAgentUserTaskRuntime(
  * Each verified host call restores the exact Phase649 checkpoint and calls Phase648 advance exactly
  * once. If work remains, a fresh verified continuation handoff is returned to the Android host.
  */
+object AmperAgentCanonicalContinuationExecutionGate {
+    private val lock = ReentrantLock()
+
+    fun <T> exclusive(block: () -> T): T = lock.withLock(block)
+}
+
 class AmperAgentCanonicalContinuationExecutionPort(
     private val admissions: AmperAgentTaskAdmissionRegistry,
     private val plans: AmperAgentPersistentPlanPort,
@@ -112,7 +120,9 @@ class AmperAgentCanonicalContinuationExecutionPort(
     override fun advanceOnceVerified(
         handoff: AmperAgentAndroidContinuationHandoff,
         envelope: AmperAgentContinuationEnvelope
-    ): Result<AmperAgentAndroidHostExecutionResult> = runCatching {
+    ): Result<AmperAgentAndroidHostExecutionResult> =
+        AmperAgentCanonicalContinuationExecutionGate.exclusive {
+            runCatching {
         require(handoff.taskId == envelope.taskId)
         require(handoff.planId == envelope.planId.value)
 
@@ -170,5 +180,6 @@ class AmperAgentCanonicalContinuationExecutionPort(
             AmperAgentTaskState.RUNNING ->
                 error("passive coordinator returned non-checkpointable task state")
         }
-    }
+            }
+        }
 }
