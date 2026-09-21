@@ -35,6 +35,7 @@ data class AndroidCanonicalAgentRuntimeGraph(
     val agentEventWake: AmperAgentProactiveEventWakeCoordinator,
     val agentProactiveLifecycle: AmperAgentProactiveTaskLifecycleCoordinator,
     val agentProactiveLifecycleController: AndroidAgentProactiveTaskLifecycleController,
+    val agentProactiveAttentionController: AndroidAgentProactiveAttentionController,
     val agentContinuation: AmperAgentExecutionContinuationCoordinator,
     val execution: AmperAgentCanonicalContinuationExecutionPort,
     val eventWakeExecution: AmperAgentCanonicalEventWakeExecutionPort
@@ -256,6 +257,10 @@ class AndroidCanonicalSovereignRuntimeGraph internal constructor(context: Contex
             lifecycle = agentProactiveLifecycle,
             governor = governor
         )
+        val agentProactiveAttentionController = AndroidAgentProactiveAttentionController(
+            context = appContext,
+            lifecycle = agentProactiveLifecycle
+        )
         val agentPendingTriggerDispatch = AmperAgentPendingTriggerDispatchCoordinator(
             registry = runtime.proactiveTriggerSources,
             admissions = agentAdmissions,
@@ -296,6 +301,7 @@ class AndroidCanonicalSovereignRuntimeGraph internal constructor(context: Contex
             agentEventWake = agentEventWake,
             agentProactiveLifecycle = agentProactiveLifecycle,
             agentProactiveLifecycleController = agentProactiveLifecycleController,
+            agentProactiveAttentionController = agentProactiveAttentionController,
             agentContinuation = agentContinuation,
             execution = execution,
             eventWakeExecution = eventWakeExecution
