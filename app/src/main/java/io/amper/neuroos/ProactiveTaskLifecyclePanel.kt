@@ -7,7 +7,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.dp
@@ -26,7 +26,7 @@ fun ProactiveTaskLifecyclePanel(
     lifecycle: AmperAgentProactiveTaskLifecycleCoordinator,
     onOpen: (SovereignPlan) -> Unit
 ) {
-    var refreshEpoch by remember(lifecycle) { mutableIntStateOf(0) }
+    var refreshEpoch by remember(lifecycle) { mutableStateOf(0) }
     val entries = remember(lifecycle, refreshEpoch) {
         lifecycle.inspect(limit = 8)
     }
