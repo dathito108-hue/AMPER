@@ -8,6 +8,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -81,6 +83,7 @@ import io.amper.neuroos.core.AmiPreservedGgufMetadataReader
 import io.amper.neuroos.core.AmiTensorGraphReader
 import io.amper.neuroos.core.AndroidActivePerceptionPort
 import io.amper.neuroos.core.AndroidAgentContinuationProcessRegistry
+import io.amper.neuroos.core.AndroidAgentProactiveForegroundVisibilityCoordinator
 import io.amper.neuroos.core.AndroidAppPrivateStorage
 import io.amper.neuroos.core.AndroidMultimodalProjectorImportService
 import io.amper.neuroos.core.AndroidPerceptionCapture
@@ -363,6 +366,31 @@ class MainActivity : ComponentActivity() {
                         proactiveSurfaceRefreshRevision
                     )
             }
+            val proactiveForegroundVisibility = remember(
+                agentProactiveLifecycleController,
+                agentProactiveAttention
+            ) {
+                AndroidAgentProactiveForegroundVisibilityCoordinator(
+                    reconcileLifecycle = {
+                        agentProactiveLifecycleController.reconcileTracked()
+                    },
+                    reconcileAttention = {
+                        agentProactiveAttention.reconcileTracked(
+                            io.amper.neuroos.core.AndroidAgentProactiveAttentionSurfaceMode
+                                .FOREGROUND_RECONCILE
+                        )
+                    }
+                )
+            }
+            fun reconcileProactiveForegroundVisibility() {
+                proactiveForegroundVisibility
+                    .reconcileOnResume()
+                    .onSuccess {
+                        refreshProactiveSurface()
+                    }
+                proactiveAttentionPermissionStatus =
+                    agentProactiveAttention.permissionStatus()
+            }
             val restoredApproval = remember { assistant.restorePendingApproval() }
             val requestedProactivePlan = remember(
                 requestedProactivePlanId,
@@ -436,23 +464,12 @@ class MainActivity : ComponentActivity() {
                         .reconcileAll()
                         .getOrThrow()
                 }
-                runCatching {
-                    agentProactiveLifecycleController
-                        .reconcileTracked()
-                        .getOrThrow()
-                }.onSuccess {
-                    refreshProactiveSurface()
+                val proactiveForegroundObserver = LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_RESUME) {
+                        reconcileProactiveForegroundVisibility()
+                    }
                 }
-                runCatching {
-                    agentProactiveAttention
-                        .reconcileTracked(
-                            io.amper.neuroos.core.AndroidAgentProactiveAttentionSurfaceMode
-                                .FOREGROUND_RECONCILE
-                        )
-                        .getOrThrow()
-                }
-                proactiveAttentionPermissionStatus =
-                    agentProactiveAttention.permissionStatus()
+                this@MainActivity.lifecycle.addObserver(proactiveForegroundObserver)
                 reflexJobScheduler.reconcile(
                     runtime.reflexLearningMaintenanceQueue.pending()
                 )
@@ -500,6 +517,9 @@ class MainActivity : ComponentActivity() {
                 }
                 reflexMaintenanceLoop.start()
                 onDispose {
+                    this@MainActivity.lifecycle.removeObserver(
+                        proactiveForegroundObserver
+                    )
                     AndroidAgentContinuationProcessRegistry.unregister(
                         agentContinuationExecution
                     )
