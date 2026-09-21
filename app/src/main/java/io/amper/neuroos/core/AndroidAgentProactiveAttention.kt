@@ -75,6 +75,13 @@ object AndroidAgentProactiveAttentionIdentity {
 
     fun tag(planId: PlanId): String = TAG_PREFIX + planId.value
 
+    fun parseRequestedPlanId(raw: String?): PlanId? =
+        raw
+            ?.takeIf {
+                it.matches(Regex("agent-trigger-plan:[0-9a-f]{64}"))
+            }
+            ?.let(::PlanId)
+
     fun navigationData(planId: PlanId): Uri =
         Uri.Builder()
             .scheme("amper")
