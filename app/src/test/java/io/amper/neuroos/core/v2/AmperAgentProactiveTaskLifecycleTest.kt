@@ -116,8 +116,9 @@ class AmperAgentProactiveTaskLifecycleTest {
         assertEquals(0, ready.completedSteps)
         assertEquals(null, ready.waitingApprovalStepIndex)
 
-        planPort.current = planPort.current.copy(
-            steps = planPort.current.steps.map {
+        val waitingPlan = requireNotNull(planPort.current)
+        planPort.current = waitingPlan.copy(
+            steps = waitingPlan.steps.map {
                 if (it.index == 1) {
                     it.copy(status = PlanStepStatus.REQUIRES_CONFIRMATION)
                 } else {
@@ -130,8 +131,9 @@ class AmperAgentProactiveTaskLifecycleTest {
         assertEquals(1, waiting.waitingApprovalStepIndex)
         assertEquals(0, waiting.completedSteps)
 
-        planPort.current = planPort.current.copy(
-            steps = planPort.current.steps.map {
+        val approvedPlan = requireNotNull(planPort.current)
+        planPort.current = approvedPlan.copy(
+            steps = approvedPlan.steps.map {
                 if (it.index == 1) {
                     it.copy(status = PlanStepStatus.EXECUTED)
                 } else {
@@ -172,8 +174,9 @@ class AmperAgentProactiveTaskLifecycleTest {
         val dispatch = dispatch(planPort, wake)
         lifecycle.recordDispatch(dispatch).getOrThrow()
 
-        planPort.current = planPort.current.copy(
-            steps = planPort.current.steps.map {
+        val rejectedPlan = requireNotNull(planPort.current)
+        planPort.current = rejectedPlan.copy(
+            steps = rejectedPlan.steps.map {
                 it.copy(status = PlanStepStatus.REJECTED)
             }
         )
