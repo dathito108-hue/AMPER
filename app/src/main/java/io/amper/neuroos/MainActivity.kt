@@ -352,6 +352,11 @@ class MainActivity : ComponentActivity() {
                 AndroidAgentContinuationProcessRegistry.register(
                     agentContinuationExecution
                 )
+                runCatching {
+                    agentGraph.agentTriggerSourceController
+                        .reconcileAll()
+                        .getOrThrow()
+                }
                 reflexJobScheduler.reconcile(
                     runtime.reflexLearningMaintenanceQueue.pending()
                 )
