@@ -267,16 +267,26 @@ class MemoryBackedSkillGeneralizationModel(
         memory.transaction { snapshotLocked(signature) }
 
     override fun recent(limit: Int): List<SkillGeneralizationProfile> {
-        require(limit >= 0)
+        require(limit in 0..ProceduralMemoryReadPolicy.MAX_GENERALIZATION_RECENT)
         if (limit == 0) return emptyList()
         return memory.transaction {
-            decodeIndex(get(INDEX_ID)?.content)
+            readIndexLocked()
                 .asReversed()
                 .asSequence()
-                .mapNotNull { digest ->
-                    get(MemoryId("skill-generalization:$digest"))
-                        ?.takeIf { it.kind == SNAPSHOT_KIND }
-                        ?.let { GeneralizationCodec.decodeProfile(it.content) }
+                .map { digest ->
+                    val record = requireNotNull(get(MemoryId("skill-generalization:$digest"))) {
+                        "generalization index references missing snapshot: " + digest
+                    }
+                    require(record.kind == SNAPSHOT_KIND) {
+                        "generalization index references wrong record kind: " + digest
+                    }
+                    val profile = requireNotNull(
+                        GeneralizationCodec.decodeProfile(record.content)
+                    ) { "generalization snapshot is malformed: " + digest }
+                    require(profile.signature.digest == digest) {
+                        "generalization snapshot signature digest mismatch"
+                    }
+                    profile
                 }
                 .take(limit)
                 .toList()
@@ -599,14 +609,18 @@ class MemoryBackedSkillGeneralizationModel(
 
     private fun MemoryOs.snapshotLocked(
         signature: StrategySignature
-    ): SkillGeneralizationProfile? =
-        get(snapshotId(signature))
-            ?.takeIf { it.kind == SNAPSHOT_KIND }
-            ?.let { GeneralizationCodec.decodeProfile(it.content) }
-            ?.takeIf { it.signature == signature }
+    ): SkillGeneralizationProfile? {
+        val record = get(snapshotId(signature)) ?: return null
+        require(record.kind == SNAPSHOT_KIND) { "generalization snapshot kind mismatch" }
+        val profile = requireNotNull(GeneralizationCodec.decodeProfile(record.content)) {
+            "generalization snapshot is malformed"
+        }
+        require(profile.signature == signature) { "generalization snapshot signature mismatch" }
+        return profile
+    }
 
     private fun MemoryOs.updateIndexLocked(digest: String, now: Long) {
-        val current = decodeIndex(get(INDEX_ID)?.content)
+        val current = readIndexLocked()
         val next = (current.filterNot { it == digest } + digest)
             .takeLast(MAX_INDEXED_GENERALIZATIONS)
         remember(
@@ -625,13 +639,21 @@ class MemoryBackedSkillGeneralizationModel(
         )
     }
 
-    private fun decodeIndex(content: String?): List<String> {
-        if (content == null || !content.startsWith("digests=")) return emptyList()
-        return content.removePrefix("digests=")
-            .split(',')
-            .filter { it.matches(SHA256) }
-            .distinct()
-            .takeLast(MAX_INDEXED_GENERALIZATIONS)
+    private fun MemoryOs.readIndexLocked(): List<String> {
+        val record = get(INDEX_ID) ?: return emptyList()
+        require(record.kind == INDEX_KIND) { "generalization index kind mismatch" }
+        return decodeIndex(record.content)
+    }
+
+    private fun decodeIndex(content: String): List<String> {
+        require(content.startsWith("digests=")) { "generalization index is malformed" }
+        val raw = content.removePrefix("digests=")
+        if (raw.isBlank()) return emptyList()
+        val values = raw.split(',')
+        require(values.all { it.matches(SHA256) }) { "generalization index digest is malformed" }
+        require(values.distinct().size == values.size) { "generalization index contains duplicates" }
+        require(values.size <= MAX_INDEXED_GENERALIZATIONS) { "generalization index exceeds bound" }
+        return values
     }
 
     private fun markerId(planId: PlanId): MemoryId =
