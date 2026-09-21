@@ -321,6 +321,17 @@ class AmperAgentProactiveTaskLifecycleCoordinator(
         ledger.findByPlanId(planId)?.let { plans.load(it.planId) }
 
     /**
+     * Derive lifecycle state from the exact canonical plan object already loaded by a read-only
+     * projection. This performs no plan write, scheduling, admission registration, or execution.
+     */
+    internal fun inspectLoadedPlan(
+        plan: SovereignPlan
+    ): AmperAgentProactiveTaskLifecycleView? =
+        ledger.findByPlanId(plan.id)?.let { binding ->
+            inspect(binding, plan)
+        }
+
+    /**
      * Recreate the current verified Phase655 handoff without advancing the plan.
      *
      * READY plans become CHECKPOINTED EVENT_WAKE handoffs, approval-blocked plans stay non-runnable,
@@ -395,6 +406,16 @@ class AmperAgentProactiveTaskLifecycleCoordinator(
                 goal = null,
                 planAvailable = false
             )
+        return inspect(binding, plan)
+    }
+
+    private fun inspect(
+        binding: AmperAgentProactiveTaskLifecycleBinding,
+        plan: SovereignPlan
+    ): AmperAgentProactiveTaskLifecycleView {
+        require(plan.id == binding.planId) {
+            "loaded proactive plan identity drifted from lifecycle provenance"
+        }
         val state = deriveState(plan)
         val waiting = if (state == AmperAgentTaskState.WAITING_APPROVAL) {
             plan.steps.first { it.status == PlanStepStatus.REQUIRES_CONFIRMATION }.index

@@ -9,9 +9,14 @@ import io.amper.neuroos.core.InMemoryMemoryOs
 import io.amper.neuroos.core.MemoryBackedSovereignPlanReceiptLedger
 import io.amper.neuroos.core.PlanAdvanceResult
 import io.amper.neuroos.core.PlanDurabilityEvidence
+import io.amper.neuroos.core.PlanExecutionReceipt
+import io.amper.neuroos.core.PlanClaimDecision
+import io.amper.neuroos.core.PlanClaimReconciliation
+import io.amper.neuroos.core.PlanSideEffectClaim
 import io.amper.neuroos.core.PlanId
 import io.amper.neuroos.core.PlanStepStatus
 import io.amper.neuroos.core.SovereignPlan
+import io.amper.neuroos.core.SovereignPlanReceiptLedger
 import io.amper.neuroos.core.SovereignPlanStep
 import io.amper.neuroos.core.ToolId
 import io.amper.neuroos.core.ToolSideEffect
@@ -88,6 +93,90 @@ class AmperAgentProactiveTaskHistoryTest {
     }
 
     @Test
+    fun concurrentCanonicalTransitionRetriesToOneCoherentSnapshot() {
+        val port = TransitioningPlanPort(
+            initial = waitingPlan(),
+            stable = completedPlan()
+        )
+        val history = AmperAgentProactiveTaskHistoryProjection(
+            lifecycle(port),
+            null
+        )
+
+        val entry = history.recent(8).getOrThrow().single()
+
+        assertEquals(AmperAgentTaskState.COMPLETED, entry.lifecycle.taskState)
+        assertEquals(PlanStepStatus.EXECUTED, entry.receipts.single().stepStatus)
+        assertTrue(port.loadCalls >= 5)
+    }
+
+    @Test
+    fun continuousCanonicalChurnFailsVisibleAfterBoundedRetries() {
+        val port = AlternatingPlanPort(
+            first = waitingPlan(),
+            second = completedPlan()
+        )
+        val history = AmperAgentProactiveTaskHistoryProjection(
+            lifecycle(port),
+            null
+        )
+
+        val result = history.recent(8)
+
+        assertTrue(result.isFailure)
+        assertTrue(
+            result.exceptionOrNull()
+                ?.message
+                .orEmpty()
+                .contains("coherent proactive history snapshot unavailable")
+        )
+        assertTrue(
+            port.loadCalls >=
+                AmperAgentProactiveTaskHistoryProjection.MAX_SNAPSHOT_ATTEMPTS * 2
+        )
+    }
+
+    @Test
+    fun receiptEvidenceChurnFailsVisibleAfterBoundedRetries() {
+        val plan = completedPlan()
+        val step = plan.steps.single()
+        val receipt = PlanExecutionReceipt(
+            planId = plan.id,
+            stepIndex = step.index,
+            requestId = step.requestId,
+            capability = step.capability,
+            reasonSha256 = "a".repeat(64),
+            inputSha256 = "b".repeat(64),
+            stepStatus = step.status,
+            actionStatus = step.outcome?.status,
+            toolId = step.outcome?.toolId,
+            outputSha256 = null,
+            detailSha256 = null,
+            receiptSha256 = "c".repeat(64),
+            createdAtEpochMs = 10L
+        )
+        val ledger = AlternatingReceiptLedger(receipt)
+        val history = AmperAgentProactiveTaskHistoryProjection(
+            lifecycle(plan),
+            ledger
+        )
+
+        val result = history.recent(8)
+
+        assertTrue(result.isFailure)
+        assertTrue(
+            result.exceptionOrNull()
+                ?.message
+                .orEmpty()
+                .contains("coherent proactive history snapshot unavailable")
+        )
+        assertTrue(
+            ledger.receiptCalls >=
+                AmperAgentProactiveTaskHistoryProjection.MAX_SNAPSHOT_ATTEMPTS * 2
+        )
+    }
+
+    @Test
     fun projectionIsBoundedAndReceiptViewExposesNoReasonInputOrOutput() {
         val lifecycle = lifecycle(completedPlan())
         val history = AmperAgentProactiveTaskHistoryProjection(lifecycle, null)
@@ -105,10 +194,14 @@ class AmperAgentProactiveTaskHistoryTest {
 
     private fun lifecycle(
         plan: SovereignPlan?
+    ): AmperAgentProactiveTaskLifecycleCoordinator =
+        lifecycle(FakePlanPort(plan))
+
+    private fun lifecycle(
+        port: AmperAgentPersistentPlanPort
     ): AmperAgentProactiveTaskLifecycleCoordinator {
         val ledger = MemoryBackedAmperAgentProactiveTaskLifecycleLedger(InMemoryMemoryOs())
         ledger.record(binding()).getOrThrow()
-        val port = FakePlanPort(plan)
         return AmperAgentProactiveTaskLifecycleCoordinator(
             ledger = ledger,
             plans = port,
@@ -216,6 +309,105 @@ class AmperAgentProactiveTaskHistoryTest {
 
         override fun load(planId: PlanId): SovereignPlan? =
             current?.takeIf { it.id == planId }
+
+        override fun advance(plan: SovereignPlan): Result<PlanAdvanceResult> =
+            Result.failure(UnsupportedOperationException("not used"))
+    }
+
+    private class TransitioningPlanPort(
+        private val initial: SovereignPlan,
+        private val stable: SovereignPlan
+    ) : AmperAgentPersistentPlanPort {
+        var loadCalls: Int = 0
+            private set
+
+        override fun create(
+            conversationId: ConversationId,
+            userGoal: String
+        ): Result<SovereignPlan> =
+            Result.failure(UnsupportedOperationException("not used"))
+
+        override fun load(planId: PlanId): SovereignPlan? {
+            val candidate = if (loadCalls++ == 0) initial else stable
+            return candidate.takeIf { it.id == planId }
+        }
+
+        override fun advance(plan: SovereignPlan): Result<PlanAdvanceResult> =
+            Result.failure(UnsupportedOperationException("not used"))
+    }
+
+    private class AlternatingReceiptLedger(
+        private val terminalReceipt: PlanExecutionReceipt
+    ) : SovereignPlanReceiptLedger {
+        var receiptCalls: Int = 0
+            private set
+
+        override fun claimSideEffect(
+            plan: SovereignPlan,
+            step: SovereignPlanStep
+        ): Result<PlanSideEffectClaim> =
+            Result.failure(UnsupportedOperationException("read-only test ledger"))
+
+        override fun recordTerminal(
+            plan: SovereignPlan,
+            step: SovereignPlanStep
+        ): Result<PlanExecutionReceipt> =
+            Result.failure(UnsupportedOperationException("read-only test ledger"))
+
+        override fun verifyCompletedPrefix(plan: SovereignPlan): Result<Unit> =
+            Result.success(Unit)
+
+        override fun receipt(
+            planId: PlanId,
+            requestId: ActionRequestId
+        ): PlanExecutionReceipt? {
+            val present = receiptCalls++ % 2 == 1
+            return terminalReceipt.takeIf {
+                present &&
+                    it.planId == planId &&
+                    it.requestId == requestId
+            }
+        }
+
+        override fun claim(
+            planId: PlanId,
+            requestId: ActionRequestId
+        ): PlanSideEffectClaim? = null
+
+        override fun pendingClaims(limit: Int): List<PlanSideEffectClaim> =
+            emptyList()
+
+        override fun reconciliation(
+            planId: PlanId,
+            requestId: ActionRequestId
+        ): PlanClaimReconciliation? = null
+
+        override fun reconcileClaim(
+            plan: SovereignPlan,
+            step: SovereignPlanStep,
+            decision: PlanClaimDecision,
+            note: String
+        ): Result<PlanClaimReconciliation> =
+            Result.failure(UnsupportedOperationException("read-only test ledger"))
+    }
+
+    private class AlternatingPlanPort(
+        private val first: SovereignPlan,
+        private val second: SovereignPlan
+    ) : AmperAgentPersistentPlanPort {
+        var loadCalls: Int = 0
+            private set
+
+        override fun create(
+            conversationId: ConversationId,
+            userGoal: String
+        ): Result<SovereignPlan> =
+            Result.failure(UnsupportedOperationException("not used"))
+
+        override fun load(planId: PlanId): SovereignPlan? {
+            val candidate = if (loadCalls++ % 2 == 0) first else second
+            return candidate.takeIf { it.id == planId }
+        }
 
         override fun advance(plan: SovereignPlan): Result<PlanAdvanceResult> =
             Result.failure(UnsupportedOperationException("not used"))
