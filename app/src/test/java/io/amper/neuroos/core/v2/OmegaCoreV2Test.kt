@@ -120,6 +120,18 @@ class OmegaCoreV2Test {
             "accepted-trigger-observations-are-atomically-deduped-with-source-state" in
                 OmegaArchitectureLock.invariants
         )
+        assertTrue(
+            "scheduled-trigger-sources-use-bounded-persisted-jobs-not-polling" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "app-local-trigger-sources-remain-event-driven" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "accepted-trigger-observations-queue-inside-the-same-source-record" in
+                OmegaArchitectureLock.invariants
+        )
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
@@ -401,6 +413,22 @@ class OmegaCoreV2Test {
                 .exitCriteria
                 .contains(
                     "accepted proactive observations atomically update source dedupe state without a second task or plan database"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "scheduled-window trigger sources reconcile to bounded reboot-persistent Android jobs while app-local sources remain unscheduled"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "accepted trigger observations remain in a bounded FIFO inside the same encrypted source record until canonical dispatch acknowledges them"
                 )
         )
     }
