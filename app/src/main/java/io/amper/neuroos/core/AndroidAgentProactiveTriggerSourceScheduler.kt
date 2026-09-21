@@ -213,6 +213,9 @@ class AndroidAgentTriggerSourceJobScheduler(
             .mapTo(linkedSetOf()) { (_, plan) ->
                 AndroidAgentTriggerSourceJobIdentity.jobIdFor(plan.sourceId)
             }
+        require(desiredJobIds.size == desired.size) {
+            "proactive trigger source job-id collision detected"
+        }
 
         var cancelled = 0
         jobs.allPendingJobs
