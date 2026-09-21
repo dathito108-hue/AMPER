@@ -142,7 +142,7 @@ class AndroidAgentProactiveAttentionController(
     fun reconcileTracked(
         mode: AndroidAgentProactiveAttentionSurfaceMode =
             AndroidAgentProactiveAttentionSurfaceMode.FOREGROUND_RECONCILE,
-        limit: Int = 32
+        limit: Int = 64
     ): Result<AndroidAgentProactiveAttentionReconcileReport> = runCatching {
         require(limit in 1..64)
         val views = lifecycle.inspect(limit)
@@ -158,17 +158,24 @@ class AndroidAgentProactiveAttentionController(
             }
         }
 
-        val trackedTags = views.mapTo(linkedSetOf()) {
-            AndroidAgentProactiveAttentionIdentity.tag(it.binding.planId)
-        }
-        manager.activeNotifications
-            .asSequence()
-            .mapNotNull { it.tag }
-            .filter { it.startsWith(AndroidAgentProactiveAttentionIdentity.TAG_PREFIX) }
-            .filterNot { it in trackedTags }
-            .forEach { staleTag ->
-                manager.cancel(staleTag, AndroidAgentProactiveAttentionIdentity.NOTIFICATION_ID)
+        if (limit == 64) {
+            val trackedTags = views.mapTo(linkedSetOf()) {
+                AndroidAgentProactiveAttentionIdentity.tag(it.binding.planId)
             }
+            manager.activeNotifications
+                .asSequence()
+                .mapNotNull { it.tag }
+                .filter {
+                    it.startsWith(AndroidAgentProactiveAttentionIdentity.TAG_PREFIX)
+                }
+                .filterNot { it in trackedTags }
+                .forEach { staleTag ->
+                    manager.cancel(
+                        staleTag,
+                        AndroidAgentProactiveAttentionIdentity.NOTIFICATION_ID
+                    )
+                }
+        }
 
         AndroidAgentProactiveAttentionReconcileReport(
             tracked = views.size,
