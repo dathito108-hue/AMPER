@@ -204,6 +204,32 @@ class AmperAgentAndroidContinuationDispatchTest {
         )
     }
 
+    @Test
+    fun tamperedReadyHandoffNeverAcquiresColdExecutionFallback() {
+        var fallbackCalls = 0
+        val original = AmperAgentAndroidContinuationHandoffPolicy.create(
+            envelope(
+                mode = OmegaBackgroundMode.PERSISTED_JOB,
+                state = AmperAgentTaskState.CHECKPOINTED
+            )
+        )
+        val tampered = original.copy(
+            encodedEnvelope = original.encodedEnvelope + "\n"
+        )
+
+        val result = AmperAgentAndroidContinuationHostDispatcher.dispatch(
+            handoff = tampered,
+            execution = null,
+            executionFallback = {
+                fallbackCalls += 1
+                error("unverified handoff must not bootstrap canonical execution")
+            }
+        )
+
+        assertTrue(result.isFailure)
+        assertEquals(0, fallbackCalls)
+    }
+
     private fun envelope(
         mode: OmegaBackgroundMode,
         state: AmperAgentTaskState,
