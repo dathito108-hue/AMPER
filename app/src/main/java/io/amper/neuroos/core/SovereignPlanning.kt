@@ -449,6 +449,26 @@ class SovereignPlanCoordinator(
     fun create(
         conversationId: ConversationId,
         userGoal: String
+    ): Result<SovereignPlan> =
+        createInternal(conversationId, userGoal, boundPlanId = null)
+
+    /**
+     * Canonical deterministic-plan entrypoint for durable proactive trigger dispatch.
+     *
+     * The supplied id changes identity only; planning, inference, tool binding, authority,
+     * conversation evidence, and skill-learning hooks remain exactly the normal create() path.
+     */
+    fun createBound(
+        conversationId: ConversationId,
+        userGoal: String,
+        planId: PlanId
+    ): Result<SovereignPlan> =
+        createInternal(conversationId, userGoal, boundPlanId = planId)
+
+    private fun createInternal(
+        conversationId: ConversationId,
+        userGoal: String,
+        boundPlanId: PlanId?
     ): Result<SovereignPlan> = runCatching {
         require(userGoal.isNotBlank())
         val boundInferenceProfile = runtime.inferenceProfiles.bind(
@@ -514,6 +534,7 @@ class SovereignPlanCoordinator(
         )
         val finalEvaluation = postCriticEvaluation(selection.selected, critique)
         val plan = SovereignPlan(
+            id = boundPlanId ?: PlanId(UUID.randomUUID().toString()),
             conversationId = conversationId,
             goal = userGoal,
             steps = finalEvaluation.candidate.steps,
