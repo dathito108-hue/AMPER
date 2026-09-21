@@ -32,7 +32,7 @@ import java.util.concurrent.Future
 
 /**
  * Process-local bridge only. It owns no planner, ToolFabric, AuthorityGate, or task persistence.
- * Phase652 may provide cold-process canonical Agent Core restoration when no live port is registered.
+ * Phase653 cold jobs fall back to the shared canonical bootstrap only after verified READY dispatch.
  */
 object AndroidAgentContinuationProcessRegistry {
     @Volatile
