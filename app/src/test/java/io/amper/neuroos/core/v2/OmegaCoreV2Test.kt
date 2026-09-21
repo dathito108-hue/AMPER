@@ -240,6 +240,34 @@ class OmegaCoreV2Test {
             "attention-ack-pruning-follows-lifecycle-membership-only" in
                 OmegaArchitectureLock.invariants
         )
+        assertTrue(
+            "proactive-history-is-read-only-projection-not-task-database" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-history-reuses-canonical-plan-receipt-ledger" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-history-reuses-existing-execution-inspector" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-history-receipt-view-excludes-reason-input-output" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-history-is-bounded-by-lifecycle-window" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-history-missing-plan-never-synthesizes-receipts" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-history-recovery-state-comes-from-canonical-receipt-evidence" in
+                OmegaArchitectureLock.invariants
+        )
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
@@ -705,6 +733,46 @@ class OmegaCoreV2Test {
                 .exitCriteria
                 .contains(
                     "the acknowledgement ledger is bounded without silent eviction and full reconciliation prunes only entries whose PlanIds are no longer lifecycle-tracked"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "proactive task history is a bounded read-only projection over Phase662 lifecycle state and never persists a second task or history record"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "proactive receipt presentation reuses the existing SovereignPlanExecutionInspector and canonical SovereignPlanReceiptLedger without writing during reads"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "proactive receipt presentation exposes only bounded step status capability durability evidence receipt digest and reconciliation decision without reason input or output"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "proactive history limits are bounded by the lifecycle capacity and missing canonical plans remain visible without synthetic receipt evidence"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "proactive recovery presentation is derived only from existing unresolved claim and reconciliation evidence and cannot mutate or replay providers"
                 )
         )
     }

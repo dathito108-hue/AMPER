@@ -26,11 +26,14 @@ class AmperAgentProactiveTaskHistoryTest {
     fun canonicalTerminalReceiptIsProjectedWithoutDuplicatingReceiptStorage() {
         val plan = completedPlan()
         val lifecycle = lifecycle(plan)
-        val receiptLedger = MemoryBackedSovereignPlanReceiptLedger(InMemoryMemoryOs())
+        val receiptMemory = InMemoryMemoryOs()
+        val receiptLedger = MemoryBackedSovereignPlanReceiptLedger(receiptMemory)
         receiptLedger.recordTerminal(plan, plan.steps.single()).getOrThrow()
+        val recordsBeforeProjection = receiptMemory.size()
         val history = AmperAgentProactiveTaskHistoryProjection(lifecycle, receiptLedger)
 
         val entry = history.recent(8).getOrThrow().single()
+        assertEquals(recordsBeforeProjection, receiptMemory.size())
         val receipt = entry.receipts.single()
 
         assertEquals(AmperAgentTaskState.COMPLETED, entry.lifecycle.taskState)
