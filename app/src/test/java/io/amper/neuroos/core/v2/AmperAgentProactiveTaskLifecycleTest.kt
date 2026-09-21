@@ -57,6 +57,41 @@ class AmperAgentProactiveTaskLifecycleTest {
     }
 
     @Test
+    fun lifecycleLedgerIsBoundedAndDoesNotEvictActiveProvenance() {
+        val ledger = MemoryBackedAmperAgentProactiveTaskLifecycleLedger(
+            InMemoryMemoryOs()
+        )
+
+        repeat(MemoryBackedAmperAgentProactiveTaskLifecycleLedger.MAX_BINDINGS) { index ->
+            val identity = index.toString(16).padEnd(64, 'a')
+            ledger.record(
+                binding(
+                    observationIdentitySha256 = identity,
+                    boundAtEpochMs = 100L + index
+                )
+            ).getOrThrow()
+        }
+
+        assertEquals(
+            MemoryBackedAmperAgentProactiveTaskLifecycleLedger.MAX_BINDINGS,
+            ledger.recent(128).size
+        )
+        val overflowIdentity = "f0".repeat(32)
+        assertTrue(
+            ledger.record(
+                binding(
+                    observationIdentitySha256 = overflowIdentity,
+                    boundAtEpochMs = 1_000L
+                )
+            ).isFailure
+        )
+        assertEquals(
+            MemoryBackedAmperAgentProactiveTaskLifecycleLedger.MAX_BINDINGS,
+            ledger.recent(128).size
+        )
+    }
+
+    @Test
     fun corruptedLifecycleLedgerFailsClosedInsteadOfAppearingEmpty() {
         val memory = InMemoryMemoryOs()
         memory.remember(
@@ -280,23 +315,25 @@ class AmperAgentProactiveTaskLifecycleTest {
         )
     }
 
-    private fun binding(): AmperAgentProactiveTaskLifecycleBinding {
-        val observationIdentity = "a".repeat(64)
+    private fun binding(
+        observationIdentitySha256: String = "a".repeat(64),
+        boundAtEpochMs: Long = 100L
+    ): AmperAgentProactiveTaskLifecycleBinding {
         val sourceId = "monitor.example"
         return AmperAgentProactiveTaskLifecycleBinding(
             sourceId = sourceId,
             configurationSha256 = "c".repeat(64),
-            observationIdentitySha256 = observationIdentity,
-            taskId = "proactive:" + observationIdentity.take(48),
+            observationIdentitySha256 = observationIdentitySha256,
+            taskId = "proactive:" + observationIdentitySha256.take(48),
             planId = AmperAgentPendingTriggerDispatchCoordinator
-                .deterministicPlanId(observationIdentity),
+                .deterministicPlanId(observationIdentitySha256),
             trigger = AmperAgentTrigger(
                 triggerId = sourceId,
                 source = "user-configured:app_local_event:1234567890abcdef:cdef0123456789ab",
                 observedAtEpochMs = 10L,
                 payloadDigest = "b".repeat(64)
             ),
-            boundAtEpochMs = 100L
+            boundAtEpochMs = boundAtEpochMs
         )
     }
 
