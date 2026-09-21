@@ -136,6 +136,22 @@ class OmegaCoreV2Test {
             "pending-trigger-observations-lock-source-revision-and-removal" in
                 OmegaArchitectureLock.invariants
         )
+        assertTrue(
+            "pending-trigger-dispatch-uses-deterministic-canonical-plan-identity" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "pending-trigger-fifo-acks-only-after-durable-verified-dispatch-binding" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "pending-trigger-dispatch-reuses-governed-event-wake-scheduler" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "pending-trigger-dispatch-adds-no-planner-tool-or-model-path" in
+                OmegaArchitectureLock.invariants
+        )
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
@@ -441,6 +457,38 @@ class OmegaCoreV2Test {
                 .exitCriteria
                 .contains(
                     "pending trigger observations prevent source revision or removal until their provenance is acknowledged"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "oldest pending trigger observations bind to deterministic canonical persistent-plan identity across crash and retry"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "pending trigger FIFO entries acknowledge only after verified durable handoff and required Phase657 scheduling succeed"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "pending trigger dispatch uses one bounded resource-governed Android one-shot job per source instead of polling"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "foreground reconciliation re-enable and new source observations recover durable pending trigger dispatch"
                 )
         )
     }
