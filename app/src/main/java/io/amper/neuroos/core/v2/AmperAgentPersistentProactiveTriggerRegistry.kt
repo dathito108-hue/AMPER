@@ -105,7 +105,8 @@ class MemoryBackedAmperAgentProactiveTriggerSourceRegistry(
                     existing?.lastAcceptedObservationAtEpochMs,
                 lastAcceptedObservationIdentitySha256 =
                     existing?.lastAcceptedObservationIdentitySha256,
-                updatedAtEpochMs = updatedAtEpochMs
+                updatedAtEpochMs =
+                    updatedAtEpochMs.coerceAtLeast(existing?.updatedAtEpochMs ?: 0L)
             )
             remember(record(state))
             state
@@ -142,7 +143,7 @@ class MemoryBackedAmperAgentProactiveTriggerSourceRegistry(
             }
             val state = current.copy(
                 source = current.source.copy(enabled = enabled),
-                updatedAtEpochMs = updatedAtEpochMs
+                updatedAtEpochMs = updatedAtEpochMs.coerceAtLeast(current.updatedAtEpochMs)
             )
             remember(record(state))
             state
@@ -182,8 +183,11 @@ class MemoryBackedAmperAgentProactiveTriggerSourceRegistry(
                 lastAcceptedObservationAtEpochMs = observation.observedAtEpochMs,
                 lastAcceptedObservationIdentitySha256 =
                     qualified.observationIdentitySha256,
-                updatedAtEpochMs =
-                    acceptedAtEpochMs.coerceAtLeast(observation.observedAtEpochMs)
+                updatedAtEpochMs = maxOf(
+                    current.updatedAtEpochMs,
+                    acceptedAtEpochMs,
+                    observation.observedAtEpochMs
+                )
             )
             remember(record(next))
             AmperAgentAcceptedProactiveTriggerObservation(
