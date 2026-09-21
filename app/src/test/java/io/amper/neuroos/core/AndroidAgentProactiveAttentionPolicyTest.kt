@@ -101,6 +101,24 @@ class AndroidAgentProactiveAttentionPolicyTest {
             null,
             AndroidAgentProactiveAttentionIdentity.parseRequestedPlanId(null)
         )
+        assertEquals(
+            "b".repeat(64),
+            AndroidAgentProactiveAttentionIdentity.parseRequestedRevision(
+                "b".repeat(64)
+            )
+        )
+        assertEquals(
+            null,
+            AndroidAgentProactiveAttentionIdentity.parseRequestedRevision(
+                "B".repeat(64)
+            )
+        )
+        assertEquals(
+            null,
+            AndroidAgentProactiveAttentionIdentity.parseRequestedRevision(
+                "b".repeat(63)
+            )
+        )
     }
 
     @Test
