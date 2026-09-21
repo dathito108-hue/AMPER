@@ -18,6 +18,7 @@ import io.amper.neuroos.core.v2.AmperAgentPlanTaskCheckpoint
 import io.amper.neuroos.core.v2.AmperAgentProactiveEventWakeCoordinator
 import io.amper.neuroos.core.v2.AmperAgentTaskAdmission
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 
@@ -201,21 +202,19 @@ class AgentEventWakeJobService : JobService() {
     private val worker = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "amper-agent-event-wake").apply { isDaemon = true }
     }
-
-    @Volatile
-    private var active: Future<*>? = null
+    private val active = ConcurrentHashMap<Int, Future<*>>()
 
     override fun onStartJob(params: JobParameters): Boolean {
         val handoff = AndroidAgentEventWakeTransport
             .readFromBundle(params.extras)
             .getOrElse { return false }
 
-        active = worker.submit {
+        val future = worker.submit {
             val outcome = AndroidAgentEventWakeConsumer(applicationContext)
                 .consume(handoff)
 
             Handler(Looper.getMainLooper()).post {
-                active = null
+                active.remove(params.jobId)
 
                 outcome.fold(
                     onSuccess = { result ->
@@ -247,20 +246,20 @@ class AgentEventWakeJobService : JobService() {
                 )
             }
         }
+        active.put(params.jobId, future)?.cancel(true)
         return true
     }
 
     override fun onStopJob(params: JobParameters): Boolean {
-        active?.cancel(true)
-        active = null
+        active.remove(params.jobId)?.cancel(true)
         // If interruption happened before persistence, one retry is useful. If the step already
         // committed, Phase655 digest verification rejects the stale checkpoint on the retry.
         return true
     }
 
     override fun onDestroy() {
-        active?.cancel(true)
-        active = null
+        active.values.forEach { it.cancel(true) }
+        active.clear()
         worker.shutdownNow()
         super.onDestroy()
     }
