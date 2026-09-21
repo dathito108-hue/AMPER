@@ -58,19 +58,32 @@ class AmperAgentProactiveTaskLifecycleTest {
 
     @Test
     fun lifecycleLedgerIsBoundedAndDoesNotEvictActiveProvenance() {
-        val ledger = MemoryBackedAmperAgentProactiveTaskLifecycleLedger(
-            InMemoryMemoryOs()
-        )
-
-        repeat(MemoryBackedAmperAgentProactiveTaskLifecycleLedger.MAX_BINDINGS) { index ->
+        val memory = InMemoryMemoryOs()
+        val full = List(
+            MemoryBackedAmperAgentProactiveTaskLifecycleLedger.MAX_BINDINGS
+        ) { index ->
             val identity = index.toString(16).padStart(2, '0') + "a".repeat(62)
-            ledger.record(
-                binding(
-                    observationIdentitySha256 = identity,
-                    boundAtEpochMs = 100L + index
-                )
-            ).getOrThrow()
+            binding(
+                observationIdentitySha256 = identity,
+                boundAtEpochMs = 100L + index
+            )
         }
+        memory.remember(
+            MemoryRecord(
+                id = MemoryId("agent-proactive-task-lifecycle:index"),
+                kind = MemoryBackedAmperAgentProactiveTaskLifecycleLedger.KIND,
+                content = AmperAgentProactiveTaskLifecycleCodec.encode(full),
+                importance = 0.96,
+                provenance = Provenance(
+                    source = "test",
+                    producer = "test",
+                    observedAtEpochMs = full.maxOf { it.boundAtEpochMs },
+                    confidence = 1.0
+                ),
+                createdAtEpochMs = full.maxOf { it.boundAtEpochMs }
+            )
+        )
+        val ledger = MemoryBackedAmperAgentProactiveTaskLifecycleLedger(memory)
 
         assertEquals(
             MemoryBackedAmperAgentProactiveTaskLifecycleLedger.MAX_BINDINGS,
