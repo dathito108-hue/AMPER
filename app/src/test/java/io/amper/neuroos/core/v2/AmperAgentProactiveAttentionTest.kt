@@ -1,6 +1,8 @@
 package io.amper.neuroos.core.v2
 
 import io.amper.neuroos.core.InMemoryMemoryOs
+import io.amper.neuroos.core.MemoryRecord
+import io.amper.neuroos.core.Provenance
 import io.amper.neuroos.core.PlanId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -187,6 +189,38 @@ class AmperAgentProactiveAttentionTest {
         )
         assertTrue(ledger.isAcknowledged(first).getOrThrow())
         assertFalse(ledger.isAcknowledged(second).getOrThrow())
+    }
+
+    @Test
+    fun corruptedAcknowledgementLedgerFailsVisibleInsteadOfSuppressingAttention() {
+        val memory = InMemoryMemoryOs()
+        memory.remember(
+            MemoryRecord(
+                id = MemoryBackedAmperAgentProactiveAttentionAcknowledgementLedger.RECORD_ID,
+                kind = MemoryBackedAmperAgentProactiveAttentionAcknowledgementLedger.KIND,
+                content = "corrupt",
+                importance = 0.72,
+                provenance = Provenance(
+                    source = "test",
+                    producer = "test",
+                    observedAtEpochMs = 1L,
+                    confidence = 1.0
+                ),
+                createdAtEpochMs = 1L
+            )
+        )
+        val ledger = MemoryBackedAmperAgentProactiveAttentionAcknowledgementLedger(memory)
+        val approval = AmperAgentProactiveAttentionPolicy.decide(
+            view(
+                state = AmperAgentTaskState.WAITING_APPROVAL,
+                completedSteps = 0,
+                totalSteps = 2,
+                waitingStep = 1
+            )
+        )
+
+        assertTrue(ledger.isAcknowledged(approval).isFailure)
+        assertFalse(ledger.isAcknowledged(approval).getOrDefault(false))
     }
 
     private fun view(

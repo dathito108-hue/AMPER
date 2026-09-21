@@ -41,7 +41,7 @@ object AmperAgentProactiveAttentionRevision {
         }
         return MessageDigest.getInstance("SHA-256")
             .digest(canonical.toByteArray(StandardCharsets.UTF_8))
-            .joinToString("") { "%02x".format(it) }
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
     }
 }
 
@@ -80,7 +80,7 @@ class MemoryBackedAmperAgentProactiveAttentionAcknowledgementLedger(
         acknowledgedAtEpochMs: Long
     ): Result<AmperAgentProactiveAttentionAcknowledgement> = runCatching {
         require(decision.kind != AmperAgentProactiveAttentionKind.NONE)
-        require(acknowledgedAtEpochMs >= decision.observedAtEpochMs)
+        require(acknowledgedAtEpochMs >= 0L)
         val acknowledgement = AmperAgentProactiveAttentionAcknowledgement(
             planId = decision.planId,
             revisionSha256 = AmperAgentProactiveAttentionRevision.sha256(decision),
