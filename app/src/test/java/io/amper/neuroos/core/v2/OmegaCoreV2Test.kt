@@ -188,6 +188,34 @@ class OmegaCoreV2Test {
             "proactive-lifecycle-provenance-corruption-fails-closed" in
                 OmegaArchitectureLock.invariants
         )
+        assertTrue(
+            "proactive-attention-is-read-only-and-never-authorizes-or-executes" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-attention-surfaces-only-approval-or-terminal-state" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-notifications-have-no-direct-approval-or-execution-actions" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-attention-delivery-state-is-transport-metadata-not-task-state" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-attention-reuses-lifecycle-and-adds-no-scheduler" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "notification-permission-never-blocks-canonical-task-state" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-attention-content-excludes-goal-input-and-trigger-payload" in
+                OmegaArchitectureLock.invariants
+        )
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
@@ -573,6 +601,54 @@ class OmegaCoreV2Test {
                 .exitCriteria
                 .contains(
                     "proactive lifecycle provenance is bounded and compacts only canonically terminal plans"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "proactive attention surfaces governed approval and terminal states without adding execution authority"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "proactive notification taps only open AMPER and expose no direct approve reject or execute action"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "notification transport metadata stores only delivered fingerprints and never becomes task state"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "background and foreground attention routing consume the canonical lifecycle without adding a scheduler"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "denied notification permission never blocks proactive planning checkpointing approval or EVENT_WAKE state"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "notification copy excludes proactive goal input capability source payload and tool details"
                 )
         )
     }
