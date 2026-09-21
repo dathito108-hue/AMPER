@@ -293,16 +293,28 @@ class AndroidAgentProactiveTriggerSourceController(
         source: AmperAgentProactiveTriggerSource,
         updatedAtEpochMs: Long = System.currentTimeMillis()
     ): Result<AmperAgentPersistedProactiveTriggerSource> = runCatching {
-        if (registry.get(source.sourceId) == null) {
+        val currentStates = registry.list(
+            AndroidAgentScheduledTriggerSourcePolicy.MAX_REGISTERED_SOURCES + 1
+        )
+        require(
+            currentStates.size <= AndroidAgentScheduledTriggerSourcePolicy.MAX_REGISTERED_SOURCES
+        ) {
+            "persisted proactive trigger registration count exceeds Android bound"
+        }
+        if (currentStates.none { it.source.sourceId == source.sourceId }) {
             require(
-                registry.list(
-                    AndroidAgentScheduledTriggerSourcePolicy.MAX_REGISTERED_SOURCES
-                ).size <
+                currentStates.size <
                     AndroidAgentScheduledTriggerSourcePolicy.MAX_REGISTERED_SOURCES
             ) {
                 "proactive trigger registration limit reached"
             }
         }
+        AndroidAgentPendingTriggerDispatchJobIdentity.requireCollisionFree(
+            currentStates
+                .map { it.source.sourceId }
+                .filterNot { it == source.sourceId } +
+                source.sourceId
+        )
 
         val state = registry.upsert(source, updatedAtEpochMs)
         reconcileAll().getOrThrow()
@@ -340,6 +352,9 @@ class AndroidAgentProactiveTriggerSourceController(
         ) {
             "persisted proactive trigger registration count exceeds Android bound"
         }
+        AndroidAgentPendingTriggerDispatchJobIdentity.requireCollisionFree(
+            states.map { it.source.sourceId }
+        )
         val report = scheduler.reconcile(states).getOrThrow()
         states.forEach { state ->
             if (state.source.enabled && state.pendingObservations.isNotEmpty()) {
