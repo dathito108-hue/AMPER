@@ -82,9 +82,33 @@ class AmperAgentUserTaskRuntime(
  */
 class AmperAgentCanonicalContinuationExecutionPort(
     private val admissions: AmperAgentTaskAdmissionRegistry,
+    private val plans: AmperAgentPersistentPlanPort,
     private val passive: AmperAgentPassiveTaskCoordinator,
     private val continuation: AmperAgentExecutionContinuationCoordinator
 ) : AmperAgentAndroidContinuationExecutionPort {
+    private fun restoreNarrowAdmission(
+        envelope: AmperAgentContinuationEnvelope
+    ): AmperAgentTaskAdmission {
+        val plan = requireNotNull(plans.load(envelope.planId)) {
+            "durable sovereign plan is unavailable for admission reconstruction"
+        }
+        val request = AmperAgentTaskRequest(
+            taskId = envelope.taskId,
+            origin = AmperAgentTaskOrigin.USER_REQUEST,
+            objective = plan.goal,
+            allowedCapabilities = plan.steps.mapTo(linkedSetOf()) { it.capability },
+            expectedRuntimeMs = 0L,
+            mustSurviveUiExit = true,
+            canBeDeferred = envelope.backgroundMode == OmegaBackgroundMode.PERSISTED_JOB,
+            createdAtEpochMs = plan.createdAtEpochMs
+        )
+        val admission = AmperAgentTaskAdmissionPolicy.admit(request)
+        require(admission.backgroundMode == envelope.backgroundMode) {
+            "reconstructed Agent Core admission cannot reproduce continuation mode"
+        }
+        return admission
+    }
+
     override fun advanceOnceVerified(
         handoff: AmperAgentAndroidContinuationHandoff,
         envelope: AmperAgentContinuationEnvelope
@@ -93,10 +117,7 @@ class AmperAgentCanonicalContinuationExecutionPort(
         require(handoff.planId == envelope.planId.value)
 
         val admission = admissions.get(envelope.taskId)
-            ?: return@runCatching AmperAgentAndroidHostExecutionResult(
-                state = AmperAgentAndroidHostExecutionState.RETRY_LATER,
-                detail = "warm Agent Core admission context is unavailable"
-            )
+            ?: restoreNarrowAdmission(envelope).also(admissions::register)
 
         require(admission.backgroundMode == envelope.backgroundMode) {
             "Agent Core background mode drifted before Android execution"
