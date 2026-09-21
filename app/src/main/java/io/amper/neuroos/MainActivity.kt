@@ -347,7 +347,8 @@ class MainActivity : ComponentActivity() {
                     catalog = catalog,
                     artifacts = modelArtifacts,
                     core = amperCore,
-                    governor = governor
+                    governor = governor,
+                    deviceStatusSource = deviceStatusSource
                 )
             }
             val detachManager = remember {
