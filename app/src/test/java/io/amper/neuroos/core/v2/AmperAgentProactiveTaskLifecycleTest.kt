@@ -152,6 +152,10 @@ class AmperAgentProactiveTaskLifecycleTest {
         assertEquals(AmperAgentTaskState.CHECKPOINTED, resumedEnvelope.taskState)
         assertEquals(1, resumedEnvelope.completedSteps)
         assertEquals(dispatch.admission.request.trigger, resumedEnvelope.trigger)
+        assertEquals(
+            0,
+            admissions.size()
+        )
     }
 
     @Test
