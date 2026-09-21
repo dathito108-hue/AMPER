@@ -76,6 +76,10 @@ class OmegaCoreV2Test {
             "cold-persisted-agent-wakes-rebuild-the-same-canonical-runtime-graph" in
                 OmegaArchitectureLock.invariants
         )
+        assertTrue(
+            "proactive-trigger-tasks-reuse-canonical-persistent-plan-engine" in
+                OmegaArchitectureLock.invariants
+        )
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
@@ -269,6 +273,14 @@ class OmegaCoreV2Test {
                 .exitCriteria
                 .contains(
                     "persisted JobService cold-starts the same single-foundation runtime graph after process death or reboot"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "proactive EVENT_WAKE tasks reuse the same persistent sovereign-plan engine and governed approval boundary"
                 )
         )
     }

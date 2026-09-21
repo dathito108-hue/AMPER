@@ -51,6 +51,16 @@ data class AmperAgentPassiveTaskResult(
     val diagnostics: AmperAgentPassiveTaskDiagnostics
 )
 
+/**
+ * Neutral Phase654 names for the one persistent-plan task checkpoint/result contract.
+ *
+ * The Phase648 passive names remain source-compatible aliases so no second persistence model is
+ * introduced while proactive tasks reuse the same checkpoint representation.
+ */
+typealias AmperAgentPlanTaskCheckpoint = AmperAgentPassiveTaskCheckpoint
+typealias AmperAgentPlanTaskDiagnostics = AmperAgentPassiveTaskDiagnostics
+typealias AmperAgentPlanTaskResult = AmperAgentPassiveTaskResult
+
 interface AmperAgentPersistentPlanPort {
     fun create(
         conversationId: ConversationId,
@@ -85,32 +95,27 @@ class PersistentSovereignAgentPlanPort(
 }
 
 /**
- * M5 passive task binding for explicit USER_REQUEST work.
+ * One canonical persistent-plan task engine shared by passive USER_REQUEST and proactive-trigger
+ * coordinators.
  *
- * The coordinator does not execute tools itself and does not expose approve/reject shortcuts.
- * It advances at most one canonical plan step per call. Side effects that require confirmation stop
- * at WAITING_APPROVAL and must be resolved by the existing governed approval surface.
- *
- * The durable plan id is the checkpoint anchor. Non-UI-bound Agent Core tasks therefore reuse the
- * already-persistent plan store rather than creating a second task persistence system.
+ * It contains no planner, ToolFabric, AuthorityGate, approval shortcut, Android scheduler, or
+ * independent persistence. Every start/advance delegates to the same AmperAgentPersistentPlanPort
+ * and every call advances at most one sovereign-plan step.
  */
-class AmperAgentPassiveTaskCoordinator(
+private class AmperAgentPersistentPlanTaskEngine(
     private val plans: AmperAgentPersistentPlanPort,
-    private val clock: () -> Long = System::currentTimeMillis
+    private val clock: () -> Long
 ) {
     fun start(
         admission: AmperAgentTaskAdmission,
-        conversationId: ConversationId
-    ): Result<AmperAgentPassiveTaskResult> = runCatching {
-        val request = admission.request
-        require(request.origin == AmperAgentTaskOrigin.USER_REQUEST) {
-            "passive task coordinator only accepts USER_REQUEST tasks"
-        }
-        require(admission.toolAuthorityRemainsExternal && admission.auditRequired)
+        conversationId: ConversationId,
+        expectedOrigin: AmperAgentTaskOrigin
+    ): Result<AmperAgentPlanTaskResult> = runCatching {
+        requireAdmission(admission, expectedOrigin)
 
         val plan = plans.create(
             conversationId = conversationId,
-            userGoal = request.objective
+            userGoal = admission.request.objective
         ).getOrThrow()
 
         requireTaskPlanEnvelope(admission, plan)
@@ -124,11 +129,11 @@ class AmperAgentPassiveTaskCoordinator(
 
     fun advance(
         admission: AmperAgentTaskAdmission,
-        checkpoint: AmperAgentPassiveTaskCheckpoint
-    ): Result<AmperAgentPassiveTaskResult> = runCatching {
-        val request = admission.request
-        require(request.origin == AmperAgentTaskOrigin.USER_REQUEST)
-        require(checkpoint.taskId == request.taskId) {
+        checkpoint: AmperAgentPlanTaskCheckpoint,
+        expectedOrigin: AmperAgentTaskOrigin
+    ): Result<AmperAgentPlanTaskResult> = runCatching {
+        requireAdmission(admission, expectedOrigin)
+        require(checkpoint.taskId == admission.request.taskId) {
             "Agent Core checkpoint belongs to a different task"
         }
         require(checkpoint.backgroundMode == admission.backgroundMode) {
@@ -141,7 +146,7 @@ class AmperAgentPassiveTaskCoordinator(
                 AmperAgentTaskState.RUNNING
             )
         ) {
-            "passive task is not eligible for canonical plan advancement"
+            "Agent Core task is not eligible for canonical plan advancement"
         }
 
         val plan = requireNotNull(plans.load(checkpoint.planId)) {
@@ -179,8 +184,10 @@ class AmperAgentPassiveTaskCoordinator(
 
     fun resumeAfterGovernedApproval(
         admission: AmperAgentTaskAdmission,
-        checkpoint: AmperAgentPassiveTaskCheckpoint
-    ): Result<AmperAgentPassiveTaskResult> = runCatching {
+        checkpoint: AmperAgentPlanTaskCheckpoint,
+        expectedOrigin: AmperAgentTaskOrigin
+    ): Result<AmperAgentPlanTaskResult> = runCatching {
+        requireAdmission(admission, expectedOrigin)
         require(checkpoint.taskId == admission.request.taskId)
         require(checkpoint.taskState == AmperAgentTaskState.WAITING_APPROVAL) {
             "task is not waiting for governed approval"
@@ -204,6 +211,25 @@ class AmperAgentPassiveTaskCoordinator(
             plan = plan,
             state = if (plan.complete) terminalState(plan) else AmperAgentTaskState.READY
         )
+    }
+
+    private fun requireAdmission(
+        admission: AmperAgentTaskAdmission,
+        expectedOrigin: AmperAgentTaskOrigin
+    ) {
+        val request = admission.request
+        require(request.origin == expectedOrigin) {
+            "Agent Core task origin does not match this coordinator"
+        }
+        require(admission.toolAuthorityRemainsExternal && admission.auditRequired)
+        if (expectedOrigin == AmperAgentTaskOrigin.PROACTIVE_TRIGGER) {
+            require(admission.backgroundMode == OmegaBackgroundMode.EVENT_WAKE) {
+                "proactive task must retain canonical EVENT_WAKE admission"
+            }
+            require(request.trigger != null) {
+                "proactive task lost explicit trigger provenance"
+            }
+        }
     }
 
     private fun requireTaskPlanEnvelope(
@@ -233,7 +259,7 @@ class AmperAgentPassiveTaskCoordinator(
         admission: AmperAgentTaskAdmission,
         plan: SovereignPlan,
         state: AmperAgentTaskState
-    ): AmperAgentPassiveTaskResult {
+    ): AmperAgentPlanTaskResult {
         val completed = plan.steps.count {
             it.status !in setOf(
                 PlanStepStatus.PLANNED,
@@ -241,7 +267,7 @@ class AmperAgentPassiveTaskCoordinator(
             )
         }
         val now = clock().coerceAtLeast(plan.createdAtEpochMs)
-        val checkpoint = AmperAgentPassiveTaskCheckpoint(
+        val checkpoint = AmperAgentPlanTaskCheckpoint(
             taskId = admission.request.taskId,
             planId = plan.id,
             backgroundMode = admission.backgroundMode,
@@ -250,9 +276,9 @@ class AmperAgentPassiveTaskCoordinator(
             totalSteps = plan.steps.size,
             updatedAtEpochMs = now
         )
-        return AmperAgentPassiveTaskResult(
+        return AmperAgentPlanTaskResult(
             checkpoint = checkpoint,
-            diagnostics = AmperAgentPassiveTaskDiagnostics(
+            diagnostics = AmperAgentPlanTaskDiagnostics(
                 taskId = checkpoint.taskId,
                 planId = checkpoint.planId.value,
                 backgroundMode = checkpoint.backgroundMode,
@@ -263,4 +289,75 @@ class AmperAgentPassiveTaskCoordinator(
             )
         )
     }
+}
+
+/**
+ * M5 passive task binding for explicit USER_REQUEST work.
+ *
+ * This Phase648 surface remains intact but now delegates to the shared persistent-plan task engine.
+ */
+class AmperAgentPassiveTaskCoordinator(
+    plans: AmperAgentPersistentPlanPort,
+    clock: () -> Long = System::currentTimeMillis
+) {
+    private val engine = AmperAgentPersistentPlanTaskEngine(plans, clock)
+
+    fun start(
+        admission: AmperAgentTaskAdmission,
+        conversationId: ConversationId
+    ): Result<AmperAgentPassiveTaskResult> =
+        engine.start(admission, conversationId, AmperAgentTaskOrigin.USER_REQUEST)
+
+    fun advance(
+        admission: AmperAgentTaskAdmission,
+        checkpoint: AmperAgentPassiveTaskCheckpoint
+    ): Result<AmperAgentPassiveTaskResult> =
+        engine.advance(admission, checkpoint, AmperAgentTaskOrigin.USER_REQUEST)
+
+    fun resumeAfterGovernedApproval(
+        admission: AmperAgentTaskAdmission,
+        checkpoint: AmperAgentPassiveTaskCheckpoint
+    ): Result<AmperAgentPassiveTaskResult> =
+        engine.resumeAfterGovernedApproval(
+            admission,
+            checkpoint,
+            AmperAgentTaskOrigin.USER_REQUEST
+        )
+}
+
+/**
+ * Phase654 proactive-trigger binding.
+ *
+ * PROACTIVE_TRIGGER admissions reuse the exact same persistent sovereign-plan path and one-step
+ * engine as passive tasks. Trigger provenance and EVENT_WAKE mode are mandatory. The coordinator
+ * owns no monitor, Android wake source, planner, tool authority, or approval path; those remain
+ * separate canonical boundaries.
+ */
+class AmperAgentProactiveTaskCoordinator(
+    plans: AmperAgentPersistentPlanPort,
+    clock: () -> Long = System::currentTimeMillis
+) {
+    private val engine = AmperAgentPersistentPlanTaskEngine(plans, clock)
+
+    fun start(
+        admission: AmperAgentTaskAdmission,
+        conversationId: ConversationId
+    ): Result<AmperAgentPlanTaskResult> =
+        engine.start(admission, conversationId, AmperAgentTaskOrigin.PROACTIVE_TRIGGER)
+
+    fun advance(
+        admission: AmperAgentTaskAdmission,
+        checkpoint: AmperAgentPlanTaskCheckpoint
+    ): Result<AmperAgentPlanTaskResult> =
+        engine.advance(admission, checkpoint, AmperAgentTaskOrigin.PROACTIVE_TRIGGER)
+
+    fun resumeAfterGovernedApproval(
+        admission: AmperAgentTaskAdmission,
+        checkpoint: AmperAgentPlanTaskCheckpoint
+    ): Result<AmperAgentPlanTaskResult> =
+        engine.resumeAfterGovernedApproval(
+            admission,
+            checkpoint,
+            AmperAgentTaskOrigin.PROACTIVE_TRIGGER
+        )
 }
