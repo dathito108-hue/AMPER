@@ -115,9 +115,6 @@ class AmperAgentAndroidContinuationDispatchTest {
                 state = AmperAgentTaskState.CHECKPOINTED
             )
         )
-        val tampered = original.copy(
-            encodedEnvelope = original.encodedEnvelope + "\n"
-        )
         val port = AmperAgentAndroidContinuationExecutionPort { _, _ ->
             calls += 1
             Result.success(
@@ -128,7 +125,14 @@ class AmperAgentAndroidContinuationDispatchTest {
             )
         }
 
-        val result = AmperAgentAndroidContinuationHostDispatcher.dispatch(tampered, port)
+        val result = runCatching {
+            val tampered = original.copy(
+                encodedEnvelope = original.encodedEnvelope + "\n"
+            )
+            AmperAgentAndroidContinuationHostDispatcher
+                .dispatch(tampered, port)
+                .getOrThrow()
+        }
 
         assertTrue(result.isFailure)
         assertEquals(0, calls)
