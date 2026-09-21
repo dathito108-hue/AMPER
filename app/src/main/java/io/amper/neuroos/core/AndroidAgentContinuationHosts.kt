@@ -461,10 +461,12 @@ class AgentContinuationJobService : JobService() {
                 execution = AndroidAgentContinuationProcessRegistry.current(),
                 executionFallback = {
                     runCatching {
-                        AndroidCanonicalSovereignRuntimeBootstrap
+                        val graph = AndroidCanonicalSovereignRuntimeBootstrap
                             .acquire(applicationContext)
-                            .agent
-                            .execution
+                        if (graph.amperCore.nativeRuntimePackaged()) {
+                            graph.ensureNativeAdmission()
+                        }
+                        graph.agent.execution
                     }
                 }
             ).getOrElse { error ->
