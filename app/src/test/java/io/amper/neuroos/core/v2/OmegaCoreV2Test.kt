@@ -112,6 +112,14 @@ class OmegaCoreV2Test {
             "qualified-trigger-observations-enter-canonical-event-wake-admission" in
                 OmegaArchitectureLock.invariants
         )
+        assertTrue(
+            "proactive-trigger-source-state-reuses-canonical-encrypted-memory-os" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "trigger-observation-acceptance-is-atomic-deduped-and-revision-bound" in
+                OmegaArchitectureLock.invariants
+        )
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
@@ -377,6 +385,22 @@ class OmegaCoreV2Test {
                 .exitCriteria
                 .contains(
                     "qualified trigger observations produce canonical PROACTIVE_TRIGGER EVENT_WAKE admission without tool or planning authority"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "user-configured proactive trigger sources and cooldown state persist in the canonical encrypted Memory OS"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "trigger observation acceptance atomically dedupes exact replay and resets cooldown state on configuration revision change"
                 )
         )
     }
