@@ -296,6 +296,13 @@ object OmegaArchitectureLock {
         "semantic-memory-corruption-fails-visible",
         "semantic-memory-uses-existing-memory-os-without-second-index",
         "semantic-memory-remains-non-authority",
+        "procedural-memory-retrieval-is-mobile-bounded",
+        "skill-guidance-requires-current-active-skill-and-live-capabilities",
+        "generalization-guidance-rebinds-current-skill-snapshot",
+        "generalization-guidance-requires-transfer-qualified-profile",
+        "repair-strategy-support-requires-live-requalification",
+        "procedural-memory-remains-advisory-and-non-authority",
+        "procedural-memory-reuses-existing-memory-os-stores",
         "3d-avatar-is-embodiment-not-cognition"
     )
 
@@ -464,7 +471,12 @@ object OmegaArchitectureLock {
                 "semantic current and query results require planning-eligible current epistemic evidence with matching value and evidence lineage",
                 "stale contested uncertain or changed evidence hides stored active semantic knowledge until canonical reconcile revises or retracts it",
                 "semantic record corruption fails visible instead of being silently skipped",
-                "semantic freshness hardening reuses MemoryBackedSemanticKnowledgeStore and MemoryOs with no second semantic index or model store"
+                "semantic freshness hardening reuses MemoryBackedSemanticKnowledgeStore and MemoryOs with no second semantic index or model store",
+                "skill and generalization recent retrieval expose at most 64 records while repair-strategy retrieval exposes at most 32 patterns",
+                "skill guidance requires an ACTIVE non-authority skill whose capabilities remain allowed and present on the live tool surface",
+                "generalization guidance and chains require a TRANSFERABLE or GENERALIZED profile and rebind the current ACTIVE skill snapshot before use",
+                "repair-strategy support is zero unless live GoalRepairValidation requalification remains positive and structural similarity is at least 0.75",
+                "procedural memory hardening reuses existing skill generalization and repair stores in MemoryOs without a second procedural database"
             )
         ),
         OmegaMilestone(
