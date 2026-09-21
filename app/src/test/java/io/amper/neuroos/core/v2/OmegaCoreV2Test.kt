@@ -292,6 +292,34 @@ class OmegaCoreV2Test {
             "proactive-recovery-navigation-never-reconciles-or-replays-provider" in
                 OmegaArchitectureLock.invariants
         )
+        assertTrue(
+            "proactive-surface-controls-are-refresh-or-navigation-only" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-surface-exposes-no-approve-reject-cancel-advance-execute-control" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-surface-refresh-revision-is-transient-ui-state-only" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-surface-refresh-never-mutates-canonical-task-state" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "successful-canonical-user-mutations-invalidate-proactive-read-model" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "failed-canonical-user-mutations-do-not-claim-new-proactive-state" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "foreground-lifecycle-reconciliation-invalidates-proactive-read-model" in
+                OmegaArchitectureLock.invariants
+        )
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
@@ -837,6 +865,54 @@ class OmegaCoreV2Test {
                 .exitCriteria
                 .contains(
                     "proactive recovery handling continues to use the existing canonical Recovery Console and receipt ledger with no second recovery authority"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "proactive task controls are limited to status refresh governed-plan navigation and exact recovery navigation"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "the proactive lifecycle/history surface contains no approve reject cancel advance execute or reconcile mutation authority"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "proactive surface refresh revision is transient in-process UI invalidation state and is never persisted or used in plan lifecycle scheduler receipt or execution identity"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "successful canonical cancellation approval rejection and recovery mutations invalidate the proactive read model after durable state changes"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "failed canonical mutations do not advance the proactive surface refresh revision or synthesize success state"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "foreground lifecycle reconciliation invalidates the proactive read model so durable process-death or background changes are re-read on app entry"
                 )
         )
     }
