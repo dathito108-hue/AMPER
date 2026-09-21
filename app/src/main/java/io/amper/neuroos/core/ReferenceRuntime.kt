@@ -1,6 +1,7 @@
 package io.amper.neuroos.core
 
 import io.amper.neuroos.core.v2.AmperAgentProactiveAttentionAcknowledgementLedger
+import io.amper.neuroos.core.v2.CanonicalCognitiveMemoryTopology
 import io.amper.neuroos.core.v2.AmperAgentProactiveTaskLifecycleLedger
 import io.amper.neuroos.core.v2.AmperAgentProactiveTriggerSourceRegistry
 import io.amper.neuroos.core.v2.MemoryBackedAmperAgentProactiveAttentionAcknowledgementLedger
@@ -174,6 +175,7 @@ class CanonicalSovereignKernel(
 class AmperRuntime private constructor(
     private val kernel: SovereignKernel,
     val context: SovereignContextSource,
+    val cognitiveMemoryTopology: CanonicalCognitiveMemoryTopology,
     val competence: CapabilityCompetenceModel,
     val strategies: StrategyLearningModel,
     val epistemic: EpistemicState,
@@ -420,6 +422,10 @@ class AmperRuntime private constructor(
             deviceStatusSource: DeviceStatusSource? = null
         ): AmperRuntime {
             val workspace = InMemoryWorkspace()
+            val cognitiveMemoryTopology = CanonicalCognitiveMemoryTopology.bind(
+                memory = memory,
+                workspace = workspace
+            )
             val competence = MemoryBackedCapabilityCompetenceModel(memory)
             val strategies = MemoryBackedStrategyLearningModel(memory)
             val epistemic = MemoryBackedEpistemicState(memory)
@@ -629,6 +635,7 @@ class AmperRuntime private constructor(
             return AmperRuntime(
                 kernel = kernel,
                 context = context,
+                cognitiveMemoryTopology = cognitiveMemoryTopology,
                 competence = competence,
                 strategies = strategies,
                 epistemic = epistemic,
