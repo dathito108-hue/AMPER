@@ -6,22 +6,22 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.dp
 import io.amper.neuroos.core.AndroidAgentProactiveAttentionPermissionStatus
 import io.amper.neuroos.core.SovereignPlan
 import io.amper.neuroos.core.PlanDurabilityEvidence
 import io.amper.neuroos.core.RecoveryClaimTarget
+import io.amper.neuroos.core.v2.AmperAgentProactiveTaskControl
+import io.amper.neuroos.core.v2.AmperAgentProactiveTaskControlContext
+import io.amper.neuroos.core.v2.AmperAgentProactiveTaskControlPolicy
 import io.amper.neuroos.core.v2.AmperAgentProactiveTaskHistoryProjection
 import io.amper.neuroos.core.v2.AmperAgentProactiveTaskLifecycleCoordinator
 import io.amper.neuroos.core.v2.AmperAgentTaskState
 
 /**
- * Phase662 lifecycle surface extended by Phase663/664 attention, Phase665 receipt history, and
- * Phase666 exact recovery navigation.
+ * Phase662 lifecycle surface extended by Phase663/664 attention, Phase665 receipt history,
+ * Phase666 exact recovery navigation, and Phase667 read-only proactive controls/status refresh.
  *
  * It never advances, approves, rejects, schedules, or executes a task. Opening a plan delegates to
  * the existing governed plan console, where exact side-effect approval remains unchanged.
@@ -30,13 +30,14 @@ import io.amper.neuroos.core.v2.AmperAgentTaskState
 fun ProactiveTaskLifecyclePanel(
     lifecycle: AmperAgentProactiveTaskLifecycleCoordinator,
     history: AmperAgentProactiveTaskHistoryProjection,
+    refreshRevision: Long,
     attentionPermissionStatus: AndroidAgentProactiveAttentionPermissionStatus,
     onRequestNotificationPermission: () -> Unit,
+    onRefresh: () -> Unit,
     onOpen: (SovereignPlan) -> Unit,
     onOpenRecovery: (RecoveryClaimTarget) -> Unit
 ) {
-    var refreshEpoch by remember(lifecycle) { mutableStateOf(0) }
-    val snapshot = remember(lifecycle, history, refreshEpoch) {
+    val snapshot = remember(lifecycle, history, refreshRevision) {
         history.recent(limit = 8)
     }
 
@@ -46,7 +47,7 @@ fun ProactiveTaskLifecyclePanel(
             "Read-only trigger → task → canonical plan provenance. " +
                 "Task state is derived from persistent plan state, not a parallel task database."
         )
-        Button(onClick = { refreshEpoch += 1 }) {
+        Button(onClick = onRefresh) {
             Text("Refresh proactive tasks")
         }
 
@@ -86,6 +87,13 @@ fun ProactiveTaskLifecyclePanel(
             entries.forEach { entry ->
                 val view = entry.lifecycle
                 val binding = view.binding
+                val controls = AmperAgentProactiveTaskControlPolicy.controls(
+                    AmperAgentProactiveTaskControlContext(
+                        planAvailable = view.planAvailable,
+                        exactRecoveryTargetAvailable =
+                            entry.receipts.any { it.recoveryTarget != null }
+                    )
+                )
                 Text(
                     "Source ${binding.sourceId} · plan ${binding.planId.value.takeLast(12)}"
                 )
@@ -153,20 +161,28 @@ fun ProactiveTaskLifecyclePanel(
                             receipt.reconciliationDecision?.let { decision ->
                                 Text("Reconciliation: ${decision.name}")
                             }
-                            receipt.recoveryTarget?.let { target ->
-                                Button(onClick = { onOpenRecovery(target) }) {
-                                    Text("Open exact recovery claim")
+                            if (
+                                AmperAgentProactiveTaskControl.OPEN_RECOVERY in controls
+                            ) {
+                                receipt.recoveryTarget?.let { target ->
+                                    Button(onClick = { onOpenRecovery(target) }) {
+                                        Text("Open exact recovery claim")
+                                    }
                                 }
                             }
                         }
                     }
 
-                    Button(
-                        onClick = {
-                            lifecycle.openPlan(binding.planId)?.let(onOpen)
-                        }
+                    if (
+                        AmperAgentProactiveTaskControl.OPEN_GOVERNED_PLAN in controls
                     ) {
-                        Text("Open governed plan")
+                        Button(
+                            onClick = {
+                                lifecycle.openPlan(binding.planId)?.let(onOpen)
+                            }
+                        ) {
+                            Text("Open governed plan")
+                        }
                     }
                 }
             }

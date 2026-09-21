@@ -68,6 +68,7 @@ import io.amper.neuroos.core.v2.AndroidAmi2CompilationService
 import io.amper.neuroos.core.v2.AmperAgentCanonicalContinuationExecutionPort
 import io.amper.neuroos.core.v2.AmperAgentExecutionContinuationCoordinator
 import io.amper.neuroos.core.v2.AmperAgentPassiveTaskCoordinator
+import io.amper.neuroos.core.v2.AmperAgentProactiveSurfaceRefreshRevision
 import io.amper.neuroos.core.v2.AmperAgentTaskAdmissionRegistry
 import io.amper.neuroos.core.v2.PersistentSovereignAgentPlanPort
 import io.amper.neuroos.core.AndroidAmiHardwareProfiler
@@ -353,6 +354,15 @@ class MainActivity : ComponentActivity() {
             var proactiveRecoveryTarget by remember {
                 mutableStateOf<RecoveryClaimTarget?>(null)
             }
+            var proactiveSurfaceRefreshRevision by remember {
+                mutableStateOf(0L)
+            }
+            fun refreshProactiveSurface() {
+                proactiveSurfaceRefreshRevision =
+                    AmperAgentProactiveSurfaceRefreshRevision.next(
+                        proactiveSurfaceRefreshRevision
+                    )
+            }
             val restoredApproval = remember { assistant.restorePendingApproval() }
             val requestedProactivePlan = remember(
                 requestedProactivePlanId,
@@ -430,6 +440,8 @@ class MainActivity : ComponentActivity() {
                     agentProactiveLifecycleController
                         .reconcileTracked()
                         .getOrThrow()
+                }.onSuccess {
+                    refreshProactiveSurface()
                 }
                 runCatching {
                     agentProactiveAttention
@@ -2709,6 +2721,7 @@ class MainActivity : ComponentActivity() {
                                 planStatus = "Opened persisted plan ${opened.id.value.take(8)}; no plan step executed"
                             },
                             onPlanMutated = { mutated ->
+                                refreshProactiveSurface()
                                 executionLanes.executeInteractive {
                                     agentProactiveLifecycleController.reconcilePlan(mutated.id)
                                     agentProactiveAttention.syncPlan(
@@ -2723,12 +2736,14 @@ class MainActivity : ComponentActivity() {
                         ProactiveTaskLifecyclePanel(
                             lifecycle = agentProactiveLifecycle,
                             history = agentProactiveHistory,
+                            refreshRevision = proactiveSurfaceRefreshRevision,
                             attentionPermissionStatus = proactiveAttentionPermissionStatus,
                             onRequestNotificationPermission = {
                                 proactiveNotificationPermissionLauncher.launch(
                                     Manifest.permission.POST_NOTIFICATIONS
                                 )
                             },
+                            onRefresh = ::refreshProactiveSurface,
                             onOpen = { opened ->
                                 activePlan = opened
                                 conversationId = opened.conversationId
@@ -2958,6 +2973,7 @@ class MainActivity : ComponentActivity() {
                                             result.fold(
                                                 onSuccess = { processed ->
                                                     activePlan = processed.plan
+                                                    refreshProactiveSurface()
                                                     val base =
                                                         "Approved step ${processed.step.index}: ${processed.outcome.status}"
                                                     planStatus = when {
@@ -3009,6 +3025,7 @@ class MainActivity : ComponentActivity() {
                                             rejected.fold(
                                                 onSuccess = { updated ->
                                                     activePlan = updated
+                                                    refreshProactiveSurface()
                                                     val base =
                                                         "Rejected plan step $stepIndex; no tool invoked"
                                                     planStatus = when {
@@ -3045,6 +3062,7 @@ class MainActivity : ComponentActivity() {
                             focusTarget = proactiveRecoveryTarget,
                             onPlanUpdated = { recovered ->
                                 activePlan = recovered
+                                refreshProactiveSurface()
                                 conversationId = recovered.conversationId
                                 pendingApproval = assistant.restorePendingApproval(recovered.conversationId)
                                 executionLanes.executeInteractive {
