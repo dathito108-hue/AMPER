@@ -2651,18 +2651,29 @@ class MainActivity : ComponentActivity() {
                         )
 
                         activePlan?.let { plan ->
-                            val proactiveLifecycle =
+                            val proactiveLifecycleLookup = runCatching {
                                 agentProactiveLifecycle.findByPlanId(plan.id)
+                            }
+                            val proactiveLifecycle = proactiveLifecycleLookup.getOrNull()
+                            val deterministicProactivePlan =
+                                plan.id.value.startsWith("agent-trigger-plan:")
+                            val proactiveOwnershipUncertain =
+                                proactiveLifecycleLookup.isFailure
+                            val manualAdvanceAllowed =
+                                !deterministicProactivePlan &&
+                                    !proactiveOwnershipUncertain &&
+                                    proactiveLifecycle == null
                             GovernedPlanExecutionConsolePanel(
                                 plan = plan,
                                 receiptLedger = runtime.plans.receipts,
-                                manualAdvanceEnabled = proactiveLifecycle == null,
-                                manualAdvanceDisabledReason =
-                                    if (proactiveLifecycle != null) {
+                                manualAdvanceEnabled = manualAdvanceAllowed,
+                                manualAdvanceDisabledReason = when {
+                                    proactiveOwnershipUncertain ->
+                                        "Proactive lifecycle provenance is unavailable. Manual advance is disabled fail-closed until lifecycle integrity is restored."
+                                    deterministicProactivePlan || proactiveLifecycle != null ->
                                         "This proactive plan is EVENT_WAKE-owned. Background continuation advances through the canonical Phase656/657 path; this console remains the approval surface only."
-                                    } else {
-                                        null
-                                    },
+                                    else -> null
+                                },
                                 onAdvance = {
                                     val current = plan
                                     planStatus = "Advancing exactly one governed plan step..."
