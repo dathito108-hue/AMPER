@@ -230,6 +230,42 @@ class AmperAgentAndroidContinuationDispatchTest {
         assertEquals(0, fallbackCalls)
     }
 
+    @Test
+    fun warmCanonicalPortSuppressesColdBootstrapFallback() {
+        var warmCalls = 0
+        var fallbackCalls = 0
+        val handoff = AmperAgentAndroidContinuationHandoffPolicy.create(
+            envelope(
+                mode = OmegaBackgroundMode.PERSISTED_JOB,
+                state = AmperAgentTaskState.CHECKPOINTED
+            )
+        )
+        val warmPort = AmperAgentAndroidContinuationExecutionPort { _, _ ->
+            warmCalls += 1
+            Result.success(
+                AmperAgentAndroidHostExecutionResult(
+                    state = AmperAgentAndroidHostExecutionState.ADVANCED,
+                    detail = "warm canonical port handled wake"
+                )
+            )
+        }
+
+        val result = AmperAgentAndroidContinuationHostDispatcher
+            .dispatch(
+                handoff = handoff,
+                execution = warmPort,
+                executionFallback = {
+                    fallbackCalls += 1
+                    error("cold bootstrap must not run while canonical warm port exists")
+                }
+            )
+            .getOrThrow()
+
+        assertEquals(1, warmCalls)
+        assertEquals(0, fallbackCalls)
+        assertEquals(AmperAgentAndroidHostExecutionState.ADVANCED, result.state)
+    }
+
     private fun envelope(
         mode: OmegaBackgroundMode,
         state: AmperAgentTaskState,
