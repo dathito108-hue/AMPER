@@ -11,6 +11,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.dp
+import io.amper.neuroos.core.AndroidAgentProactiveAttentionPermissionStatus
 import io.amper.neuroos.core.SovereignPlan
 import io.amper.neuroos.core.v2.AmperAgentProactiveTaskLifecycleCoordinator
 import io.amper.neuroos.core.v2.AmperAgentTaskState
@@ -24,6 +25,8 @@ import io.amper.neuroos.core.v2.AmperAgentTaskState
 @Composable
 fun ProactiveTaskLifecyclePanel(
     lifecycle: AmperAgentProactiveTaskLifecycleCoordinator,
+    attentionPermissionStatus: AndroidAgentProactiveAttentionPermissionStatus,
+    onRequestNotificationPermission: () -> Unit,
     onOpen: (SovereignPlan) -> Unit
 ) {
     var refreshEpoch by remember(lifecycle) { mutableStateOf(0) }
@@ -39,6 +42,27 @@ fun ProactiveTaskLifecyclePanel(
         )
         Button(onClick = { refreshEpoch += 1 }) {
             Text("Refresh proactive tasks")
+        }
+
+        when {
+            attentionPermissionStatus.runtimePermissionRequired &&
+                !attentionPermissionStatus.runtimePermissionGranted -> {
+                Text(
+                    "Android notification permission is off. Proactive execution still works, " +
+                        "but approval/completion attention cannot be shown outside the app."
+                )
+                Button(onClick = onRequestNotificationPermission) {
+                    Text("Enable proactive notifications")
+                }
+            }
+            !attentionPermissionStatus.notificationsEnabled ||
+                !attentionPermissionStatus.channelEnabled -> {
+                Text(
+                    "Proactive notifications are disabled in Android settings. " +
+                        "Task execution remains governed and unaffected."
+                )
+            }
+            else -> Text("Proactive approval/completion notifications are enabled.")
         }
 
         val entries = snapshot.getOrNull()
