@@ -143,6 +143,13 @@ class MemoryBackedAmperAgentProactiveTriggerSourceRegistry(
                 require(existing.source.kind == source.kind) {
                     "proactive trigger kind cannot change under the same source id"
                 }
+                if (existing.pendingObservations.isNotEmpty()) {
+                    require(
+                        existing.source.copy(enabled = source.enabled) == source
+                    ) {
+                        "proactive trigger configuration cannot change while observations are pending"
+                    }
+                }
             }
 
             val state = AmperAgentPersistedProactiveTriggerSource(
@@ -198,7 +205,11 @@ class MemoryBackedAmperAgentProactiveTriggerSourceRegistry(
     }
 
     override fun remove(sourceId: String): Boolean =
-        memory.transaction { forget(recordId(sourceId)) }
+        memory.transaction {
+            val current = load(sourceId) ?: return@transaction false
+            if (current.pendingObservations.isNotEmpty()) return@transaction false
+            forget(recordId(sourceId))
+        }
 
     override fun pending(
         sourceId: String
