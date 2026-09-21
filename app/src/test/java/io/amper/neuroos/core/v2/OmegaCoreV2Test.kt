@@ -152,6 +152,10 @@ class OmegaCoreV2Test {
             "pending-trigger-dispatch-adds-no-planner-tool-or-model-path" in
                 OmegaArchitectureLock.invariants
         )
+        assertTrue(
+            "pending-trigger-dispatch-job-identities-fail-closed-on-collision" in
+                OmegaArchitectureLock.invariants
+        )
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
