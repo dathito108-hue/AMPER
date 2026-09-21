@@ -159,7 +159,7 @@ Required merge gate:
 - `Build canonical debug APK` PASS;
 - `amper-core-arm64` SKIP because no native/build-impact file is changed.
 
-Merge only after those gates are confirmed.
+Merge only after those gates are confirmed. The verified CI head must equal the PR head.
 
 ## Next M5 slice
 
