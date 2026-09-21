@@ -67,6 +67,39 @@ object AndroidAgentProactiveAttentionIdentity {
             .digest(value.toByteArray(StandardCharsets.UTF_8))
 }
 
+enum class AndroidAgentProactiveAttentionDeliveryDecision {
+    DELIVER,
+    DUPLICATE_SUPPRESSED,
+    PERMISSION_SUPPRESSED,
+    CANCEL
+}
+
+object AndroidAgentProactiveAttentionDeliveryPolicy {
+    fun decide(
+        currentFingerprintSha256: String?,
+        signalFingerprintSha256: String?,
+        notificationsAllowed: Boolean
+    ): AndroidAgentProactiveAttentionDeliveryDecision {
+        currentFingerprintSha256?.let {
+            require(it.matches(Regex("[0-9a-f]{64}")))
+        }
+        signalFingerprintSha256?.let {
+            require(it.matches(Regex("[0-9a-f]{64}")))
+        }
+
+        if (signalFingerprintSha256 == null) {
+            return AndroidAgentProactiveAttentionDeliveryDecision.CANCEL
+        }
+        if (currentFingerprintSha256 == signalFingerprintSha256) {
+            return AndroidAgentProactiveAttentionDeliveryDecision.DUPLICATE_SUPPRESSED
+        }
+        if (!notificationsAllowed) {
+            return AndroidAgentProactiveAttentionDeliveryDecision.PERMISSION_SUPPRESSED
+        }
+        return AndroidAgentProactiveAttentionDeliveryDecision.DELIVER
+    }
+}
+
 /**
  * Phase663 notification transport.
  *
@@ -166,61 +199,71 @@ class AndroidAgentProactiveAttentionDelivery(
             AndroidAgentProactiveAttentionIdentity.notificationIdFor(planId)
         val key = AndroidAgentProactiveAttentionIdentity.preferenceKeyFor(planId)
 
-        if (signal == null) {
-            notifications.cancel(notificationId)
-            val existed = deliveryState.contains(key)
-            if (existed) {
-                require(deliveryState.edit().remove(key).commit()) {
-                    "proactive attention transport checkpoint clear failed"
-                }
-            }
-            return AndroidAgentProactiveAttentionDeliveryReport(
-                inspected = 1,
-                delivered = 0,
-                duplicateSuppressed = 0,
-                permissionSuppressed = 0,
-                cancelled = if (existed) 1 else 0,
-                stalePruned = 0
-            )
-        }
-
         val checkpoint = parseCheckpoint(deliveryState.getString(key, null))
-        if (
-            checkpoint?.notificationId == notificationId &&
-            checkpoint.fingerprintSha256 == signal.fingerprintSha256
-        ) {
-            return AndroidAgentProactiveAttentionDeliveryReport(
-                inspected = 1,
-                delivered = 0,
-                duplicateSuppressed = 1,
-                permissionSuppressed = 0,
-                cancelled = 0,
-                stalePruned = 0
-            )
+        val currentFingerprint = checkpoint
+            ?.takeIf { it.notificationId == notificationId }
+            ?.fingerprintSha256
+        val decision = AndroidAgentProactiveAttentionDeliveryPolicy.decide(
+            currentFingerprintSha256 = currentFingerprint,
+            signalFingerprintSha256 = signal?.fingerprintSha256,
+            notificationsAllowed = notificationsAllowed()
+        )
+
+        when (decision) {
+            AndroidAgentProactiveAttentionDeliveryDecision.CANCEL -> {
+                notifications.cancel(notificationId)
+                val existed = deliveryState.contains(key)
+                if (existed) {
+                    require(deliveryState.edit().remove(key).commit()) {
+                        "proactive attention transport checkpoint clear failed"
+                    }
+                }
+                return AndroidAgentProactiveAttentionDeliveryReport(
+                    inspected = 1,
+                    delivered = 0,
+                    duplicateSuppressed = 0,
+                    permissionSuppressed = 0,
+                    cancelled = if (existed) 1 else 0,
+                    stalePruned = 0
+                )
+            }
+
+            AndroidAgentProactiveAttentionDeliveryDecision.DUPLICATE_SUPPRESSED ->
+                return AndroidAgentProactiveAttentionDeliveryReport(
+                    inspected = 1,
+                    delivered = 0,
+                    duplicateSuppressed = 1,
+                    permissionSuppressed = 0,
+                    cancelled = 0,
+                    stalePruned = 0
+                )
+
+            AndroidAgentProactiveAttentionDeliveryDecision.PERMISSION_SUPPRESSED -> {
+                // Do not mark undelivered attention as delivered. A later user-granted permission
+                // may surface the same still-current canonical lifecycle state.
+                notifications.cancel(notificationId)
+                return AndroidAgentProactiveAttentionDeliveryReport(
+                    inspected = 1,
+                    delivered = 0,
+                    duplicateSuppressed = 0,
+                    permissionSuppressed = 1,
+                    cancelled = 0,
+                    stalePruned = 0
+                )
+            }
+
+            AndroidAgentProactiveAttentionDeliveryDecision.DELIVER -> Unit
         }
 
-        if (!notificationsAllowed()) {
-            // Do not mark undelivered attention as delivered. A later user-granted permission may
-            // surface the same still-current canonical lifecycle state.
-            notifications.cancel(notificationId)
-            return AndroidAgentProactiveAttentionDeliveryReport(
-                inspected = 1,
-                delivered = 0,
-                duplicateSuppressed = 0,
-                permissionSuppressed = 1,
-                cancelled = 0,
-                stalePruned = 0
-            )
-        }
-
-        notifications.notify(notificationId, notification(signal))
+        val requiredSignal = requireNotNull(signal)
+        notifications.notify(notificationId, notification(requiredSignal))
         require(
             deliveryState.edit()
                 .putString(
                     key,
                     AttentionCheckpoint(
                         notificationId = notificationId,
-                        fingerprintSha256 = signal.fingerprintSha256
+                        fingerprintSha256 = requiredSignal.fingerprintSha256
                     ).encode()
                 )
                 .commit()
