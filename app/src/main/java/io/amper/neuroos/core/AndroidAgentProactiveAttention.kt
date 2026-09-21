@@ -28,6 +28,20 @@ enum class AndroidAgentProactiveAttentionDelivery {
     NOT_TRACKED
 }
 
+object AndroidAgentProactiveAttentionSurfacePolicy {
+    fun shouldPost(
+        kind: AmperAgentProactiveAttentionKind,
+        mode: AndroidAgentProactiveAttentionSurfaceMode
+    ): Boolean = when (kind) {
+        AmperAgentProactiveAttentionKind.NONE -> false
+        AmperAgentProactiveAttentionKind.APPROVAL_REQUIRED -> true
+        AmperAgentProactiveAttentionKind.COMPLETED,
+        AmperAgentProactiveAttentionKind.FAILED ->
+            mode == AndroidAgentProactiveAttentionSurfaceMode.BACKGROUND_TRANSITION
+        AmperAgentProactiveAttentionKind.PLAN_UNAVAILABLE -> true
+    }
+}
+
 data class AndroidAgentProactiveAttentionPermissionStatus(
     val runtimePermissionRequired: Boolean,
     val runtimePermissionGranted: Boolean,
@@ -176,14 +190,8 @@ class AndroidAgentProactiveAttentionController(
         mode: AndroidAgentProactiveAttentionSurfaceMode
     ): AndroidAgentProactiveAttentionDelivery {
         val decision = AmperAgentProactiveAttentionPolicy.decide(view)
-        val shouldPost = when (decision.kind) {
-            AmperAgentProactiveAttentionKind.NONE -> false
-            AmperAgentProactiveAttentionKind.APPROVAL_REQUIRED -> true
-            AmperAgentProactiveAttentionKind.COMPLETED,
-            AmperAgentProactiveAttentionKind.FAILED ->
-                mode == AndroidAgentProactiveAttentionSurfaceMode.BACKGROUND_TRANSITION
-            AmperAgentProactiveAttentionKind.PLAN_UNAVAILABLE -> true
-        }
+        val shouldPost =
+            AndroidAgentProactiveAttentionSurfacePolicy.shouldPost(decision.kind, mode)
 
         if (!shouldPost) {
             cancel(decision.planId)
@@ -226,7 +234,7 @@ class AndroidAgentProactiveAttentionController(
                     "A proactive task is waiting at governed approval step " +
                         requireNotNull(waitingApprovalStepIndex) + ".",
                     Notification.CATEGORY_REMINDER,
-                    true,
+                    false,
                     false
                 )
             AmperAgentProactiveAttentionKind.COMPLETED ->
@@ -250,7 +258,7 @@ class AndroidAgentProactiveAttentionController(
                     "AMPER proactive task needs review",
                     "Canonical plan state is unavailable; execution remains fail-closed.",
                     Notification.CATEGORY_ERROR,
-                    true,
+                    false,
                     false
                 )
             AmperAgentProactiveAttentionKind.NONE ->
