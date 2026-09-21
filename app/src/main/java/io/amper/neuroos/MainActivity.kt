@@ -271,6 +271,7 @@ class MainActivity : ComponentActivity() {
             val toolFabric = agentGraph.toolFabric
             val actionLoop = agentGraph.actionLoop
             val inferencePort = agentGraph.inferencePort
+            val assistant = agentGraph.assistant
             val planningCoordinator = agentGraph.planningCoordinator
             val planner = agentGraph.planner
             val agentPlanPort = agentGraph.agentPlanPort
