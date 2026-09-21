@@ -42,6 +42,67 @@ class AmperAgentPersistentProactiveTriggerRegistryTest {
             restored.lastAcceptedObservationIdentitySha256
         )
         assertTrue(restored.source.enabled)
+        assertEquals(1, restored.pendingObservations.size)
+        assertEquals(
+            "d".repeat(64),
+            restored.pendingObservations.single().observation.payloadDigest
+        )
+    }
+
+    @Test
+    fun pendingObservationQueueIsBoundedAndAcknowledgedInFifoOrder() {
+        val registry = MemoryBackedAmperAgentProactiveTriggerSourceRegistry(
+            InMemoryMemoryOs()
+        )
+        val source = source()
+        registry.upsert(source, updatedAtEpochMs = 1L)
+
+        val accepted = (0 until AmperAgentPersistedProactiveTriggerSource.MAX_PENDING_OBSERVATIONS)
+            .map { index ->
+                registry.accept(
+                    observation(
+                        observedAtEpochMs =
+                            1_000_000L +
+                                index *
+                                AmperAgentProactiveTriggerSource.APP_LOCAL_EVENT_MIN_INTERVAL_MS,
+                        payloadDigest = (index + 1).toString(16).padStart(64, '0')
+                    )
+                ).getOrThrow()
+            }
+
+        val overflow = registry.accept(
+            observation(
+                observedAtEpochMs =
+                    1_000_000L +
+                        AmperAgentPersistedProactiveTriggerSource.MAX_PENDING_OBSERVATIONS *
+                        AmperAgentProactiveTriggerSource.APP_LOCAL_EVENT_MIN_INTERVAL_MS,
+                payloadDigest = "f".repeat(64)
+            )
+        )
+        assertTrue(overflow.isFailure)
+        assertEquals(
+            AmperAgentPersistedProactiveTriggerSource.MAX_PENDING_OBSERVATIONS,
+            registry.pending(source.sourceId).size
+        )
+
+        val secondIdentity = accepted[1].qualified.observationIdentitySha256
+        assertTrue(
+            registry.acknowledgePending(source.sourceId, secondIdentity).isFailure
+        )
+
+        val firstIdentity = accepted.first().qualified.observationIdentitySha256
+        val afterAck = registry
+            .acknowledgePending(source.sourceId, firstIdentity)
+            .getOrThrow()
+
+        assertEquals(
+            AmperAgentPersistedProactiveTriggerSource.MAX_PENDING_OBSERVATIONS - 1,
+            afterAck.pendingObservations.size
+        )
+        assertEquals(
+            secondIdentity,
+            afterAck.pendingObservations.first().observationIdentitySha256
+        )
     }
 
     @Test
