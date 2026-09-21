@@ -54,6 +54,48 @@ class AndroidAgentEventWakeSchedulerTest {
     }
 
     @Test
+    fun approvalBlockedWakeIsVerifiedButNotSchedulable() {
+        val waiting = AmperAgentEventWakeHandoffPolicy.create(
+            AmperAgentEventWakeEnvelope(
+                taskId = "proactive-task",
+                planId = PlanId("proactive-plan"),
+                trigger = AmperAgentTrigger(
+                    triggerId = "monitor.example",
+                    source = "canonical-monitor",
+                    observedAtEpochMs = 1L,
+                    payloadDigest = "d".repeat(64)
+                ),
+                taskState = AmperAgentTaskState.WAITING_APPROVAL,
+                completedSteps = 0,
+                totalSteps = 2,
+                planStateSha256 = "a".repeat(64),
+                waitingApprovalStepIndex = 1,
+                checkpointedAtEpochMs = 100L
+            )
+        )
+
+        val admitted = AndroidAgentEventWakeSchedulingAdmission
+            .admit(waiting)
+            .getOrThrow()
+
+        assertTrue(!admitted)
+    }
+
+    @Test
+    fun tamperedDispositionFailsSchedulingAdmission() {
+        val ready = AmperAgentEventWakeHandoffPolicy.create(
+            envelope(planStateSha256 = "a".repeat(64))
+        )
+        val tampered = ready.copy(
+            disposition = io.amper.neuroos.core.v2.AmperAgentEventWakeDisposition.TERMINAL_NOOP
+        )
+
+        val admitted = AndroidAgentEventWakeSchedulingAdmission.admit(tampered)
+
+        assertTrue(admitted.isFailure)
+    }
+
+    @Test
     fun normalResourcesAllowImmediatePersistedBatteryGuardedWake() {
         val plan = AndroidAgentEventWakeResourcePolicy.plan(
             ResourceBudget(
