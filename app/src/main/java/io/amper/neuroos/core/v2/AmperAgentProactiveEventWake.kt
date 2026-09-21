@@ -227,7 +227,7 @@ object AmperAgentEventWakeHandoffPolicy {
     private fun buildDedupeKey(envelope: AmperAgentEventWakeEnvelope): String =
         "agent-event-wake:" +
             envelope.taskId + ":" +
-            envelope.planId.value + ":" +
+            eventWakeSha256(envelope.planId.value) + ":" +
             envelope.trigger.triggerId + ":" +
             envelope.trigger.payloadDigest
 }
