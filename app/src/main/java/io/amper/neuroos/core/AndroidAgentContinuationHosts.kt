@@ -295,12 +295,24 @@ class AgentContinuationForegroundService : Service() {
                         updateWaitingApprovalNotification()
                     AmperAgentAndroidHostExecutionState.RETRY_LATER ->
                         updateRetryNotification()
+                    AmperAgentAndroidHostExecutionState.CHECKPOINTED ->
+                        continueFromCheckpoint(requireNotNull(result.nextHandoff))
                     AmperAgentAndroidHostExecutionState.ADVANCED,
-                    AmperAgentAndroidHostExecutionState.CHECKPOINTED,
                     AmperAgentAndroidHostExecutionState.TERMINAL_NOOP ->
                         stopContinuation()
                 }
             }
+        }
+    }
+
+    private fun continueFromCheckpoint(
+        next: AmperAgentAndroidContinuationHandoff
+    ) {
+        val scheduled = AndroidAgentContinuationScheduler(applicationContext)
+            .handoff(next)
+            .getOrDefault(false)
+        if (!scheduled) {
+            updateRetryNotification()
         }
     }
 
@@ -455,7 +467,16 @@ class AgentContinuationJobService : JobService() {
             }
             Handler(Looper.getMainLooper()).post {
                 active.remove(params.jobId)
-                jobFinished(params, result.shouldReschedule)
+                if (result.state == AmperAgentAndroidHostExecutionState.CHECKPOINTED) {
+                    val next = requireNotNull(result.nextHandoff)
+                    jobFinished(params, false)
+                    Handler(Looper.getMainLooper()).post {
+                        AndroidAgentContinuationScheduler(applicationContext)
+                            .handoff(next)
+                    }
+                } else {
+                    jobFinished(params, result.shouldReschedule)
+                }
             }
         }
         active.put(params.jobId, future)?.cancel(true)

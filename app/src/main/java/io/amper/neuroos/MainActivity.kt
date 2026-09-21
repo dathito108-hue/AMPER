@@ -64,6 +64,11 @@ import io.amper.neuroos.core.AndroidModelImportService
 import io.amper.neuroos.core.AndroidAppPrivateModelArtifactResolver
 import io.amper.neuroos.core.AndroidAmiCompilationService
 import io.amper.neuroos.core.v2.AndroidAmi2CompilationService
+import io.amper.neuroos.core.v2.AmperAgentCanonicalContinuationExecutionPort
+import io.amper.neuroos.core.v2.AmperAgentExecutionContinuationCoordinator
+import io.amper.neuroos.core.v2.AmperAgentPassiveTaskCoordinator
+import io.amper.neuroos.core.v2.AmperAgentTaskAdmissionRegistry
+import io.amper.neuroos.core.v2.PersistentSovereignAgentPlanPort
 import io.amper.neuroos.core.AndroidAmiHardwareProfiler
 import io.amper.neuroos.core.AmiDecoderFfnExecutor
 import io.amper.neuroos.core.AmiDecoderFfnPlanner
@@ -73,6 +78,7 @@ import io.amper.neuroos.core.AmiLayerKvCache
 import io.amper.neuroos.core.AmiPreservedGgufMetadataReader
 import io.amper.neuroos.core.AmiTensorGraphReader
 import io.amper.neuroos.core.AndroidActivePerceptionPort
+import io.amper.neuroos.core.AndroidAgentContinuationProcessRegistry
 import io.amper.neuroos.core.AndroidAppPrivateStorage
 import io.amper.neuroos.core.AndroidMultimodalProjectorImportService
 import io.amper.neuroos.core.AndroidPerceptionCapture
@@ -468,6 +474,29 @@ class MainActivity : ComponentActivity() {
                     store = runtime.plans
                 )
             }
+            val agentPlanPort = remember {
+                PersistentSovereignAgentPlanPort(
+                    coordinator = planner,
+                    store = runtime.plans
+                )
+            }
+            val agentAdmissions = remember {
+                AmperAgentTaskAdmissionRegistry()
+            }
+            val agentPassiveTasks = remember {
+                AmperAgentPassiveTaskCoordinator(agentPlanPort)
+            }
+            val agentContinuation = remember {
+                AmperAgentExecutionContinuationCoordinator(agentPlanPort)
+            }
+            val agentContinuationExecution = remember {
+                AmperAgentCanonicalContinuationExecutionPort(
+                    admissions = agentAdmissions,
+                    plans = agentPlanPort,
+                    passive = agentPassiveTasks,
+                    continuation = agentContinuation
+                )
+            }
             val activePerceptionPort = remember {
                 AndroidActivePerceptionPort(applicationContext, runtime.perception)
             }
@@ -538,6 +567,9 @@ class MainActivity : ComponentActivity() {
                 AndroidReflexMaintenanceProcessRegistry.register(
                     reflexMaintenanceCoordinator
                 )
+                AndroidAgentContinuationProcessRegistry.register(
+                    agentContinuationExecution
+                )
                 reflexJobScheduler.reconcile(
                     runtime.reflexLearningMaintenanceQueue.pending()
                 )
@@ -585,6 +617,9 @@ class MainActivity : ComponentActivity() {
                 }
                 reflexMaintenanceLoop.start()
                 onDispose {
+                    AndroidAgentContinuationProcessRegistry.unregister(
+                        agentContinuationExecution
+                    )
                     AndroidReflexMaintenanceProcessRegistry.unregister(
                         reflexMaintenanceCoordinator
                     )
