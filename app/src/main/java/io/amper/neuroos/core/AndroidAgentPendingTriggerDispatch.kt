@@ -227,6 +227,18 @@ class AgentPendingTriggerDispatchJobService : JobService() {
                     return@submit
                 }
 
+            // Persist immutable trigger -> canonical plan provenance before Android wake
+            // installation and before FIFO ACK. This closes both crash windows:
+            // - crash here: FIFO remains pending and recordDispatch is idempotent on retry;
+            // - scheduler failure after this write: foreground lifecycle reconciliation can
+            //   rediscover the exact canonical plan from durable provenance and re-arm Phase657.
+            graph.agent.agentProactiveLifecycle
+                .recordDispatch(binding)
+                .getOrElse {
+                    retryOrFinish(params, token)
+                    return@submit
+                }
+
             val scheduled = AndroidAgentEventWakeScheduler(
                 applicationContext,
                 graph.governor
@@ -240,16 +252,6 @@ class AgentPendingTriggerDispatchJobService : JobService() {
                 retryOrFinish(params, token)
                 return@submit
             }
-
-            // Persist immutable trigger -> canonical plan provenance before FIFO ACK. Crash after
-            // this write is safe: recordDispatch is idempotent and the accepted observation remains
-            // pending until the existing Phase660 acknowledgement succeeds.
-            graph.agent.agentProactiveLifecycle
-                .recordDispatch(binding)
-                .getOrElse {
-                    retryOrFinish(params, token)
-                    return@submit
-                }
 
             val acknowledged = registry
                 .acknowledgePending(
