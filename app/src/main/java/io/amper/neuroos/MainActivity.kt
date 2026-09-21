@@ -25,6 +25,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -81,6 +82,7 @@ import io.amper.neuroos.core.AmiPreservedGgufMetadataReader
 import io.amper.neuroos.core.AmiTensorGraphReader
 import io.amper.neuroos.core.AndroidActivePerceptionPort
 import io.amper.neuroos.core.AndroidAgentContinuationProcessRegistry
+import io.amper.neuroos.core.AndroidAgentProactiveSurfaceInvalidationRegistry
 import io.amper.neuroos.core.AndroidAppPrivateStorage
 import io.amper.neuroos.core.AndroidMultimodalProjectorImportService
 import io.amper.neuroos.core.AndroidPerceptionCapture
@@ -127,6 +129,7 @@ import io.amper.neuroos.core.PersistentSovereignPlanCoordinator
 import io.amper.neuroos.core.PerceptionModality
 import io.amper.neuroos.core.PersistentGoalExecutiveResult
 import io.amper.neuroos.core.PlanAdvanceResult
+import io.amper.neuroos.core.PlanId
 import io.amper.neuroos.core.PlanStepStatus
 import io.amper.neuroos.core.RecoveryClaimTarget
 import io.amper.neuroos.core.PreferredModelInferencePort
@@ -363,6 +366,18 @@ class MainActivity : ComponentActivity() {
                         proactiveSurfaceRefreshRevision
                     )
             }
+            val proactiveSurfaceRefreshCallback = rememberUpdatedState {
+                refreshProactiveSurface()
+            }
+            val proactiveSurfaceInvalidationListener = remember {
+                { _: PlanId ->
+                    runOnUiThread {
+                        if (!isFinishing && !isDestroyed) {
+                            proactiveSurfaceRefreshCallback.value()
+                        }
+                    }
+                }
+            }
             val restoredApproval = remember { assistant.restorePendingApproval() }
             val requestedProactivePlan = remember(
                 requestedProactivePlanId,
@@ -430,6 +445,9 @@ class MainActivity : ComponentActivity() {
                 )
                 AndroidAgentContinuationProcessRegistry.register(
                     agentContinuationExecution
+                )
+                AndroidAgentProactiveSurfaceInvalidationRegistry.register(
+                    proactiveSurfaceInvalidationListener
                 )
                 runCatching {
                     agentGraph.agentTriggerSourceController
@@ -500,6 +518,9 @@ class MainActivity : ComponentActivity() {
                 }
                 reflexMaintenanceLoop.start()
                 onDispose {
+                    AndroidAgentProactiveSurfaceInvalidationRegistry.unregister(
+                        proactiveSurfaceInvalidationListener
+                    )
                     AndroidAgentContinuationProcessRegistry.unregister(
                         agentContinuationExecution
                     )

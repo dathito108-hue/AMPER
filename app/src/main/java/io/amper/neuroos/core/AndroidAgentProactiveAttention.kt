@@ -24,6 +24,42 @@ enum class AndroidAgentProactiveAttentionSurfaceMode {
     USER_INTERACTION
 }
 
+object AndroidAgentProactiveSurfaceInvalidationPolicy {
+    fun shouldInvalidate(
+        mode: AndroidAgentProactiveAttentionSurfaceMode
+    ): Boolean = mode == AndroidAgentProactiveAttentionSurfaceMode.BACKGROUND_TRANSITION
+}
+
+/**
+ * Process-local foreground invalidation bridge for Phase669.
+ *
+ * It persists nothing, owns no lifecycle observer, scheduler, task state, plan state, receipt state,
+ * or authority. Cold processes with no foreground UI listener are an intentional no-op.
+ */
+object AndroidAgentProactiveSurfaceInvalidationRegistry {
+    @Volatile
+    private var listener: ((PlanId) -> Unit)? = null
+
+    @Synchronized
+    fun register(value: (PlanId) -> Unit) {
+        listener = value
+    }
+
+    @Synchronized
+    fun unregister(expected: (PlanId) -> Unit) {
+        if (listener === expected) {
+            listener = null
+        }
+    }
+
+    fun invalidate(planId: PlanId): Boolean {
+        val current = listener ?: return false
+        return runCatching {
+            current(planId)
+        }.isSuccess
+    }
+}
+
 enum class AndroidAgentProactiveAttentionDelivery {
     POSTED,
     CANCELLED,
@@ -193,12 +229,18 @@ class AndroidAgentProactiveAttentionController(
         planId: PlanId,
         mode: AndroidAgentProactiveAttentionSurfaceMode
     ): Result<AndroidAgentProactiveAttentionDelivery> = runCatching {
-        val view = lifecycle.findByPlanId(planId)
-        if (view == null) {
-            cancel(planId)
-            return@runCatching AndroidAgentProactiveAttentionDelivery.NOT_TRACKED
+        try {
+            val view = lifecycle.findByPlanId(planId)
+            if (view == null) {
+                cancel(planId)
+                return@runCatching AndroidAgentProactiveAttentionDelivery.NOT_TRACKED
+            }
+            syncView(view, mode)
+        } finally {
+            if (AndroidAgentProactiveSurfaceInvalidationPolicy.shouldInvalidate(mode)) {
+                AndroidAgentProactiveSurfaceInvalidationRegistry.invalidate(planId)
+            }
         }
-        syncView(view, mode)
     }
 
     fun acknowledgePlan(

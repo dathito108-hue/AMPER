@@ -26,6 +26,67 @@ class AndroidAgentProactiveAttentionPolicyTest {
     }
 
     @Test
+    fun backgroundTransitionAloneInvalidatesForegroundReadModel() {
+        assertTrue(
+            AndroidAgentProactiveSurfaceInvalidationPolicy.shouldInvalidate(
+                AndroidAgentProactiveAttentionSurfaceMode.BACKGROUND_TRANSITION
+            )
+        )
+        assertFalse(
+            AndroidAgentProactiveSurfaceInvalidationPolicy.shouldInvalidate(
+                AndroidAgentProactiveAttentionSurfaceMode.FOREGROUND_RECONCILE
+            )
+        )
+        assertFalse(
+            AndroidAgentProactiveSurfaceInvalidationPolicy.shouldInvalidate(
+                AndroidAgentProactiveAttentionSurfaceMode.USER_INTERACTION
+            )
+        )
+    }
+
+    @Test
+    fun foregroundInvalidationRegistryUsesIdentitySafeUnregister() {
+        val planId = PlanId("agent-trigger-plan:" + "c".repeat(64))
+        var firstCount = 0
+        var secondCount = 0
+        val first: (PlanId) -> Unit = { firstCount += 1 }
+        val second: (PlanId) -> Unit = { secondCount += 1 }
+
+        try {
+            AndroidAgentProactiveSurfaceInvalidationRegistry.register(first)
+            assertTrue(AndroidAgentProactiveSurfaceInvalidationRegistry.invalidate(planId))
+            assertEquals(1, firstCount)
+
+            AndroidAgentProactiveSurfaceInvalidationRegistry.unregister(second)
+            assertTrue(AndroidAgentProactiveSurfaceInvalidationRegistry.invalidate(planId))
+            assertEquals(2, firstCount)
+            assertEquals(0, secondCount)
+
+            AndroidAgentProactiveSurfaceInvalidationRegistry.unregister(first)
+            assertFalse(AndroidAgentProactiveSurfaceInvalidationRegistry.invalidate(planId))
+            assertEquals(2, firstCount)
+        } finally {
+            AndroidAgentProactiveSurfaceInvalidationRegistry.unregister(first)
+            AndroidAgentProactiveSurfaceInvalidationRegistry.unregister(second)
+        }
+    }
+
+    @Test
+    fun foregroundInvalidationFailureIsBestEffortAndNonThrowing() {
+        val planId = PlanId("agent-trigger-plan:" + "d".repeat(64))
+        val throwing: (PlanId) -> Unit = {
+            error("ui invalidation failure")
+        }
+
+        try {
+            AndroidAgentProactiveSurfaceInvalidationRegistry.register(throwing)
+            assertFalse(AndroidAgentProactiveSurfaceInvalidationRegistry.invalidate(planId))
+        } finally {
+            AndroidAgentProactiveSurfaceInvalidationRegistry.unregister(throwing)
+        }
+    }
+
+    @Test
     fun terminalAttentionOnlySurfacesOnBackgroundTransition() {
         assertTrue(
             AndroidAgentProactiveAttentionSurfacePolicy.shouldPost(
