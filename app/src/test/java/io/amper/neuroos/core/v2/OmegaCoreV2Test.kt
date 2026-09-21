@@ -96,6 +96,14 @@ class OmegaCoreV2Test {
             "event-wake-consumer-acquires-canonical-runtime-only-after-verification" in
                 OmegaArchitectureLock.invariants
         )
+        assertTrue(
+            "proactive-event-wake-job-scheduling-is-verified-deduped-and-resource-governed" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "event-wake-jobs-chain-only-fresh-checkpoints" in
+                OmegaArchitectureLock.invariants
+        )
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
@@ -329,6 +337,22 @@ class OmegaCoreV2Test {
                 .exitCriteria
                 .contains(
                     "Android EVENT_WAKE consumption verifies approval/terminal state before acquiring the canonical runtime graph"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "persisted EVENT_WAKE scheduling uses verified stable dedupe plus battery thermal and memory-aware cadence"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "EVENT_WAKE jobs chain only from fresh verified checkpoints and never schedule approval-blocked or terminal work"
                 )
         )
     }
