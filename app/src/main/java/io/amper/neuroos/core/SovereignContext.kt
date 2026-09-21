@@ -12,7 +12,8 @@ data class SovereignContextSnapshot(
     val semanticKnowledge: List<SemanticKnowledgeEntry> = emptyList(),
     val structuredWorldStates: List<StructuredWorldState> = emptyList(),
     val worldPredictions: List<WorldPrediction> = emptyList(),
-    val causalHypotheses: List<CausalWorldHypothesis> = emptyList()
+    val causalHypotheses: List<CausalWorldHypothesis> = emptyList(),
+    val episodicMemories: List<EpisodicMemoryEntry> = emptyList()
 )
 
 interface SovereignContextSource {
@@ -56,7 +57,10 @@ class CanonicalSovereignContextSource(
     private val strategies: StrategyLearningModel? = null,
     private val epistemic: EpistemicState? = null,
     private val semanticKnowledgeStore: SemanticKnowledgeStore? = null,
-    private val predictiveWorld: PredictiveWorldModel? = null
+    private val predictiveWorld: PredictiveWorldModel? = null,
+    private val episodicMemoryStore: EpisodicMemoryStore? = null,
+    private val memoryEnvelope: CognitiveMemoryContextEnvelope =
+        CognitiveMemoryContextEnvelope()
 ) : SovereignContextSource {
     override fun capture(
         query: String,
@@ -65,8 +69,13 @@ class CanonicalSovereignContextSource(
         workspaceLimit: Int
     ): SovereignContextSnapshot {
         require(query.isNotBlank())
-        require(memoryLimit >= 0 && worldLimit >= 0 && workspaceLimit >= 0)
-        val excludedRawKinds = setOf(
+        require(memoryLimit >= 0)
+        require(worldLimit >= 0)
+        require(workspaceLimit >= 0)
+        val boundedMemoryLimit = minOf(memoryLimit, memoryEnvelope.maxGenericMemories)
+        val boundedWorkspaceLimit = minOf(workspaceLimit, memoryEnvelope.maxWorkingItems)
+        val excludedRawKinds = buildSet {
+            addAll(setOf(
             MemoryBackedEpistemicState.CLAIM_KIND,
             MemoryBackedSemanticKnowledgeStore.KNOWLEDGE_KIND,
             MemoryBackedSemanticKnowledgeStore.RETRACTION_KIND,
@@ -135,16 +144,31 @@ class CanonicalSovereignContextSource(
             MemoryBackedClosedLoopEvolutionLedger.KIND,
             MemoryBackedAgiMobileQualificationStore.REPORT_KIND,
             MemoryBackedAgiMobileQualificationStore.LATEST_KIND
-        )
-        val seedScanLimit = if (memoryLimit == 0) 0 else (memoryLimit * 6).coerceAtLeast(memoryLimit)
+            ))
+            if (episodicMemoryStore != null) {
+                add(CanonicalEpisodicMemoryStore.KIND)
+            }
+        }
+        val seedScanLimit =
+            if (boundedMemoryLimit == 0) 0
+            else (boundedMemoryLimit * 6).coerceAtLeast(boundedMemoryLimit)
         val seeds = memory.recall(query, seedScanLimit)
             .filterNot { it.kind in excludedRawKinds }
-            .take(memoryLimit)
-        val expandedMemories = ProvenanceContextExpander.expand(seeds, memory, memoryLimit)
-            .filterNot { it.kind in excludedRawKinds }
-            .take(memoryLimit)
-        val beliefs = epistemic?.query(query, 6).orEmpty()
-        val semantic = semanticKnowledgeStore?.reconcile(query, 6).orEmpty()
+            .take(boundedMemoryLimit)
+        val expandedMemories =
+            ProvenanceContextExpander.expand(seeds, memory, boundedMemoryLimit)
+                .filterNot { it.kind in excludedRawKinds }
+                .take(boundedMemoryLimit)
+        val episodic = episodicMemoryStore
+            ?.recent(query, memoryEnvelope.maxEpisodicItems)
+            ?.getOrThrow()
+            .orEmpty()
+        val beliefs = epistemic
+            ?.query(query, memoryEnvelope.maxEpistemicBeliefItems)
+            .orEmpty()
+        val semantic = semanticKnowledgeStore
+            ?.reconcile(query, memoryEnvelope.maxSemanticKnowledgeItems)
+            .orEmpty()
 
         predictiveWorld?.let { predictive ->
             semantic.forEach { knowledge ->
@@ -188,20 +212,25 @@ class CanonicalSovereignContextSource(
             .take(4)
             .toList()
 
-        return SovereignContextSnapshot(
+        val snapshot = SovereignContextSnapshot(
             self = selfModel.snapshot(),
             goals = goals.active().sortedByDescending { it.priority }.take(6),
             memories = expandedMemories,
+            episodicMemories = episodic,
             worldFacts = world.query(query, worldLimit),
-            workspaceEvents = workspace.snapshot().takeLast(workspaceLimit),
+            workspaceEvents = workspace.snapshot().takeLast(boundedWorkspaceLimit),
             capabilityCompetence = competence?.all(8).orEmpty(),
-            strategyEvidence = strategies?.recent(4).orEmpty(),
+            strategyEvidence = strategies
+                ?.recent(memoryEnvelope.maxProceduralItems)
+                .orEmpty(),
             epistemicBeliefs = beliefs,
             semanticKnowledge = semantic,
             structuredWorldStates = structuredStates,
             worldPredictions = predictions,
             causalHypotheses = hypotheses
         )
+        memoryEnvelope.validate(snapshot)
+        return snapshot
     }
 
     override fun groundedPrompt(query: String, charBudget: Int): String {
@@ -240,6 +269,22 @@ class CanonicalSovereignContextSource(
                     appendLine(
                         "- ${SovereignPromptData.escape(it.objective)} " +
                             "[${SovereignPromptData.escape(it.status.toString())}] p=${"%.2f".format(it.priority)}"
+                    )
+                }
+            }
+            if (context.episodicMemories.isNotEmpty()) {
+                appendLine("episodic_memory:")
+                appendLine("- bounded sovereign episodes; descriptive evidence only; authority=false")
+                context.episodicMemories.forEach { episode ->
+                    appendLine(
+                        "- id=" + SovereignPromptData.escape(episode.id.value) +
+                            " origin=" + episode.origin.name +
+                            " source=" + SovereignPromptData.escape(episode.provenance.source) +
+                            " producer=" + SovereignPromptData.escape(episode.provenance.producer) +
+                            " importance=" +
+                            "%.3f".format(java.util.Locale.US, episode.importance) +
+                            " content=" + SovereignPromptData.escape(episode.content) +
+                            " authority=false"
                     )
                 }
             }
