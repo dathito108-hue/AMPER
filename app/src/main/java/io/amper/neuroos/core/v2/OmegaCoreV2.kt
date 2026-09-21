@@ -274,6 +274,13 @@ object OmegaArchitectureLock {
         "cognitive-memory-domains-are-non-authority",
         "cognitive-memory-has-no-model-or-backend-specific-silo",
         "m6-memory-topology-is-contract-not-second-memory-facade",
+        "working-memory-is-capacity-salience-and-expiry-bounded",
+        "working-memory-capacity-evicts-lowest-salience-oldest-first",
+        "working-memory-continuity-checkpoints-use-same-memory-os",
+        "working-memory-checkpoints-store-digest-metadata-only",
+        "working-memory-continuity-chain-is-verified",
+        "working-memory-checkpoint-write-cadence-is-bounded",
+        "working-memory-continuity-is-non-authority",
         "3d-avatar-is-embodiment-not-cognition"
     )
 
@@ -424,7 +431,13 @@ object OmegaArchitectureLock {
                 "working memory uses the existing GlobalWorkspace for transient cognition while durable continuity snapshots remain in the same MemoryOs",
                 "episodic semantic and procedural durable memory are canonical MemoryOs domains rather than model or backend specific stores",
                 "cognitive memory is evidence and state only and carries no tool approval scheduler or execution authority",
-                "the M6 topology seal exposes no second remember recall or persistence facade"
+                "the M6 topology seal exposes no second remember recall or persistence facade",
+                "canonical working memory has bounded capacity salience admission and clock-based expiry",
+                "working-memory overflow evicts lowest-salience oldest events deterministically",
+                "working-memory continuity uses one periodically updated digest-only checkpoint in the same MemoryOs",
+                "working-memory continuity checkpoint chaining verifies sequence and previous checkpoint digest before overwrite",
+                "working-memory continuity persists no CognitiveEvent topic payload or raw hidden reasoning",
+                "working-memory checkpoint write cadence is bounded to reduce mobile journal write amplification"
             )
         ),
         OmegaMilestone(

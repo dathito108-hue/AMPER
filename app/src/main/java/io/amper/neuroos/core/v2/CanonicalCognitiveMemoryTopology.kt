@@ -81,6 +81,8 @@ class CanonicalCognitiveMemoryTopology private constructor(
                         durability = CognitiveMemoryDurability.TRANSIENT_WITH_DURABLE_CONTINUITY,
                         canonicalOwners = linkedSetOf(
                             "GlobalWorkspace",
+                            "CanonicalWorkingMemoryWorkspace",
+                            "WorkingMemoryContinuityStore",
                             "NativeSystem2WorkingStateStore"
                         ),
                         transientBacking = CognitiveMemoryDomainContract.WORKING_BACKING
