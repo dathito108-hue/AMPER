@@ -188,6 +188,30 @@ class OmegaCoreV2Test {
             "proactive-lifecycle-provenance-corruption-fails-closed" in
                 OmegaArchitectureLock.invariants
         )
+        assertTrue(
+            "proactive-attention-is-lifecycle-derived-discoverability-only" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-attention-never-approves-schedules-or-executes" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-notification-copy-excludes-goal-source-payload-and-tool-input" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-notification-navigation-validates-full-canonical-plan-id" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-attention-failure-never-gates-event-wake-or-trigger-fifo-ack" in
+                OmegaArchitectureLock.invariants
+        )
+        assertTrue(
+            "proactive-terminal-attention-surfaces-only-on-background-transition" in
+                OmegaArchitectureLock.invariants
+        )
         assertTrue("gguf-is-import-source-only" in OmegaArchitectureLock.invariants)
         assertTrue("internet-is-governed-tool-not-model" in OmegaArchitectureLock.invariants)
         assertTrue("foreground-work-survives-ui-exit" in OmegaArchitectureLock.invariants)
@@ -573,6 +597,46 @@ class OmegaCoreV2Test {
                 .exitCriteria
                 .contains(
                     "proactive lifecycle provenance is bounded and compacts only canonically terminal plans"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "proactive attention is derived only from Phase662 lifecycle state and adds no planner scheduler approval or execution authority"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "approval-required and missing-plan attention remain discoverable while terminal notifications surface only on background transitions"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "notification copy contains no goal source trigger payload or tool input and exposes only bounded generic state"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "notification taps open only a validated full canonical proactive plan identity and never approve directly"
+                )
+        )
+        assertTrue(
+            OmegaArchitectureLock.milestones
+                .single { it.id == OmegaMilestoneId.M5_AGENT_CORE_ALWAYS_ON }
+                .exitCriteria
+                .contains(
+                    "notification permission settings or delivery failure never gate Phase657 EVENT_WAKE outcomes or Phase660 FIFO acknowledgement"
                 )
         )
     }

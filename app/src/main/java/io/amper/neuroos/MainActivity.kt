@@ -152,6 +152,13 @@ import java.io.File
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val requestedProactivePlanId =
+            io.amper.neuroos.core.AndroidAgentProactiveAttentionIdentity
+                .parseRequestedPlanId(
+                    intent?.getStringExtra(
+                        io.amper.neuroos.core.AndroidAgentProactiveAttentionIdentity.EXTRA_PLAN_ID
+                    )
+                )
         setContent {
             val canonicalGraph = remember {
                 AndroidCanonicalSovereignRuntimeBootstrap.acquire(applicationContext)
@@ -280,6 +287,27 @@ class MainActivity : ComponentActivity() {
             val agentProactiveLifecycle = agentGraph.agentProactiveLifecycle
             val agentProactiveLifecycleController =
                 agentGraph.agentProactiveLifecycleController
+            val agentProactiveAttention = agentGraph.agentProactiveAttention
+            var proactiveAttentionPermissionStatus by remember {
+                mutableStateOf(agentProactiveAttention.permissionStatus())
+            }
+            val proactiveNotificationPermissionLauncher =
+                rememberLauncherForActivityResult(
+                    ActivityResultContracts.RequestPermission()
+                ) { granted ->
+                    proactiveAttentionPermissionStatus =
+                        agentProactiveAttention.permissionStatus()
+                    if (granted) {
+                        runCatching {
+                            agentProactiveAttention
+                                .reconcileTracked(
+                                    io.amper.neuroos.core.AndroidAgentProactiveAttentionSurfaceMode
+                                        .FOREGROUND_RECONCILE
+                                )
+                                .getOrThrow()
+                        }
+                    }
+                }
             val agentContinuation = agentGraph.agentContinuation
             val agentContinuationExecution = agentGraph.execution
             val activePerceptionPort = remember {
@@ -313,7 +341,19 @@ class MainActivity : ComponentActivity() {
                 io.amper.neuroos.core.SovereignRecoveryConsole(runtime.plans, planner)
             }
             val restoredApproval = remember { assistant.restorePendingApproval() }
-            val restoredPlan = remember { planner.latest() }
+            val requestedProactivePlan = remember(
+                requestedProactivePlanId,
+                agentProactiveLifecycle
+            ) {
+                requestedProactivePlanId?.let { planId ->
+                    runCatching {
+                        agentProactiveLifecycle.openPlan(planId)
+                    }.getOrNull()
+                }
+            }
+            val restoredPlan = remember {
+                requestedProactivePlan ?: planner.latest()
+            }
             val initialConversationId = remember {
                 val primary = runtime.conversations.primary()
                 val persistedConversation = conversationUiPreferences
@@ -365,6 +405,16 @@ class MainActivity : ComponentActivity() {
                         .reconcileTracked()
                         .getOrThrow()
                 }
+                runCatching {
+                    agentProactiveAttention
+                        .reconcileTracked(
+                            io.amper.neuroos.core.AndroidAgentProactiveAttentionSurfaceMode
+                                .FOREGROUND_RECONCILE
+                        )
+                        .getOrThrow()
+                }
+                proactiveAttentionPermissionStatus =
+                    agentProactiveAttention.permissionStatus()
                 reflexJobScheduler.reconcile(
                     runtime.reflexLearningMaintenanceQueue.pending()
                 )
@@ -2635,12 +2685,23 @@ class MainActivity : ComponentActivity() {
                             onPlanMutated = { mutated ->
                                 executionLanes.executeInteractive {
                                     agentProactiveLifecycleController.reconcilePlan(mutated.id)
+                                    agentProactiveAttention.syncPlan(
+                                        mutated.id,
+                                        io.amper.neuroos.core.AndroidAgentProactiveAttentionSurfaceMode
+                                            .USER_INTERACTION
+                                    )
                                 }
                             }
                         )
 
                         ProactiveTaskLifecyclePanel(
                             lifecycle = agentProactiveLifecycle,
+                            attentionPermissionStatus = proactiveAttentionPermissionStatus,
+                            onRequestNotificationPermission = {
+                                proactiveNotificationPermissionLauncher.launch(
+                                    Manifest.permission.POST_NOTIFICATIONS
+                                )
+                            },
                             onOpen = { opened ->
                                 activePlan = opened
                                 conversationId = opened.conversationId
@@ -2823,6 +2884,17 @@ class MainActivity : ComponentActivity() {
                                             agentProactiveLifecycleController
                                                 .resumeAfterGovernedDecision(processed.plan.id)
                                         }
+                                        result.getOrNull()?.let { processed ->
+                                            runCatching {
+                                                agentProactiveAttention
+                                                    .syncPlan(
+                                                        processed.plan.id,
+                                                        io.amper.neuroos.core.AndroidAgentProactiveAttentionSurfaceMode
+                                                            .USER_INTERACTION
+                                                    )
+                                                    .getOrThrow()
+                                            }
+                                        }
                                         runOnUiThread {
                                             result.fold(
                                                 onSuccess = { processed ->
@@ -2862,6 +2934,17 @@ class MainActivity : ComponentActivity() {
                                         val lifecycleResume = rejected.getOrNull()?.let { updated ->
                                             agentProactiveLifecycleController
                                                 .resumeAfterGovernedDecision(updated.id)
+                                        }
+                                        rejected.getOrNull()?.let { updated ->
+                                            runCatching {
+                                                agentProactiveAttention
+                                                    .syncPlan(
+                                                        updated.id,
+                                                        io.amper.neuroos.core.AndroidAgentProactiveAttentionSurfaceMode
+                                                            .USER_INTERACTION
+                                                    )
+                                                    .getOrThrow()
+                                            }
                                         }
                                         runOnUiThread {
                                             rejected.fold(
@@ -2906,6 +2989,11 @@ class MainActivity : ComponentActivity() {
                                 pendingApproval = assistant.restorePendingApproval(recovered.conversationId)
                                 executionLanes.executeInteractive {
                                     agentProactiveLifecycleController.reconcilePlan(recovered.id)
+                                    agentProactiveAttention.syncPlan(
+                                        recovered.id,
+                                        io.amper.neuroos.core.AndroidAgentProactiveAttentionSurfaceMode
+                                            .USER_INTERACTION
+                                    )
                                 }
                                 planStatus = "Reconciled plan ${recovered.id.value.take(8)}; provider was not replayed"
                             }

@@ -168,6 +168,7 @@ internal object AndroidAgentPendingTriggerDurabilitySequence {
         expectedEventWakeSchedule: Boolean,
         persistProvenance: () -> Result<Unit>,
         installEventWake: () -> Result<Boolean>,
+        bestEffortBeforeAcknowledge: () -> Unit = {},
         acknowledgeFifo: () -> Result<T>
     ): Result<T> = runCatching {
         persistProvenance().getOrThrow()
@@ -175,6 +176,7 @@ internal object AndroidAgentPendingTriggerDurabilitySequence {
         require(scheduled == expectedEventWakeSchedule) {
             "Phase657 scheduler result drifted from proactive dispatch disposition"
         }
+        runCatching(bestEffortBeforeAcknowledge)
         acknowledgeFifo().getOrThrow()
     }
 }
@@ -260,6 +262,15 @@ class AgentPendingTriggerDispatchJobService : JobService() {
                             applicationContext,
                             graph.governor
                         ).handoff(binding.handoff)
+                    },
+                    bestEffortBeforeAcknowledge = {
+                        graph.agent.agentProactiveAttention
+                            .syncPlan(
+                                binding.planId,
+                                AndroidAgentProactiveAttentionSurfaceMode
+                                    .BACKGROUND_TRANSITION
+                            )
+                            .getOrThrow()
                     },
                     acknowledgeFifo = {
                         registry.acknowledgePending(
