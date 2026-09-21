@@ -6,6 +6,7 @@ import io.amper.neuroos.core.v2.AmperAgentCanonicalContinuationExecutionPort
 import io.amper.neuroos.core.v2.AmperAgentCanonicalEventWakeExecutionPort
 import io.amper.neuroos.core.v2.AmperAgentExecutionContinuationCoordinator
 import io.amper.neuroos.core.v2.AmperAgentPassiveTaskCoordinator
+import io.amper.neuroos.core.v2.AmperAgentPendingTriggerDispatchCoordinator
 import io.amper.neuroos.core.v2.AmperAgentProactiveTaskCoordinator
 import io.amper.neuroos.core.v2.AmperAgentProactiveEventWakeCoordinator
 import io.amper.neuroos.core.v2.AmperAgentProactiveTriggerSourceRegistry
@@ -29,6 +30,7 @@ data class AndroidCanonicalAgentRuntimeGraph(
     val agentProactiveTasks: AmperAgentProactiveTaskCoordinator,
     val agentTriggerSources: AmperAgentProactiveTriggerSourceRegistry,
     val agentTriggerSourceController: AndroidAgentProactiveTriggerSourceController,
+    val agentPendingTriggerDispatch: AmperAgentPendingTriggerDispatchCoordinator,
     val agentEventWake: AmperAgentProactiveEventWakeCoordinator,
     val agentContinuation: AmperAgentExecutionContinuationCoordinator,
     val execution: AmperAgentCanonicalContinuationExecutionPort,
@@ -239,6 +241,12 @@ class AndroidCanonicalSovereignRuntimeGraph internal constructor(context: Contex
             registry = runtime.proactiveTriggerSources
         )
         val agentEventWake = AmperAgentProactiveEventWakeCoordinator(agentPlanPort)
+        val agentPendingTriggerDispatch = AmperAgentPendingTriggerDispatchCoordinator(
+            registry = runtime.proactiveTriggerSources,
+            admissions = agentAdmissions,
+            proactive = agentProactiveTasks,
+            eventWake = agentEventWake
+        )
         val agentContinuation = AmperAgentExecutionContinuationCoordinator(agentPlanPort)
         val execution = AmperAgentCanonicalContinuationExecutionPort(
             admissions = agentAdmissions,
@@ -269,6 +277,7 @@ class AndroidCanonicalSovereignRuntimeGraph internal constructor(context: Contex
             agentProactiveTasks = agentProactiveTasks,
             agentTriggerSources = runtime.proactiveTriggerSources,
             agentTriggerSourceController = agentTriggerSourceController,
+            agentPendingTriggerDispatch = agentPendingTriggerDispatch,
             agentEventWake = agentEventWake,
             agentContinuation = agentContinuation,
             execution = execution,
