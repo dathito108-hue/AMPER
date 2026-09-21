@@ -8,6 +8,41 @@ enum class SemanticKnowledgeStatus {
     RETRACTED
 }
 
+data class SemanticKnowledgePolicy(
+    val maxQueryResults: Int = DEFAULT_MAX_QUERY_RESULTS,
+    val minCandidateScan: Int = DEFAULT_MIN_CANDIDATE_SCAN,
+    val candidateScanMultiplier: Int = DEFAULT_CANDIDATE_SCAN_MULTIPLIER,
+    val maxCandidateScan: Int = DEFAULT_MAX_CANDIDATE_SCAN,
+    val maxFreshnessChecks: Int = DEFAULT_MAX_FRESHNESS_CHECKS
+) {
+    init {
+        require(maxQueryResults in 1..MAX_QUERY_RESULTS_LIMIT)
+        require(minCandidateScan in 1..maxCandidateScan)
+        require(candidateScanMultiplier in 1..32)
+        require(maxCandidateScan in minCandidateScan..MAX_CANDIDATE_SCAN_LIMIT)
+        require(maxFreshnessChecks in maxQueryResults..MAX_FRESHNESS_CHECKS_LIMIT)
+    }
+
+    fun candidateScanLimit(limit: Int): Int {
+        require(limit in 0..maxQueryResults)
+        if (limit == 0) return 0
+        return (limit * candidateScanMultiplier)
+            .coerceAtLeast(minCandidateScan)
+            .coerceAtMost(maxCandidateScan)
+    }
+
+    companion object {
+        const val DEFAULT_MAX_QUERY_RESULTS: Int = 16
+        const val MAX_QUERY_RESULTS_LIMIT: Int = 32
+        const val DEFAULT_MIN_CANDIDATE_SCAN: Int = 48
+        const val DEFAULT_CANDIDATE_SCAN_MULTIPLIER: Int = 12
+        const val DEFAULT_MAX_CANDIDATE_SCAN: Int = 192
+        const val MAX_CANDIDATE_SCAN_LIMIT: Int = 256
+        const val DEFAULT_MAX_FRESHNESS_CHECKS: Int = 64
+        const val MAX_FRESHNESS_CHECKS_LIMIT: Int = 128
+    }
+}
+
 enum class SemanticKnowledgeTransitionKind {
     CREATED,
     REVISED,
@@ -74,7 +109,8 @@ interface SemanticKnowledgeStore {
 class MemoryBackedSemanticKnowledgeStore(
     private val memory: MemoryOs,
     private val epistemic: EpistemicState,
-    private val clock: () -> Long = System::currentTimeMillis
+    private val clock: () -> Long = System::currentTimeMillis,
+    private val policy: SemanticKnowledgePolicy = SemanticKnowledgePolicy()
 ) : SemanticKnowledgeStore {
     override fun consolidate(subject: String, predicate: String): SemanticKnowledgeTransition {
         require(subject.isNotBlank())
@@ -88,12 +124,13 @@ class MemoryBackedSemanticKnowledgeStore(
         require(subject.isNotBlank())
         require(predicate.isNotBlank())
         val latest = history(subject, predicate).maxWithOrNull(ENTRY_ORDER) ?: return null
-        return latest.takeIf { it.status == SemanticKnowledgeStatus.ACTIVE }
+        val active = latest.takeIf { it.status == SemanticKnowledgeStatus.ACTIVE } ?: return null
+        return active.takeIf(::isFreshAgainstCurrentEpistemicEvidence)
     }
 
     override fun reconcile(query: String, limit: Int): List<SemanticKnowledgeEntry> {
         require(query.isNotBlank())
-        require(limit >= 0)
+        require(limit in 0..policy.maxQueryResults)
         if (limit == 0) return emptyList()
 
         epistemic.query(query, limit).forEach { assessment ->
@@ -108,13 +145,13 @@ class MemoryBackedSemanticKnowledgeStore(
 
     override fun query(query: String, limit: Int): List<SemanticKnowledgeEntry> {
         require(query.isNotBlank())
-        require(limit >= 0)
+        require(limit in 0..policy.maxQueryResults)
         if (limit == 0) return emptyList()
 
-        val records = memory.recall(query, (limit * 12).coerceAtLeast(48))
+        val records = memory.recall(query, policy.candidateScanLimit(limit))
             .asSequence()
             .filter { it.kind == KNOWLEDGE_KIND || it.kind == RETRACTION_KIND }
-            .mapNotNull(SemanticKnowledgeCodec::decode)
+            .map(::decodeStrict)
             .toList()
 
         return records
@@ -130,6 +167,8 @@ class MemoryBackedSemanticKnowledgeStore(
                     .thenBy { it.subject }
                     .thenBy { it.predicate }
             )
+            .take(policy.maxFreshnessChecks)
+            .filter(::isFreshAgainstCurrentEpistemicEvidence)
             .take(limit)
     }
 
@@ -252,10 +291,24 @@ class MemoryBackedSemanticKnowledgeStore(
         return memory.recall("$subject $predicate", MAX_HISTORY)
             .asSequence()
             .filter { it.kind == KNOWLEDGE_KIND || it.kind == RETRACTION_KIND }
-            .mapNotNull(SemanticKnowledgeCodec::decode)
+            .map(::decodeStrict)
             .filter { normalize(it.subject) == subjectKey && normalize(it.predicate) == predicateKey }
             .toList()
     }
+
+    private fun isFreshAgainstCurrentEpistemicEvidence(
+        entry: SemanticKnowledgeEntry
+    ): Boolean {
+        val assessment = epistemic.assess(entry.subject, entry.predicate) ?: return false
+        return assessment.planningEligible &&
+            normalize(assessment.preferredValue.orEmpty()) == normalize(entry.value.orEmpty()) &&
+            assessment.evidenceIds.toSet() == entry.evidenceIds.toSet()
+    }
+
+    private fun decodeStrict(record: MemoryRecord): SemanticKnowledgeEntry =
+        requireNotNull(SemanticKnowledgeCodec.decode(record)) {
+            "corrupt semantic knowledge record: " + record.id.value
+        }
 
     private fun normalize(value: String): String = value.trim().lowercase()
 
