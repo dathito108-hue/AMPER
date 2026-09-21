@@ -293,6 +293,7 @@ class MainActivity : ComponentActivity() {
             val agentAdmissions = agentGraph.agentAdmissions
             val agentPassiveTasks = agentGraph.agentPassiveTasks
             val agentProactiveLifecycle = agentGraph.agentProactiveLifecycle
+            val agentProactiveHistory = agentGraph.agentProactiveHistory
             val agentProactiveLifecycleController =
                 agentGraph.agentProactiveLifecycleController
             val agentProactiveAttention = agentGraph.agentProactiveAttention
@@ -2717,6 +2718,7 @@ class MainActivity : ComponentActivity() {
 
                         ProactiveTaskLifecyclePanel(
                             lifecycle = agentProactiveLifecycle,
+                            history = agentProactiveHistory,
                             attentionPermissionStatus = proactiveAttentionPermissionStatus,
                             onRequestNotificationPermission = {
                                 proactiveNotificationPermissionLauncher.launch(
