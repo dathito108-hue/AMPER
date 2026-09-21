@@ -56,6 +56,7 @@ import io.amper.neuroos.core.AndroidWebSearchToolProvider
 import io.amper.neuroos.core.AndroidDeviceStatusSource
 import io.amper.neuroos.core.AndroidInferenceAttachmentLoader
 import io.amper.neuroos.core.AndroidCameraVisionAttachmentEncoder
+import io.amper.neuroos.core.AndroidCanonicalSovereignRuntimeBootstrap
 import io.amper.neuroos.core.AndroidSettingsOpenToolProvider
 import io.amper.neuroos.core.AndroidShareTextToolProvider
 import io.amper.neuroos.core.AndroidTimerPrepareToolProvider
@@ -152,67 +153,25 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            val canonicalFilesDir = remember {
-                AndroidAppPrivateStorage.canonicalFilesDir(applicationContext)
+            val canonicalGraph = remember {
+                AndroidCanonicalSovereignRuntimeBootstrap.acquire(applicationContext)
             }
-            val canonicalCacheDir = remember {
-                AndroidAppPrivateStorage.canonicalCacheDir(applicationContext)
-            }
-            val sovereignDir = remember {
-                File(canonicalFilesDir, "amper-sovereign")
-            }
-            val nativeModelStagingDir = remember {
-                File(canonicalCacheDir, "amper-native-model-stage")
-            }
-            val nativeProjectorStagingDir = remember {
-                File(canonicalCacheDir, "amper-native-projector-stage")
-            }
-            val modelRegistry = remember { AmperSingleCoreModelRegistry() }
-            val catalog = remember { FileInstalledModelCatalog(File(sovereignDir, "models.catalog")) }
-            val coreFoundationPreferences = remember {
-                getSharedPreferences("amper-core-foundation", Context.MODE_PRIVATE)
-            }
+            val canonicalFilesDir = canonicalGraph.canonicalFilesDir
+            val canonicalCacheDir = canonicalGraph.canonicalCacheDir
+            val sovereignDir = canonicalGraph.sovereignDir
+            val nativeModelStagingDir = canonicalGraph.nativeModelStagingDir
+            val nativeProjectorStagingDir = canonicalGraph.nativeProjectorStagingDir
+            val modelRegistry = canonicalGraph.modelRegistry
+            val catalog = canonicalGraph.catalog
+            val coreFoundationPreferences = canonicalGraph.coreFoundationPreferences
             val conversationUiPreferences = remember {
                 getSharedPreferences("amper-conversation-ui", Context.MODE_PRIVATE)
             }
-            val legacyRoutingPreferences = remember {
-                getSharedPreferences("amper-model-routing", Context.MODE_PRIVATE)
-            }
-            val coreFoundationController = remember {
-                AmperSingleCoreFoundationController(catalog, modelRegistry)
-            }
-            val initialCoreFoundationState = remember {
-                val persisted = coreFoundationPreferences
-                    .getString("active_source_model_id", null)
-                    ?.let(::ModelId)
-                    ?.takeIf { catalog.get(it) != null }
-                val migrated = persisted ?: legacyRoutingPreferences
-                    .getString("preferred_model_id", null)
-                    ?.let(::ModelId)
-                    ?.takeIf { catalog.get(it) != null }
-                coreFoundationController.restore(migrated).also { state ->
-                    state.activeModelId?.let { active ->
-                        coreFoundationPreferences.edit()
-                            .putString("active_source_model_id", active.value)
-                            .apply()
-                    }
-                    legacyRoutingPreferences.edit()
-                        .remove("preferred_model_id")
-                        .apply()
-                }
-            }
-            val governor = remember { AndroidResourceGovernor(applicationContext) }
-            val deviceStatusSource = remember { AndroidDeviceStatusSource(applicationContext) }
-            val runtime = remember {
-                ReflexMaintenanceExecutionGate.exclusive {
-                    AmperRuntime.persistentEncrypted(
-                        canonicalFilesDir,
-                        modelRegistry,
-                        governor,
-                        deviceStatusSource = deviceStatusSource
-                    )
-                }
-            }
+            val coreFoundationController = canonicalGraph.coreFoundationController
+            val initialCoreFoundationState = canonicalGraph.initialCoreFoundationState
+            val governor = canonicalGraph.governor
+            val deviceStatusSource = canonicalGraph.deviceStatusSource
+            val runtime = canonicalGraph.runtime
             val reflexArtifactStore = remember {
                 FileReflexLinearArtifactStore(File(sovereignDir, "native-reflex"))
             }
@@ -254,22 +213,7 @@ class MainActivity : ComponentActivity() {
             val liveAudioCapture = remember {
                 AndroidLiveAudioAttachmentCapture(applicationContext)
             }
-            val projectorCatalog = remember {
-                FileMultimodalProjectorCatalog(
-                    File(sovereignDir, "multimodal-projectors.catalog")
-                )
-            }
-            remember {
-                NativeRuntimeCapabilityReconciler(
-                    catalog = catalog,
-                    registry = modelRegistry,
-                    projectors = projectorCatalog
-                ).reconcile()
-            }
-            remember {
-                // Reassert the user-selected AMPER foundation after legacy reconciliation.
-                coreFoundationController.restore(initialCoreFoundationState.activeModelId)
-            }
+            val projectorCatalog = canonicalGraph.projectorCatalog
             val projectorImporter = remember {
                 AndroidMultimodalProjectorImportService(
                     applicationContext,
@@ -282,11 +226,7 @@ class MainActivity : ComponentActivity() {
                     nativeProjectorStagingDir
                 )
             }
-            val nativeModelArtifacts = remember {
-                AndroidAppPrivateModelArtifactResolver(
-                    File(sovereignDir, "native-models")
-                )
-            }
+            val nativeModelArtifacts = canonicalGraph.nativeModelArtifacts
             val projectorResolver = remember {
                 LocatorMultimodalProjectorArtifactResolver(
                     listOf(
@@ -297,58 +237,12 @@ class MainActivity : ComponentActivity() {
             }
             val importer = remember { AndroidModelImportService(this, catalog, modelRegistry) }
             val capabilityManager = remember { InstalledModelCapabilityService(catalog, modelRegistry) }
-            val contentModelArtifacts = remember {
-                ContentUriArtifactResolver(
-                    contentResolver,
-                    nativeModelStagingDir
-                )
-            }
-            val modelArtifacts = remember {
-                LocatorArtifactResolver(
-                    listOf(
-                        { model -> contentModelArtifacts.resolve(model) },
-                        { model -> nativeModelArtifacts.resolve(model) }
-                    )
-                )
-            }
-            val ami2CompilationService = remember {
-                AndroidAmi2CompilationService(
-                    rootDir = File(sovereignDir, "ami2-models"),
-                    modelArtifacts = modelArtifacts
-                )
-            }
-            val amiCompilationService = remember {
-                AndroidAmiCompilationService(
-                    rootDir = File(sovereignDir, "ami-models"),
-                    modelArtifacts = modelArtifacts
-                )
-            }
-            val amiHardwareProfiler = remember {
-                AndroidAmiHardwareProfiler(this)
-            }
-            val amperCore = remember {
-                AmperCoreInferencePort(
-                    artifactLookup = { model ->
-                        ami2CompilationService.existing(model)
-                            ?: amiCompilationService.existing(model)?.let { legacy ->
-                                ami2CompilationService
-                                    .migrateLegacy(model, legacy.file)
-                                    .getOrNull()
-                            }
-                    },
-                    hardwareSnapshot = amiHardwareProfiler::snapshot
-                )
-            }
+            val modelArtifacts = canonicalGraph.modelArtifacts
+            val ami2CompilationService = canonicalGraph.ami2CompilationService
+            val amiCompilationService = canonicalGraph.amiCompilationService
+            val amperCore = canonicalGraph.amperCore
             val hasRuntimeBackend = amperCore.inferenceEndpointCount == 1
-            val titan = remember {
-                TitanCortexRuntime(
-                    models = modelRegistry,
-                    catalog = catalog,
-                    artifacts = modelArtifacts,
-                    core = amperCore,
-                    governor = governor
-                )
-            }
+            val titan = canonicalGraph.titan
             val detachManager = remember {
                 AmperSingleCoreSourceDetachService(catalog, modelRegistry, titan::unload)
             }
@@ -370,133 +264,20 @@ class MainActivity : ComponentActivity() {
                     projectors = projectorCatalog
                 )
             }
-            val assistantCapabilities = remember { SovereignAssistantToolExposure.capabilities }
-            val androidActionLauncher = remember {
-                AndroidContextDeviceActionLauncher(applicationContext)
-            }
-            val toolRegistry = remember {
-                InMemoryToolRegistry().also { registry ->
-                    registry.register(
-                        DeviceStatusToolProvider(deviceStatusSource)
-                    )
-                    registry.register(
-                        SovereignStatusToolProvider(
-                            AmperCoreSovereignStatusSource(catalog, amperCore, governor)
-                        )
-                    )
-                    registry.register(
-                        SovereignNoteToolProvider(runtime.notes)
-                    )
-                    registry.register(
-                        SovereignNoteSearchToolProvider(runtime.notes)
-                    )
-                    registry.register(
-                        SovereignNoteDeleteToolProvider(runtime.notes)
-                    )
-                    registry.register(
-                        AndroidSettingsOpenToolProvider(androidActionLauncher)
-                    )
-                    registry.register(
-                        AndroidTimerPrepareToolProvider(androidActionLauncher)
-                    )
-                    registry.register(
-                        AndroidShareTextToolProvider(androidActionLauncher)
-                    )
-                    registry.register(
-                        AndroidAppLaunchToolProvider(androidActionLauncher)
-                    )
-                    registry.register(
-                        AndroidWebSearchToolProvider(androidActionLauncher)
-                    )
-                    registry.register(
-                        OmegaInternetReadToolProvider(OmegaInternetGateway())
-                    )
-                    registry.register(
-                        AndroidClipboardWriteToolProvider(androidActionLauncher)
-                    )
-                    registry.register(
-                        AndroidFilesBrowseToolProvider(androidActionLauncher)
-                    )
-                    registry.register(
-                        AndroidContactComposeToolProvider(androidActionLauncher)
-                    )
-                    registry.register(
-                        AndroidCalendarComposeToolProvider(androidActionLauncher)
-                    )
-                    registry.register(
-                        AndroidAlarmPrepareToolProvider(androidActionLauncher)
-                    )
-                    registry.register(
-                        AndroidMediaOpenToolProvider(androidActionLauncher)
-                    )
-                    registry.register(
-                        AndroidNotificationSettingsToolProvider(androidActionLauncher)
-                    )
-                    registry.register(
-                        AndroidHomeOpenToolProvider(androidActionLauncher)
-                    )
-                }
-            }
-            val toolAudit = remember { InMemoryToolAuditLog() }
-            val toolFabric = remember {
-                AuditedToolFabric(
-                    gate = DenyByDefaultAuthorityGate(assistantCapabilities),
-                    registry = toolRegistry,
-                    audit = toolAudit
-                )
-            }
-            val actionLoop = remember { runtime.actionLoop(toolRegistry, toolFabric) }
-            val inferencePort = remember {
-                TitanInferencePort(titan)
-            }
-            val assistant = remember {
-                SovereignAssistantTurnCoordinator(
-                    runtime = runtime,
-                    inference = inferencePort,
-                    actions = actionLoop,
-                    advertisedCapabilities = assistantCapabilities,
-                    maxOutputTokens = 256
-                )
-            }
-            val planningCoordinator = remember {
-                SovereignPlanCoordinator(
-                    runtime = runtime,
-                    inference = inferencePort,
-                    actions = actionLoop,
-                    advertisedCapabilities = assistantCapabilities,
-                    maxOutputTokens = 256,
-                    criticInference = inferencePort
-                )
-            }
-            val planner = remember {
-                PersistentSovereignPlanCoordinator(
-                    delegate = planningCoordinator,
-                    store = runtime.plans
-                )
-            }
-            val agentPlanPort = remember {
-                PersistentSovereignAgentPlanPort(
-                    coordinator = planner,
-                    store = runtime.plans
-                )
-            }
-            val agentAdmissions = remember {
-                AmperAgentTaskAdmissionRegistry()
-            }
-            val agentPassiveTasks = remember {
-                AmperAgentPassiveTaskCoordinator(agentPlanPort)
-            }
-            val agentContinuation = remember {
-                AmperAgentExecutionContinuationCoordinator(agentPlanPort)
-            }
-            val agentContinuationExecution = remember {
-                AmperAgentCanonicalContinuationExecutionPort(
-                    admissions = agentAdmissions,
-                    plans = agentPlanPort,
-                    passive = agentPassiveTasks,
-                    continuation = agentContinuation
-                )
-            }
+            val agentGraph = remember { canonicalGraph.agent }
+            val assistantCapabilities = agentGraph.assistantCapabilities
+            val toolRegistry = agentGraph.toolRegistry
+            val toolAudit = agentGraph.toolAudit
+            val toolFabric = agentGraph.toolFabric
+            val actionLoop = agentGraph.actionLoop
+            val inferencePort = agentGraph.inferencePort
+            val planningCoordinator = agentGraph.planningCoordinator
+            val planner = agentGraph.planner
+            val agentPlanPort = agentGraph.agentPlanPort
+            val agentAdmissions = agentGraph.agentAdmissions
+            val agentPassiveTasks = agentGraph.agentPassiveTasks
+            val agentContinuation = agentGraph.agentContinuation
+            val agentContinuationExecution = agentGraph.execution
             val activePerceptionPort = remember {
                 AndroidActivePerceptionPort(applicationContext, runtime.perception)
             }
